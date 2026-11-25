@@ -1,0 +1,179 @@
+{
+ "schema_version": 1,
+ "note": "P13 (D-FW scenario vectors; Summary Section 9 rows D1, D2, D4; Design Rev 3.45 Section 11.2). Times are now_ms on a single monotonic firmware clock starting at t0=0 for each scenario unless an action sets a new base. events are consumed in order by step(state, event, now_ms) for the state machine the scenario names: man_down (fall suspicion, check-in, latch, MAYDAY), scba (declared mode, confirm/response timers, prompt), or both (deferral/priority cases touch man_down and scba together; MAYDAY-while-latched touches man_down only). event kinds: IMPACT (peak accel >= IMPACT_G), STILL (chest RMS below STILL_G), MOTION (chest RMS at/above STILL_G), CANCEL_JACKET, CANCEL_WRIST (clean 40-2000 ms press/release only; this file carries no bounce/stuck-button cases), SCBA_ON, SCBA_OFF, TICK (fsm_task 10 Hz re-evaluation, no edge of its own), BOOT (reset with a given persisted latch/cause). bit references use shared/abi.json: flags.mandown (bit 2), flags.checkin (bit 7), status3.scba_expired (bit 3), status4.mayday (bit 4). Constants referenced (shared/constants.json): fall_checkin_timeout_s=10, checkin_still_s=15, mayday_presses=3, mayday_window_s=2, scba_confirm_s=300, scba_confirm_high_co_s=120, scba_response_s=20. This file is scenario-level only; it does not replace frames.json (wire bytes) or the golden vectors (host rule engine).",
+ "scenarios": [
+  {
+   "id": "FW-01",
+   "machine": "man_down",
+   "gv": "D4-row2",
+   "row": "D2",
+   "desc": "CANCEL with a motionless chest during a check-in: the press stays pending for 10 s, is then rejected and the prompt re-issued, while the stillness and check-in timers keep running and the stillness timer is not reset (cancel_no_motion)",
+   "events": [
+    {"t": 0, "ev": "STILL"},
+    {"t": 15000, "ev": "TICK", "note": "15 s stillness reached: check-in prompt issued (flags.checkin bit set, level WARNING, no latch yet)"},
+    {"t": 15500, "ev": "CANCEL_JACKET", "note": "clean press while chest stays below STILL_G; motion test starts, pending up to 10 s"},
+    {"t": 25500, "ev": "TICK", "note": "10 s after the press with no MOTION event: press rejected, logged cancel_no_motion, prompt re-issued"},
+    {"t": 30000, "ev": "TICK", "note": "stillness timer was never reset by the rejected press, so it keeps counting from t=0"}
+   ],
+   "expect": {
+    "at_15000": {"checkin": "raised", "level": "WARNING", "mandown": 0},
+    "at_25500": {"cancel_result": "cancel_no_motion", "checkin_prompt": "reissued", "stillness_timer_reset": false, "checkin_timer_reset": false, "mandown": 0},
+    "at_30000": {"stillness_elapsed_s": 30, "mandown": 0}
+   }
+  },
+  {
+   "id": "FW-02",
+   "machine": "man_down",
+   "row": "D2",
+   "desc": "a fall-started check-in is not auto-cleared by 3 s of motion: IMPACT starts CHECK-IN, then MOTION briefly at 3 s does not itself clear the prompt (only a clean CANCEL answers it, and only if chest RMS then rises above STILL_G within the CANCEL's own 10 s motion test)",
+   "events": [
+    {"t": 0, "ev": "IMPACT"},
+    {"t": 200, "ev": "STILL", "note": "horizontal posture or chest motion below STILL_G within 3 s of IMPACT: CHECK-IN starts, display 'uncertain' not yet resolved"},
+    {"t": 3200, "ev": "MOTION", "note": "3 s of motion after the check-in prompt, with no CANCEL pressed"},
+    {"t": 3500, "ev": "STILL"},
+    {"t": 18200, "ev": "TICK", "note": "15 s of (net) stillness after the prompt with no answering CANCEL: unanswered check-in still running toward its own latch path, never auto-cleared by the unprompted 3 s motion alone"}
+   ],
+   "expect": {
+    "at_3200": {"checkin_prompt_cleared_by_bare_motion": false, "checkin": "still_pending"},
+    "at_18200": {"checkin": "still_pending", "cleared_by": "none", "mandown": 0}
+   }
+  },
+  {
+   "id": "FW-03",
+   "machine": "man_down",
+   "row": "D2",
+   "desc": "three clean jacket CANCEL presses within 2 s give MAYDAY, evaluated on the third press",
+   "events": [
+    {"t": 0, "ev": "CANCEL_JACKET"},
+    {"t": 400, "ev": "CANCEL_JACKET"},
+    {"t": 900, "ev": "CANCEL_JACKET", "note": "three clean presses, all within mayday_window_s=2 s of Press 1, clear_armed==0: promoted to MAYDAY on this press"}
+   ],
+   "expect": {
+    "at_900": {"mayday": true, "mandown": 1, "level": "DANGER", "status4_mayday_bit": 1, "cause": "mayday", "full_alarm": true, "cleared_by": "two_action_jacket_cancel_only"}
+   }
+  },
+  {
+   "id": "FW-04",
+   "machine": "man_down",
+   "row": "D2",
+   "desc": "MAYDAY fires retroactively: Press 1 immediately answers and clears an active SCBA prompt, then Press 2 and Press 3 arrive within 2 s of Press 1 and the burst is promoted to MAYDAY after the fact",
+   "events": [
+    {"t": 0, "ev": "SCBA_PROMPT_ACTIVE", "note": "an SCBA confirmation prompt is already open when this scenario starts"},
+    {"t": 0, "ev": "CANCEL_JACKET", "note": "Press 1: clean press, answers and clears the open SCBA prompt immediately"},
+    {"t": 600, "ev": "CANCEL_JACKET", "note": "Press 2"},
+    {"t": 1800, "ev": "CANCEL_JACKET", "note": "Press 3, within 2 s of Press 1: burst promoted retroactively to MAYDAY, clear_armed was 0 throughout"}
+   ],
+   "expect": {
+    "at_0": {"scba_prompt": "cleared"},
+    "at_1800": {"mayday": true, "mandown": 1, "level": "DANGER", "status4_mayday_bit": 1, "retroactive": true}
+   }
+  },
+  {
+   "id": "FW-05",
+   "machine": "man_down",
+   "row": "D2",
+   "desc": "MAYDAY fires retroactively when Press 1 was rejected by the CANCEL-without-motion rule (still pending its own 10 s motion check) and Press 2 and Press 3 then land within 2 s of Press 1",
+   "events": [
+    {"t": 0, "ev": "STILL"},
+    {"t": 15000, "ev": "TICK", "note": "check-in prompt open"},
+    {"t": 15100, "ev": "CANCEL_JACKET", "note": "Press 1: pending its own 10 s motion test, not yet accepted or rejected"},
+    {"t": 15400, "ev": "CANCEL_JACKET", "note": "Press 2, within 2 s of Press 1"},
+    {"t": 16500, "ev": "CANCEL_JACKET", "note": "Press 3, within 2 s of Press 1: three clean presses in <=2 s, clear_armed==0, so MAYDAY is promoted even though Press 1 is still mid motion-check and not itself exempt from that rule"}
+   ],
+   "expect": {
+    "at_16500": {"mayday": true, "mandown": 1, "level": "DANGER", "status4_mayday_bit": 1, "press1_state_when_counted": "pending_motion_check"}
+   }
+  },
+  {
+   "id": "FW-06",
+   "machine": "man_down",
+   "row": "D2",
+   "desc": "MAYDAY while man-down is already latched upgrades the stored cause and sets status4 bit 4, sent as a new critical frame",
+   "events": [
+    {"t": 0, "ev": "IMPACT"},
+    {"t": 200, "ev": "STILL"},
+    {"t": 15200, "ev": "TICK", "note": "15 s unanswered check-in latches man-down DANGER, cause man_down, status4 mayday bit 0"},
+    {"t": 20000, "ev": "CANCEL_JACKET"},
+    {"t": 20400, "ev": "CANCEL_JACKET"},
+    {"t": 20900, "ev": "CANCEL_JACKET", "note": "three clean presses within 2 s while already latched: not blocked by clear_armed since no clear sequence is armed"}
+   ],
+   "expect": {
+    "at_15200": {"mandown": 1, "level": "DANGER", "cause": "man_down", "status4_mayday_bit": 0},
+    "at_20900": {"mandown": 1, "level": "DANGER", "cause": "mayday", "status4_mayday_bit": 1, "new_critical_frame_sent": true, "cleared_by": "two_action_jacket_cancel_only", "chest_movement_reduces_alarm": false}
+   }
+  },
+  {
+   "id": "FW-07",
+   "machine": "scba",
+   "row": "D4",
+   "desc": "a check-in prompt deferred by an SCBA-ON state keeps the SCBA confirmation clock running; the check-in prompt suspends the SCBA prompt UI (priority: check-in/degraded over SCBA) and resumes it on expiry or cancel",
+   "events": [
+    {"t": 0, "ev": "SCBA_ON"},
+    {"t": 280000, "ev": "TICK", "note": "280 s of SCBA ON with no 35+ ppm CO frame: ordinary scba_confirm_s=300 clock, no prompt yet"},
+    {"t": 300000, "ev": "SCBA_PROMPT_DUE", "note": "300 s reached: SCBA confirmation prompt opens"},
+    {"t": 300100, "ev": "STILL"},
+    {"t": 300200, "ev": "IMPACT", "note": "a fall suspicion fires while the SCBA prompt is open: check-in takes the buzzer/CANCEL slot, SCBA prompt UI is suspended but its own expiry clock keeps running"},
+    {"t": 310100, "ev": "TICK", "note": "10 s after the IMPACT, within fall_checkin_timeout_s: check-in still pending, SCBA prompt UI still suspended"},
+    {"t": 315200, "ev": "TICK", "note": "15 s of stillness since the IMPACT with no CANCEL: check-in unanswered, moving toward man-down latch"},
+    {"t": 320000, "ev": "SCBA_EXPIRY", "note": "about scba_response_s=20 s after the 300 s mark (plus the up-to-~15 s deferral the design allows), the SCBA prompt's own clock expires while its UI was suspended"}
+   ],
+   "expect": {
+    "at_300000": {"scba_prompt": "open"},
+    "at_300200": {"scba_prompt_ui": "suspended", "scba_expiry_clock": "running", "checkin_prompt": "active"},
+    "at_320000": {"scba_expired": true, "status3_scba_expired_bit": 1, "deferred_by_checkin": true, "deferral_s_le": 15}
+   }
+  },
+  {
+   "id": "FW-08",
+   "machine": "scba",
+   "row": "D4",
+   "desc": "an IMU-degraded prompt defers an open SCBA prompt the same way a check-in prompt does (priority: check-in/IMU-degraded over SCBA confirmation)",
+   "events": [
+    {"t": 0, "ev": "SCBA_ON"},
+    {"t": 300000, "ev": "SCBA_PROMPT_DUE"},
+    {"t": 300050, "ev": "IMU_FAULT"},
+    {"t": 305050, "ev": "TICK", "note": "5 s IMU-fault grace elapsed: degraded prompt fires immediately, suspending the SCBA prompt UI while its expiry clock keeps running"},
+    {"t": 320050, "ev": "SCBA_EXPIRY", "note": "SCBA prompt's own clock expires with no clean CANCEL answering it (deferral at the ~15 s ceiling the design names)"}
+   ],
+   "expect": {
+    "at_305050": {"degraded_prompt": "active", "scba_prompt_ui": "suspended", "scba_expiry_clock": "running"},
+    "at_320050": {"scba_expired": true, "status3_scba_expired_bit": 1, "deferred_by": "imu_degraded_prompt"}
+   }
+  },
+  {
+   "id": "FW-09",
+   "machine": "scba",
+   "row": "D4",
+   "desc": "scba_expired is set with no prompt ever shown during a latched man-down or MAYDAY, because the check-in/degraded prompt that would occupy the buzzer/CANCEL slot at priority never fires once the node is already latched, and the SCBA expiry clock still runs",
+   "events": [
+    {"t": 0, "ev": "IMPACT"},
+    {"t": 200, "ev": "STILL"},
+    {"t": 15200, "ev": "TICK", "note": "man-down latches DANGER"},
+    {"t": 20000, "ev": "SCBA_ON"},
+    {"t": 320000, "ev": "SCBA_EXPIRY", "note": "scba_confirm_s=300 plus scba_response_s=20 elapsed since SCBA_ON, entirely while latched; no SCBA prompt UI was ever shown because the node is already in man-down, not in a normal unlatched check-in/degraded cycle"}
+   ],
+   "expect": {
+    "at_320000": {"scba_expired": true, "status3_scba_expired_bit": 1, "scba_prompt_ever_shown": false, "mandown": 1, "level": "DANGER"}
+   }
+  },
+  {
+   "id": "FW-10",
+   "machine": "scba",
+   "row": "D4",
+   "desc": "an SCBA prompt deferred by a check-in that is itself answered (clean CANCEL with motion within 10 s) resumes the suspended SCBA prompt UI rather than clearing scba_expired",
+   "events": [
+    {"t": 0, "ev": "SCBA_ON"},
+    {"t": 300000, "ev": "SCBA_PROMPT_DUE"},
+    {"t": 300100, "ev": "STILL"},
+    {"t": 300200, "ev": "IMPACT"},
+    {"t": 300300, "ev": "CANCEL_JACKET", "note": "clean press answering the check-in"},
+    {"t": 300900, "ev": "MOTION", "note": "chest RMS rises above STILL_G within 10 s of the press: check-in accepted, cancel_ack broadcast"},
+    {"t": 300950, "ev": "TICK", "note": "check-in cleared, SCBA prompt UI resumes with its clock already having run since t=300000"}
+   ],
+   "expect": {
+    "at_300900": {"checkin": "accepted", "cancel_ack": true, "mandown": 0},
+    "at_300950": {"scba_prompt_ui": "resumed", "scba_expired": false, "scba_expiry_clock_elapsed_ms": 950}
+   }
+  }
+ ]
+}
