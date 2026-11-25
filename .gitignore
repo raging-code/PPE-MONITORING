@@ -51,3 +51,6 @@ firmware/**/sdkconfig.old
 .vscode/
 .DS_Store
 Thumbs.db
+
+# downloaded repo snapshots
+*.zip
