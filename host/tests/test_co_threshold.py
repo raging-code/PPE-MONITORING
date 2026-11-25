@@ -11,6 +11,10 @@ from ppe_host.core.rule_engine import ChangeAlertLevel, ClearAlert, FrameEvent, 
 ROOT = Path(__file__).resolve().parents[2]
 TYPE = 'co_threshold'
 
+@pytest.fixture(autouse=True)
+def _co_threshold_alone(monkeypatch):
+    monkeypatch.setattr(re_, 'RULES', re_.RULES[:2])   # P6c adds sensor_fault after these; the tests of this file are about co_threshold alone (test_sensor_fault.py covers both)
+
 def frame(flags=0, **kw):
     ev = co_frame(**kw); d = dict(ev.decoded); d['flags'] = flags
     return FrameEvent(ev.node_id, ev.verify, ev.seq_class, d)

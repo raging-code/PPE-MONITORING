@@ -97,6 +97,8 @@ class NodeState:
     last_co_ge_warn_mono: Optional[int] = None       # last fresh frame with a usable CO of co_warn_ppm or more and SCBA OFF (read by P6c; set by P6a)
     co_clear_since_mono: Optional[int] = None        # P6b: first fresh frame of the current run below co_warn_clear_ppm (10 s clear timer)
     co_lower_since_mono: Optional[int] = None        # P6b: first fresh frame of the current run below co_danger_clear_ppm (10 s DANGER-to-WARNING timer)
+    fault_kinds: frozenset = frozenset()             # P6c: fault kinds shown by the last fresh frame (co, imu, temp; a CO timeout counts as co)
+    last_heat_alert_mono: Optional[int] = None       # P6c reads it for condition (ii); P7c sets it, nothing sets it before then
 
 @dataclass(frozen=True)
 class EngineState:
@@ -189,7 +191,8 @@ def co_threshold_rule(state, event, now, mode):
     nid, d, mono = event.node_id, event.decoded, now.mono_ms
     n, fresh = state.nodes.get(nid, NodeState()), mode == FULL
     ppm, scba = d['co_x10'] / 10, bool(_bit(d, 'id_mode', 'scba_on'))   # the raw reading: a high value is never hidden (GV-18 g)
-    usable = n.co_mode != CO_NO_READING_HELD if fresh else not _bit(d, 'status2', 'co_fault')   # a CO fault or CO timeout has no reading
+    clearing = fresh and open_alert(state, nid, 'sensor_fault') is not None and not any(_bit(d, 'status2', b) for b in ('co_fault', 'imu_fault', 'temp_fault'))
+    usable = (n.co_mode != CO_NO_READING_HELD if fresh else not _bit(d, 'status2', 'co_fault')) and not clearing   # no reading: CO fault or timeout; P6c: the frame that clears sensor_fault evaluates nothing (14.1)
     want = None
     if usable and not scba:
         want = 'DANGER' if ppm >= K.CO_DANGER_PPM or _bit(d, 'flags', 'co_sat') else 'WARNING' if ppm >= K.CO_WARN_PPM else None
@@ -213,7 +216,51 @@ def co_threshold_rule(state, event, now, mode):
     if cur != n2: state = replace(state, nodes={**state.nodes, nid: n2})
     return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
 
-RULES = (co_state_rule, co_threshold_rule)  # rule functions in evaluation order; later Parts add theirs after these (node_danger stays last, 14.1)
+# ---- P6c: sensor_fault, design 14.1 row. Runs after co_threshold_rule, which skips the frame that clears it ("from the next fresh valid frame only"). ----
+FAULT_BITS = (('co_fault', 'co'), ('imu_fault', 'imu'), ('temp_fault', 'temp'))   # status2 bits 4, 5, 6; a CO timeout is also kind 'co'
+FAULT_NAMES = {'co': 'co_fault', 'imu': 'imu_fault', 'temp': 'temp_fault'}
+
+def _sf_danger(state, nid, kinds, now):
+    """Why a sensor_fault of these kinds is DANGER now (14.1 (i) or (ii)), else None. (ii) reads last_heat_alert_mono, which P7c sets."""
+    n, mono, win = state.nodes.get(nid, NodeState()), now.mono_ms, K.SENSOR_FAULT_DANGER_WINDOW_S * 1000
+    if 'co' in kinds and n.last_co_ge_warn_mono is not None and mono - n.last_co_ge_warn_mono <= win: return 'recent_co_ge_warn'
+    if 'temp' in kinds and (open_alert(state, nid, 'heat') is not None or (n.last_heat_alert_mono is not None and mono - n.last_heat_alert_mono <= win)): return 'heat'
+    return None
+
+def _sensor_fault(state, nid, kinds, new, names, now):
+    """Open at the level decided on the first frame that shows a fault; escalate a WARNING in place when a fault of another kind
+    (a kind not shown before) meets (i) or (ii). Never lowered."""
+    row, text = open_alert(state, nid, 'sensor_fault'), ','.join(names)
+    if row is None:
+        why = _sf_danger(state, nid, kinds, now)
+        return raise_alert(state, nid, 'sensor_fault', 'DANGER' if why else 'WARNING', text + (f' danger:{why}' if why else ''), now)
+    why = _sf_danger(state, nid, new, now) if row.level == 'WARNING' and new else None
+    return set_alert_level(state, nid, 'sensor_fault', 'DANGER', f'{text} danger:{why}', now) if why else (state, ())
+
+def sensor_fault_rule(state, event, now, mode):
+    """Rule 3 of RULES. Triggers: status2 bits 4, 5, 6 and no valid CO for co_fault_timeout_s (a tick). The wrist-lost trigger is not built:
+    the design names no bit for it (open question). A suspect frame may open or escalate but never clears and only adds to the kinds seen."""
+    if mode == NONE: return state, ()
+    fx = ()
+    if isinstance(event, TickEvent):
+        for nid, n in list(state.nodes.items()):
+            if n.co_reason == 'co_timeout' and 'co' not in n.fault_kinds:
+                state, more = _sensor_fault(state, nid, n.fault_kinds | {'co'}, frozenset(('co',)), ('co_timeout',), now); fx += more
+                state = replace(state, nodes={**state.nodes, nid: replace(state.nodes[nid], fault_kinds=n.fault_kinds | {'co'})})
+                state = refresh_level(state, nid, 0, True)
+        return state, fx
+    if event.node_id is None: return state, ()
+    nid, d, fresh = event.node_id, event.decoded, mode == FULL
+    n = state.nodes.get(nid, NodeState())
+    kinds = frozenset(k for b, k in FAULT_BITS if _bit(d, 'status2', b))
+    if kinds: state, fx = _sensor_fault(state, nid, kinds, kinds - n.fault_kinds, sorted(FAULT_NAMES[k] for k in kinds), now)
+    elif fresh: state, fx = clear_alert(state, nid, 'sensor_fault', now, 'fault_bits_clear')   # all fault bits 0 and valid readings resume
+    seen = kinds if fresh else n.fault_kinds | kinds
+    cur = state.nodes.get(nid, NodeState())
+    if cur.fault_kinds != seen or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, fault_kinds=seen)})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule)  # rule functions in evaluation order; later Parts add theirs after these (node_danger stays last, 14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level

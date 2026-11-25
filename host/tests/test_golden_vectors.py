@@ -54,7 +54,7 @@ CASES = [
     {'id': 'GV-01', 'gv': 'GV-01', 'desc': 'Node 1, fresh F-01 (52.0 ppm, SCBA OFF, node_level WARNING): raises co_threshold WARNING, final level WARNING, 0 episodes; the same reading again adds nothing; a timer tick adds nothing',
      'steps': [{'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'co_threshold', 'WARNING')], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'WARNING'}}},
                {'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'seq_delta': 0}},
-               {'tick': True, 'dt_ms': 20000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'seq_delta': 0}}]},
+               {'tick': True, 'dt_ms': 4000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'seq_delta': 0}}]},   # 4 s: before co_timeout (5 s), which P6c turns into a sensor_fault
     {'id': 'PH-04', 'gv': 'D1 (partial)', 'desc': 'A duplicate frame and a frame with a bad CRC are never evaluated: the open man_down alert stays open and nothing is raised',
      'open': [(1, 'man_down', 'DANGER')],
      'steps': [{'frame': 'F-01', 'seq_class': 'duplicate', 'expect': {'effects': [], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 0}},
