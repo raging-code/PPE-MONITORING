@@ -1,0 +1,224 @@
+// patches/part07_1_man_down_node_danger.mjs  (run from repo root: node patches/part07_1_man_down_node_danger.mjs [--dry] [--force])
+import fs from 'node:fs';
+import path from 'node:path';
+const ROOT = process.cwd();
+const DRY = process.argv.includes('--dry');
+const FORCE = process.argv.includes('--force');
+const plan = [];
+const abs = (p) => path.join(ROOT, p);
+const put = (p, content) => plan.push({ op: 'put', p, content });
+const putB64 = (p, b64) => put(p, Buffer.from(b64, 'base64').toString('utf8'));
+const replace = (p, oldStr, newStr) => plan.push({ op: 'replace', p, oldStr, newStr });
+const append = (p, text) => plan.push({ op: 'append', p, text });
+function apply() {
+  const state = new Map(), log = [];
+  const get = (p) => state.has(p) ? state.get(p) : (fs.existsSync(abs(p)) ? fs.readFileSync(abs(p), 'utf8') : null);
+  for (const s of plan) {
+    const cur = get(s.p);
+    if (s.op === 'put') {
+      if (cur !== null && cur !== s.content && !FORCE) throw new Error(`EXISTS (use --force): ${s.p}`);
+      log.push(`${cur === null ? 'create   ' : cur === s.content ? 'unchanged' : 'overwrite'} ${s.p}`);
+      state.set(s.p, s.content);
+    } else if (cur === null) {
+      throw new Error(`MISSING file: ${s.p}`);
+    } else if (s.op === 'replace') {
+      const n = cur.split(s.oldStr).length - 1;
+      if (n === 1) { state.set(s.p, cur.replace(s.oldStr, () => s.newStr)); log.push(`edit      ${s.p}`); }
+      else if (n === 0 && cur.includes(s.newStr)) log.push(`skip      ${s.p} (already applied)`);
+      else throw new Error(`ANCHOR found ${n} times in ${s.p}: ${s.oldStr.slice(0, 60)}`);
+    } else if (s.op === 'append') {
+      if (cur.includes(s.text)) log.push(`skip      ${s.p} (already appended)`);
+      else { state.set(s.p, cur + (cur.endsWith('\n') ? '' : '\n') + s.text); log.push(`append    ${s.p}`); }
+    }
+  }
+  if (!DRY) for (const [p, c] of state) { fs.mkdirSync(path.dirname(abs(p)), { recursive: true }); fs.writeFileSync(abs(p), c); }
+  console.log(log.join('\n'));
+  console.log(DRY ? 'DRY RUN: nothing written' : `OK: ${state.size} file(s) written`);
+}
+try { await run(); apply(); } catch (e) { console.error('PATCH FAILED, nothing written:', e.message); process.exit(1); }
+
+// ---- write only this part below ----
+async function run() {
+  put('host/tests/test_man_down.py', String.raw`"""P7-1: man_down and mayday alerts, node_danger (design 14.1; GV-02, GV-03, GV-17 alert halves, GV-20 a). The episode half of GV-02 and GV-03
+(OPEN, EPISODE_ESCALATED, Resolve) is P7c. Frames carry flags and status4 as given; boundary counts here are test values only."""
+from dataclasses import replace
+import pytest
+from test_co_state import co_frame, vector_event
+from test_co_threshold import Eng
+from ppe_host.core import rule_engine as re_
+from ppe_host.core.rule_engine import FrameEvent, clear_alert, raise_alert
+
+MD, WARN, DNG, MAYDAY = 0x04, 0x01, 0x02, 0x10
+
+def mk(flags=0, status4=0, seq_class='fresh', **kw):
+    d = dict(co_frame(**kw).decoded); d.update(flags=flags, status4=status4)
+    return FrameEvent(1, 'OK', seq_class, d)
+def tys(fx): return [(type(x).__name__, x.type, getattr(x, 'level', None)) for x in fx]
+def al(e, t): return e.state.alerts.get((1, t))
+def lvl(e): return e.state.nodes[1].level
+
+def test_order_node_danger_is_last_and_man_down_before_it():
+    assert re_.RULES[-1] is re_.node_danger_rule and re_.RULES[-2] is re_.man_down_rule
+
+# ---- man_down and mayday ----
+def test_GV02_man_down_latch_raises_man_down_danger():
+    e = Eng(); fx = e.step(vector_event('F-02'), 0)
+    assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER')] and lvl(e) == 'DANGER' and al(e, 'node_danger') is None and e.state.episodes == {}
+
+def test_GV03_mayday_on_top_of_an_open_man_down_raises_only_mayday():
+    e = Eng(); e.step(mk(flags=DNG | MD), 0)
+    assert tys(e.step(mk(flags=DNG | MD, status4=MAYDAY))) == [('RaiseAlert', 'mayday', 'DANGER')] and {t for _, t in e.state.alerts} == {'man_down', 'mayday'}
+
+def test_mayday_first_seen_in_one_frame_with_mandown_raises_both():
+    e = Eng(); assert tys(e.step(vector_event('F-03'), 0)) == [('RaiseAlert', 'man_down', 'DANGER'), ('RaiseAlert', 'mayday', 'DANGER')]
+
+def test_mayday_alone_raises_mayday_and_no_node_danger():
+    e = Eng(); assert tys(e.step(mk(flags=DNG, status4=MAYDAY), 0)) == [('RaiseAlert', 'mayday', 'DANGER')]
+    assert e.run(3) is not None and al(e, 'node_danger') is None
+
+def test_rising_edge_only_a_latch_that_stays_set_adds_nothing():
+    e = Eng(); e.step(mk(flags=DNG | MD), 0)
+    for _ in range(10): assert e.step(mk(flags=DNG | MD)) == []
+    assert len(e.state.alerts) == 1
+
+def test_GV20_a_after_resolve_a_latch_still_set_raises_nothing_then_a_new_edge_does():
+    e = Eng(); e.step(mk(flags=DNG | MD), 0)
+    e.state, _ = clear_alert(e.state, 1, 'man_down', e.clock.now(), 'resolved')                 # stands in for the P7c Resolve
+    for _ in range(3): assert e.step(mk(flags=DNG | MD)) == []                                   # no new alert, no node_danger
+    assert e.state.alerts == {}
+    assert e.step(mk(flags=0)) == [] and lvl(e) == 'NORMAL'                                      # jacket CANCEL
+    assert tys(e.step(mk(flags=DNG | MD))) == [('RaiseAlert', 'man_down', 'DANGER')]             # a new 0->1 edge
+
+def test_man_down_never_clears_on_its_own():
+    e = Eng(); e.step(mk(flags=DNG | MD), 0); e.step(mk(flags=0)); e.step(mk(flags=0)); assert al(e, 'man_down') is not None
+
+def test_suspect_frame_raises_but_does_not_move_the_baseline_or_clear():
+    e = Eng(); fx = e.step(mk(flags=DNG | MD, status4=MAYDAY, seq_class='suspect'), 0)
+    assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER'), ('RaiseAlert', 'mayday', 'DANGER')] and e.state.nodes[1].mandown_prev is None and lvl(e) == 'DANGER'
+    assert e.step(mk(flags=0, seq_class='suspect')) == [] and len(e.state.alerts) == 2 and lvl(e) == 'DANGER'
+
+def test_baseline_follows_fresh_frames():
+    e = Eng(); e.step(mk(flags=0), 0); assert (e.state.nodes[1].mandown_prev, e.state.nodes[1].mayday_prev) == (False, False)
+    e.step(mk(flags=DNG | MD, status4=MAYDAY)); assert (e.state.nodes[1].mandown_prev, e.state.nodes[1].mayday_prev) == (True, True)
+
+# ---- node_danger ----
+def test_GV17_a_second_consecutive_frame_raises_and_the_next_normal_frame_clears():
+    e = Eng(); assert e.step(mk(flags=DNG), 0) == [] and lvl(e) == 'DANGER' and al(e, 'node_danger') is None
+    fx = e.step(mk(flags=DNG)); assert tys(fx) == [('RaiseAlert', 'node_danger', 'DANGER')] and 'flags=0x02' in al(e, 'node_danger').reasons
+    assert tys(e.step(mk(flags=0))) == [('ClearAlert', 'node_danger', None)] and lvl(e) == 'NORMAL'
+
+def test_GV17_d_a_normal_frame_resets_the_streak():
+    e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=0)); assert e.step(mk(flags=DNG)) == [] and al(e, 'node_danger') is None
+
+def test_GV17_c_an_open_danger_alert_means_no_node_danger():
+    e = Eng(); e.step(mk(flags=DNG, co_x10=2500), 0)
+    for _ in range(4): assert e.step(mk(flags=DNG, co_x10=2500)) == []
+    assert al(e, 'node_danger') is None and al(e, 'co_threshold').level == 'DANGER'
+
+@pytest.mark.parametrize('typ', ['link_lost', 'scba_expired', 'mayday', 'man_down'])
+def test_any_open_danger_row_blocks_it_but_a_warning_row_does_not(typ):
+    e = Eng(); e.state, _ = raise_alert(e.state, 1, typ, 'DANGER', 's', e.clock.now())
+    e.step(mk(flags=DNG), 0); assert e.step(mk(flags=DNG)) == []
+    e = Eng(); e.state, _ = raise_alert(e.state, 1, 'heat', 'WARNING', 's', e.clock.now())
+    e.step(mk(flags=DNG), 0); assert tys(e.step(mk(flags=DNG))) == [('RaiseAlert', 'node_danger', 'DANGER')]
+
+def test_suspect_frame_that_meets_it_counts_and_one_that_does_not_leaves_the_streak():
+    e = Eng(); e.step(mk(flags=DNG), 0); assert e.step(mk(flags=0, seq_class='suspect')) == [] and e.state.nodes[1].node_danger_streak == 1
+    assert tys(e.step(mk(flags=DNG, seq_class='suspect'))) == [('RaiseAlert', 'node_danger', 'DANGER')]
+
+def test_suspect_frame_never_clears_node_danger():
+    e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=DNG)); assert e.step(mk(flags=0, seq_class='suspect')) == [] and al(e, 'node_danger') is not None
+
+def test_node_level_3_frames_are_not_evaluated_at_all():
+    e = Eng(); e.step(mk(flags=DNG), 0); assert e.step(mk(flags=0x03)) == [] and e.state.nodes[1].node_danger_streak == 1
+    assert tys(e.step(mk(flags=DNG))) == [('RaiseAlert', 'node_danger', 'DANGER')]
+
+def test_a_frame_with_mandown_never_raises_it_and_clears_it():
+    e = Eng()
+    for _ in range(5): e.step(mk(flags=DNG | MD), 2000)
+    assert al(e, 'node_danger') is None
+    e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=DNG))
+    fx = e.step(mk(flags=DNG | MD)); assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER'), ('ClearAlert', 'node_danger', None)] and fx[1].reason == 'mandown'
+    assert al(e, 'node_danger') is None and al(e, 'man_down') is not None
+
+def test_it_clears_when_another_alert_reaches_danger_superseded():
+    e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=DNG))
+    fx = e.step(mk(flags=DNG, co_x10=2500)); assert tys(fx) == [('RaiseAlert', 'co_threshold', 'DANGER'), ('ClearAlert', 'node_danger', None)] and lvl(e) == 'DANGER'
+    assert fx[1].reason == 'superseded'
+
+def test_it_clears_when_the_node_level_is_no_longer_danger():
+    e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=DNG)); fx = e.step(mk(flags=WARN))
+    assert tys(fx) == [('ClearAlert', 'node_danger', None)] and fx[0].reason == 'node_level_not_danger' and lvl(e) == 'WARNING'
+
+def test_acknowledged_node_danger_stays_open_while_the_node_reports_danger():
+    e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=DNG))
+    e.state = replace(e.state, alerts={**e.state.alerts, (1, 'node_danger'): replace(al(e, 'node_danger'), acknowledged_ts=9)})
+    for _ in range(5): assert e.step(mk(flags=DNG)) == []
+    assert al(e, 'node_danger').acknowledged_ts == 9
+`);
+  replace("host/ppe_host/core/rule_engine.py", String.raw`nothing sets it before then
+
+@dataclass(frozen=True)
+class EngineState:`, String.raw`nothing sets it before then
+    mandown_prev: Optional[bool] = None              # P7-1: flags bit 2 of the last FRESH frame (None = never seen: a first-seen 1 counts as an edge)
+    mayday_prev: Optional[bool] = None               # P7-1: status4 bit 4 of the last fresh frame
+    node_danger_streak: int = 0                      # P7-1: consecutive evaluated frames that meet the node_danger condition
+
+@dataclass(frozen=True)
+class EngineState:`);
+  replace("host/ppe_host/core/rule_engine.py", String.raw`RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule)  # rule functions in evaluation order; later Parts add theirs after these (node_danger stays last, 14.1)`, String.raw`# ---- P7-1: man_down, mayday (alerts only; the episode half is P7c) and node_danger, design 14.1 rows. node_danger stays LAST in RULES (14.1). ----
+def _why(d):
+    return f"flags=0x{d['flags']:02x} status2=0x{d['status2']:02x} status3=0x{d['status3']:02x} status4=0x{d['status4']:02x}"
+
+def man_down_rule(state, event, now, mode):
+    """man_down on flags bit 2 (mandown) 0->1 or first-seen 1, mayday on status4 bit 4 0->1 or first-seen 1; both DANGER. The 'before' value is the
+    last FRESH frame's bit (None = never seen), so a suspect frame can raise but never moves the baseline (14.1). Nothing here clears: the alert
+    rows close only when an operator resolves the episode (P7c), and a latch that stays set after Resolve is a level, not an edge, so it raises nothing."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fresh = event.node_id, event.decoded, mode == FULL
+    n, fx = state.nodes.get(nid, NodeState()), ()
+    md, my = bool(_bit(d, 'flags', 'mandown')), bool(_bit(d, 'status4', 'mayday'))
+    if md and not n.mandown_prev: state, fx = raise_alert(state, nid, 'man_down', 'DANGER', _why(d), now)
+    if my and not n.mayday_prev:
+        state, more = raise_alert(state, nid, 'mayday', 'DANGER', _why(d), now); fx += more
+    if fresh and (n.mandown_prev, n.mayday_prev) != (md, my):
+        cur = state.nodes.get(nid, n); state = replace(state, nodes={**state.nodes, nid: replace(cur, mandown_prev=md, mayday_prev=my)})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+def node_danger_rule(state, event, now, mode):
+    """Catch-all, evaluated last: the node reports DANGER (flags level 2), mandown is 0 and no OTHER open alert of the node is at DANGER, on the
+    node_danger_confirm_frames-th consecutive evaluated frame. A fresh frame that does not meet it resets the streak, a suspect one leaves it
+    (and a suspect one that meets it counts). Clears on a fresh frame with level not DANGER, with mandown 1, or when another DANGER alert exists."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fresh = event.node_id, event.decoded, mode == FULL
+    n, fx = state.nodes.get(nid, NodeState()), ()
+    lvl, md = _bit(d, 'flags', 'node_level'), bool(_bit(d, 'flags', 'mandown'))
+    other = any(a.level == 'DANGER' for (a_nid, t), a in state.alerts.items() if a_nid == nid and t != 'node_danger')
+    meets = lvl == abi.ENUMS['node_level']['DANGER'] and not md and not other
+    streak = n.node_danger_streak + 1 if meets else (0 if fresh else n.node_danger_streak)
+    if meets and streak >= K.NODE_DANGER_CONFIRM_FRAMES: state, fx = raise_alert(state, nid, 'node_danger', 'DANGER', _why(d), now)
+    elif fresh and not meets and open_alert(state, nid, 'node_danger') is not None:
+        state, fx = clear_alert(state, nid, 'node_danger', now, 'mandown' if md else 'superseded' if other else 'node_level_not_danger')
+    cur = state.nodes.get(nid, n)
+    if cur.node_danger_streak != streak or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, node_danger_streak=streak)})
+    return refresh_level(state, nid, lvl, not fresh), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, man_down_rule, node_danger_rule)  # evaluation order; P7-2 and later rules go BEFORE node_danger_rule, which stays last (14.1)`);
+  replace("host/tests/test_golden_vectors.py", String.raw`    # ---- GV cases above this line (each later Part adds its own here) ----`, String.raw`    {'id': 'GV-02', 'gv': 'GV-02 (alert half)', 'desc': 'F-02: node 1, flags 0x06 (mandown, DANGER): raises man_down DANGER and no node_danger; the episode half is P7c',
+     'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-03', 'gv': 'GV-03 (alert half)', 'desc': 'F-03 with an open man_down: status4 MAYDAY raises mayday DANGER; the episode upgrade is P7c',
+     'open': [(1, 'man_down', 'DANGER')],
+     'steps': [{'frame': 'F-03', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'mayday', 'DANGER')], 'open': [(1, 'man_down', 'DANGER'), (1, 'mayday', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-17ab', 'gv': 'GV-17 a, b', 'desc': 'F-14 (flags 0x02 only) twice: the first frame raises nothing, the second raises node_danger; a normal frame (F-08) clears it',
+     'steps': [{'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'node_danger', 'DANGER')], 'open': [(1, 'node_danger', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-08', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'node_danger', None)], 'open': [], 'seq_delta': 1, 'levels': {1: 'NORMAL'}}}]},
+    {'id': 'GV-17c', 'gv': 'GV-17 c', 'desc': 'F-07 (250 ppm, flags 0x02) twice: co_threshold is at DANGER, so no node_danger',
+     'steps': [{'frame': 'F-07', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'co_threshold', 'DANGER')], 'open': [(1, 'co_threshold', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-07', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'DANGER')], 'seq_delta': 0, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-17d', 'gv': 'GV-17 d', 'desc': 'F-14 then F-08: the second frame resets the streak, so node_danger is never raised',
+     'steps': [{'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-08', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'NORMAL'}}}]},
+    # ---- GV cases above this line (each later Part adds its own here; P7-1 added GV-02, GV-03, GV-17) ----`);
+  append('docs/PROGRESS.md', '- Part 7-1 done: man_down and mayday alerts (0->1 or first-seen edges, raise-only on suspect frames, no clear until Resolve) and node_danger (2-frame streak, superseded and mandown clears) in core/rule_engine.py, GV-02, GV-03 and GV-17 harness cases, host/tests/test_man_down.py; episodes are P7c');
+}

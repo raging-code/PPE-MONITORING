@@ -99,6 +99,9 @@ class NodeState:
     co_lower_since_mono: Optional[int] = None        # P6b: first fresh frame of the current run below co_danger_clear_ppm (10 s DANGER-to-WARNING timer)
     fault_kinds: frozenset = frozenset()             # P6c: fault kinds shown by the last fresh frame (co, imu, temp; a CO timeout counts as co)
     last_heat_alert_mono: Optional[int] = None       # P6c reads it for condition (ii); P7c sets it, nothing sets it before then
+    mandown_prev: Optional[bool] = None              # P7-1: flags bit 2 of the last FRESH frame (None = never seen: a first-seen 1 counts as an edge)
+    mayday_prev: Optional[bool] = None               # P7-1: status4 bit 4 of the last fresh frame
+    node_danger_streak: int = 0                      # P7-1: consecutive evaluated frames that meet the node_danger condition
 
 @dataclass(frozen=True)
 class EngineState:
@@ -260,7 +263,44 @@ def sensor_fault_rule(state, event, now, mode):
     if cur.fault_kinds != seen or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, fault_kinds=seen)})
     return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
 
-RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule)  # rule functions in evaluation order; later Parts add theirs after these (node_danger stays last, 14.1)
+# ---- P7-1: man_down, mayday (alerts only; the episode half is P7c) and node_danger, design 14.1 rows. node_danger stays LAST in RULES (14.1). ----
+def _why(d):
+    return f"flags=0x{d['flags']:02x} status2=0x{d['status2']:02x} status3=0x{d['status3']:02x} status4=0x{d['status4']:02x}"
+
+def man_down_rule(state, event, now, mode):
+    """man_down on flags bit 2 (mandown) 0->1 or first-seen 1, mayday on status4 bit 4 0->1 or first-seen 1; both DANGER. The 'before' value is the
+    last FRESH frame's bit (None = never seen), so a suspect frame can raise but never moves the baseline (14.1). Nothing here clears: the alert
+    rows close only when an operator resolves the episode (P7c), and a latch that stays set after Resolve is a level, not an edge, so it raises nothing."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fresh = event.node_id, event.decoded, mode == FULL
+    n, fx = state.nodes.get(nid, NodeState()), ()
+    md, my = bool(_bit(d, 'flags', 'mandown')), bool(_bit(d, 'status4', 'mayday'))
+    if md and not n.mandown_prev: state, fx = raise_alert(state, nid, 'man_down', 'DANGER', _why(d), now)
+    if my and not n.mayday_prev:
+        state, more = raise_alert(state, nid, 'mayday', 'DANGER', _why(d), now); fx += more
+    if fresh and (n.mandown_prev, n.mayday_prev) != (md, my):
+        cur = state.nodes.get(nid, n); state = replace(state, nodes={**state.nodes, nid: replace(cur, mandown_prev=md, mayday_prev=my)})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+def node_danger_rule(state, event, now, mode):
+    """Catch-all, evaluated last: the node reports DANGER (flags level 2), mandown is 0 and no OTHER open alert of the node is at DANGER, on the
+    node_danger_confirm_frames-th consecutive evaluated frame. A fresh frame that does not meet it resets the streak, a suspect one leaves it
+    (and a suspect one that meets it counts). Clears on a fresh frame with level not DANGER, with mandown 1, or when another DANGER alert exists."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fresh = event.node_id, event.decoded, mode == FULL
+    n, fx = state.nodes.get(nid, NodeState()), ()
+    lvl, md = _bit(d, 'flags', 'node_level'), bool(_bit(d, 'flags', 'mandown'))
+    other = any(a.level == 'DANGER' for (a_nid, t), a in state.alerts.items() if a_nid == nid and t != 'node_danger')
+    meets = lvl == abi.ENUMS['node_level']['DANGER'] and not md and not other
+    streak = n.node_danger_streak + 1 if meets else (0 if fresh else n.node_danger_streak)
+    if meets and streak >= K.NODE_DANGER_CONFIRM_FRAMES: state, fx = raise_alert(state, nid, 'node_danger', 'DANGER', _why(d), now)
+    elif fresh and not meets and open_alert(state, nid, 'node_danger') is not None:
+        state, fx = clear_alert(state, nid, 'node_danger', now, 'mandown' if md else 'superseded' if other else 'node_level_not_danger')
+    cur = state.nodes.get(nid, n)
+    if cur.node_danger_streak != streak or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, node_danger_streak=streak)})
+    return refresh_level(state, nid, lvl, not fresh), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, man_down_rule, node_danger_rule)  # evaluation order; P7-2 and later rules go BEFORE node_danger_rule, which stays last (14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level

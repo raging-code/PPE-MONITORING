@@ -59,7 +59,22 @@ CASES = [
      'open': [(1, 'man_down', 'DANGER')],
      'steps': [{'frame': 'F-01', 'seq_class': 'duplicate', 'expect': {'effects': [], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 0}},
                {'frame': 'F-17', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 0}}]},
-    # ---- GV cases above this line (each later Part adds its own here) ----
+    {'id': 'GV-02', 'gv': 'GV-02 (alert half)', 'desc': 'F-02: node 1, flags 0x06 (mandown, DANGER): raises man_down DANGER and no node_danger; the episode half is P7c',
+     'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-03', 'gv': 'GV-03 (alert half)', 'desc': 'F-03 with an open man_down: status4 MAYDAY raises mayday DANGER; the episode upgrade is P7c',
+     'open': [(1, 'man_down', 'DANGER')],
+     'steps': [{'frame': 'F-03', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'mayday', 'DANGER')], 'open': [(1, 'man_down', 'DANGER'), (1, 'mayday', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-17ab', 'gv': 'GV-17 a, b', 'desc': 'F-14 (flags 0x02 only) twice: the first frame raises nothing, the second raises node_danger; a normal frame (F-08) clears it',
+     'steps': [{'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'node_danger', 'DANGER')], 'open': [(1, 'node_danger', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-08', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'node_danger', None)], 'open': [], 'seq_delta': 1, 'levels': {1: 'NORMAL'}}}]},
+    {'id': 'GV-17c', 'gv': 'GV-17 c', 'desc': 'F-07 (250 ppm, flags 0x02) twice: co_threshold is at DANGER, so no node_danger',
+     'steps': [{'frame': 'F-07', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'co_threshold', 'DANGER')], 'open': [(1, 'co_threshold', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-07', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'DANGER')], 'seq_delta': 0, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-17d', 'gv': 'GV-17 d', 'desc': 'F-14 then F-08: the second frame resets the streak, so node_danger is never raised',
+     'steps': [{'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'DANGER'}}},
+               {'frame': 'F-08', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'NORMAL'}}}]},
+    # ---- GV cases above this line (each later Part adds its own here; P7-1 added GV-02, GV-03, GV-17) ----
 ]
 
 @pytest.mark.parametrize('case', CASES, ids=[c['id'] for c in CASES])
