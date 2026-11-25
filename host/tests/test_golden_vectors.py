@@ -78,7 +78,7 @@ CASES = [
      'steps': [{'frame': 'F-05', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'battery_low', 'WARNING')], 'open': [(1, 'battery_low', 'WARNING')], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'WARNING'}}}]},
     {'id': 'GV-06d', 'gv': 'GV-06 d', 'desc': 'F-05 then F-10 (reboot, boot_ctr 8, bat 80): the reboot clears battery_low',
      'steps': [{'frame': 'F-05', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'battery_low', 'WARNING')]}},
-               {'frame': 'F-10', 'seq_class': 'reboot', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'battery_low', None)], 'open': [], 'seq_delta': 1, 'levels': {1: 'NORMAL'}}}]},
+               {'frame': 'F-10', 'seq_class': 'reboot', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'battery_low', None), ('raise', 1, 'node_reboot', 'NONE')], 'open': [], 'seq_delta': 2, 'levels': {1: 'NORMAL'}}}]},   # P7b: the reboot frame also logs the one-shot node_reboot notice (14.1b)
     # ---- GV cases above this line (each later Part adds its own here; P7-1 added GV-02, GV-03, GV-17; P7-2 added GV-04, GV-06 a and d (GV-08, GV-10 and GV-12 are in test_link_battery.py)) ----
 ]
 

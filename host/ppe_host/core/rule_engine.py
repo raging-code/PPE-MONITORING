@@ -44,6 +44,7 @@ class RaiseAlert(Effect):
     level: str
     reasons: str
     raised_ts: int
+    one_shot: bool = False        # P7b: a one-shot notice is stored already closed (cleared_ts = raised_ts) and never held in EngineState.alerts (14.1b)
 
 @dataclass(frozen=True)
 class ClearAlert(Effect):         # event_seq here is the alert row's cleared_event_seq
@@ -106,6 +107,11 @@ class NodeState:
     last_fresh_adverse: bool = False                 # P7-2: that frame reported WARNING, DANGER or mandown (link_lost after link_lost_adverse_s)
     unauth_count: int = 0                            # P7-2: BAD_MAC frames counted on the open unauth_alert (WebSocket unauth_count)
     unauth_last_seen_ts: Optional[int] = None        # P7-2: wall ms of the last such frame
+    wrist_open_since_mono: Optional[int] = None      # P7b: first fresh frame of the current run with status4 bit 0 (wrist connector open)
+    wrist_last_open_mono: Optional[int] = None       # P7b: last fresh frame with that bit set (wrist_close_confirm_s counts from it)
+    latch_restored_prev: Optional[bool] = None       # P7b: status4 bit 1 of the last fresh frame (None = never seen: a first-seen 1 is an edge)
+    restored_prev: Optional[bool] = None             # P7b: status3 bit 4 of the last fresh frame
+    evt_unsent_prev: Optional[bool] = None           # P7b: id_mode bit 7 of the last fresh frame
 
 @dataclass(frozen=True)
 class EngineState:
@@ -361,7 +367,48 @@ def unauth_alert_rule(state, event, now):
     n = replace(n, unauth_count=n.unauth_count + 1 if was_open else 1, unauth_last_seen_ts=now.wall_ms)
     return replace(state, nodes={**state.nodes, nid: n}), fx
 
-RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
+# ---- P7b: notice and badge types, design 14.1b. All level NONE: they never change a node level or open an episode. Evaluated on FRESH verified
+# frames only (a suspect frame neither raises nor ends one). Persistent: wrist_open, button_stuck, missed_event, co_warmup (one open row per node,
+# cleared when the condition ends). One-shot: wrist_close, node_reboot, latch_restored, watchdog_recovery (RaiseAlert.one_shot, never held in state.alerts,
+# so the writer inserts the row with cleared_ts = raised_ts and no open-alert query returns it). weak_signal and estimate stay disabled. ----
+WEAK_SIGNAL_ENABLED = False  # settings.json weak_signal_enabled is false too: needs the range-test floors (Section 9, item 10)
+ESTIMATE_ENABLED = False     # Tier 2 only (forecast_5min_ppm); nothing in the Tier 1 engine raises it
+
+def raise_notice(state, node_id, type, reasons, now):
+    """One-shot notice: allocate an event_seq and emit a RaiseAlert flagged one_shot. Nothing is stored in state.alerts."""
+    _check_alert(node_id, type, 'NONE')
+    state, seq = next_seq(state)
+    return state, (RaiseAlert(seq, node_id, type, 'NONE', reasons, now.wall_ms, one_shot=True),)
+
+def notice_rule(state, event, now, mode):
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode != FULL: return state, ()
+    nid, d, mono, fx = event.node_id, event.decoded, now.mono_ms, ()
+    n = state.nodes.get(nid, NodeState())
+    on = lambda f, b: bool(_bit(d, f, b))
+    for typ, cond in (('button_stuck', on('status3', 'btn_stuck')), ('missed_event', on('id_mode', 'evt_unsent')), ('co_warmup', on('status3', 'co_warmup'))):
+        state, more = raise_alert(state, nid, typ, 'NONE', _why(d), now) if cond else clear_alert(state, nid, typ, now, 'condition_ended'); fx += more
+    # wrist: bit held for wrist_open_ms across frames raises wrist_open; back to 0 within wrist_close_confirm_s of the last open frame logs wrist_close
+    since, last = n.wrist_open_since_mono, n.wrist_last_open_mono
+    if on('status4', 'wrist_conn_open'):
+        since, last = (mono if since is None else since), mono
+        if mono - since >= K.WRIST_OPEN_MS: state, more = raise_alert(state, nid, 'wrist_open', 'NONE', _why(d), now); fx += more
+    else:
+        if open_alert(state, nid, 'wrist_open') is not None:
+            state, more = clear_alert(state, nid, 'wrist_open', now, 'wrist_closed'); fx += more
+            if last is not None and mono - last <= K.WRIST_CLOSE_CONFIRM_S * 1000: state, more = raise_notice(state, nid, 'wrist_close', _why(d), now); fx += more
+        since = last = None
+    md_open = open_alert(state, nid, 'man_down') is not None
+    if event.seq_class == 'reboot':
+        state, more = raise_notice(state, nid, 'node_reboot', f"boot_ctr={d['boot_ctr']}" + (' while_man_down' if md_open else ''), now); fx += more
+    latch, restored, evt = on('status4', 'latch_restored'), on('status3', 'restored'), on('id_mode', 'evt_unsent')
+    if latch and not n.latch_restored_prev: state, more = raise_notice(state, nid, 'latch_restored', _why(d), now); fx += more
+    why = 'restored_after_reset' if restored and not n.restored_prev else 'uplink_recovered' if n.evt_unsent_prev and not evt else None   # bit 4 0->1, or evt_unsent 1->0
+    if why: state, more = raise_notice(state, nid, 'watchdog_recovery', why + f" cause={_bit(d, 'status3', 'reset_cause')}", now); fx += more
+    cur = state.nodes.get(nid, n)
+    n2 = replace(cur, wrist_open_since_mono=since, wrist_last_open_mono=last, latch_restored_prev=latch, restored_prev=restored, evt_unsent_prev=evt)
+    return (state if cur == n2 and nid in state.nodes else replace(state, nodes={**state.nodes, nid: n2})), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level
