@@ -10,6 +10,10 @@ from ppe_host.core.rule_engine import FrameEvent, NodeState, RaiseAlert, TickEve
 IMU_FAULT = 1 << 5
 SF = 'sensor_fault'
 
+@pytest.fixture(autouse=True)
+def _no_shadow(monkeypatch):
+    monkeypatch.setattr(re_, 'RULES', tuple(r for r in re_.RULES if r is not re_.shadow_rule))   # P7c-3: 30 s of stillness raises a shadow_notice badge; these tests are about sensor_fault (test_heat_shadow.py covers the estimator)
+
 def sf(e): return e.state.alerts.get((1, SF))
 def heat_open(e, stamp=True):
     e.state, _ = raise_alert(e.state, 1, 'heat', 'WARNING', 'seeded', e.clock.now())

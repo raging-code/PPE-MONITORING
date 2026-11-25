@@ -114,6 +114,14 @@ class NodeState:
     evt_unsent_prev: Optional[bool] = None           # P7b: id_mode bit 7 of the last fresh frame
     checkin_prev: Optional[bool] = None              # P7c-2: flags bit 7 (check-in) of the last fresh frame (None = never seen: a first-seen 1 is an edge)
     scba_lower_since_mono: Optional[int] = None      # P7c-2: first fresh frame of the current run below co_warn_clear_ppm on a DANGER scba_expired (10 s lowering timer)
+    heat_hot_since_mono: Optional[int] = None        # P7c-3: first fresh frame of the current run at or above heat_warn_c (the 'time' trigger)
+    heat_ext_since_mono: Optional[int] = None        # P7c-3: first fresh frame of the current run at or above heat_extreme_c
+    heat_hist: tuple = ()                            # P7c-3: (mono, temp_x100) of healthy fresh frames inside heat_rise_window_s (the 'rise' trigger)
+    heat_triggers: frozenset = frozenset()           # P7c-3: triggers of the open heat row (time, rise, extreme); each has its own clear condition
+    heat_clear_since_mono: Optional[int] = None      # P7c-3: first fresh frame of the current run in which every trigger's clear condition holds (10 s)
+    heat_skip_next: bool = False                     # P7c-3: the last frame had a temperature fault, so the next fresh frame is not evaluated (14.1)
+    shadow_still_since_mono: Optional[int] = None    # P7c-3: first fresh frame of the current run with motion at or below still_g_default (shadow estimator)
+    shadow_rebaseline_left: int = 0                  # P7c-3: fresh frames still to skip after a link recovery (rebaseline_clean_frames)
 
 @dataclass(frozen=True)
 class EngineState:
@@ -553,7 +561,8 @@ def operator_step(state, event, now):
     if ep is None: return state, ()
     state, seq = next_seq(state); fx = (EpisodeResolved(seq, nid, ep.kind, event.reason, event.operator_id, now.wall_ms),)
     state = replace(state, episodes={k: v for k, v in state.episodes.items() if k != nid})
-    for t in EPISODE_ALERT_TYPES: state, more = clear_alert(state, nid, t, now, 'resolved'); fx += more
+    for t in EPISODE_ALERT_TYPES + ('shadow_notice',): state, more = clear_alert(state, nid, t, now, 'resolved'); fx += more   # P7c-3: a notice has no episode of its own, Resolve reaches it through the node's episode (14.1b)
+    if nid in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(state.nodes[nid], shadow_still_since_mono=None)})   # the stillness run restarts
     latched = state.nodes.get(nid, NodeState()).mandown_prev          # the jacket latch is cleared only by the jacket CANCEL: until a frame says so the node still reports DANGER
     return refresh_level(state, nid, 2 if latched else 0, False), fx
 
@@ -604,7 +613,76 @@ def scba_expired_rule(state, event, now, mode):
     if cur.scba_lower_since_mono != lower or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, scba_lower_since_mono=lower)})
     return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
 
-RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, checkin_rule, scba_expired_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
+# ---- P7c-3: heat (14.1 row, 14.2 (4), Summary D5) and the 14.2 (5) shadow estimator with its shadow_notice badge. Fresh frames only: a suspect frame never starts,
+# advances or resets a heat timer or the stillness run (14.1). They run BEFORE link_rule (the estimator must see the link rows a fresh frame is about to clear).
+# heat never raises DANGER. shadow_notice is level NONE: badge and log only, no episode, no level change, no sound. ----
+HEAT_CLEAR_S = 10   # 14.1 "The 10 s hysteresis timers"; no heat-specific constant exists in constants.json, so this is a module value (open item in the handoff)
+
+def _heat_window(n, temp, mono):
+    """(history, rise) with this frame in a window of heat_rise_window_s of healthy fresh frames; rise = temp now minus the lowest temp in the window (x100 ints)."""
+    hist = tuple((t, v) for t, v in n.heat_hist + ((mono, temp),) if mono - t <= K.HEAT_RISE_WINDOW_S * 1000)
+    return hist, temp - min(v for _, v in hist)
+
+def heat_rule(state, event, now, mode):
+    """heat: temp >= heat_warn_c for heat_warn_s ('time'), a rise of heat_rise_c within heat_rise_window_s ('rise') or >= heat_extreme_c for heat_extreme_s ('extreme');
+    one WARNING row per node, never DANGER. Clears after HEAT_CLEAR_S of every trigger's own clear condition: temp < heat_warn_clear_c (time), < heat_extreme_clear_c
+    (extreme), rise < heat_rise_clear_c (rise). A temperature fault (status2 bit 6) freezes evaluation and holds an open row; its timers and window restart, and the
+    first fresh frame after the fault is not evaluated either (14.1: re-evaluate from the next fresh valid frame only). Sets last_heat_alert_mono on every frame while a row is open."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode != FULL: return state, ()
+    nid, d, mono, fx = event.node_id, event.decoded, now.mono_ms, ()
+    n, temp = state.nodes.get(nid, NodeState()), d['temp_x100']
+    stamp = mono if open_alert(state, nid, 'heat') is not None else n.last_heat_alert_mono
+    fault = bool(_bit(d, 'status2', 'temp_fault'))
+    if fault or n.heat_skip_next:
+        n2 = replace(n, heat_hot_since_mono=None, heat_ext_since_mono=None, heat_hist=(), heat_clear_since_mono=None, heat_skip_next=fault, last_heat_alert_mono=stamp)
+    else:
+        hist, rise = _heat_window(n, temp, mono)
+        hot = (mono if n.heat_hot_since_mono is None else n.heat_hot_since_mono) if temp >= K.HEAT_WARN_C * 100 else None
+        ext = (mono if n.heat_ext_since_mono is None else n.heat_ext_since_mono) if temp >= K.HEAT_EXTREME_C * 100 else None
+        fired = frozenset(k for k, on in (('time', hot is not None and mono - hot >= K.HEAT_WARN_S * 1000), ('extreme', ext is not None and mono - ext >= K.HEAT_EXTREME_S * 1000),
+                                          ('rise', rise >= K.HEAT_RISE_C * 100)) if on)
+        row, trig, clear_since = open_alert(state, nid, 'heat'), n.heat_triggers | fired, n.heat_clear_since_mono
+        if row is None and fired: state, fx = raise_alert(state, nid, 'heat', 'WARNING', f"temp={temp / 100:.1f}C {','.join(sorted(fired))}", now); trig = fired
+        row = open_alert(state, nid, 'heat')
+        if row is None: trig, clear_since = frozenset(), None
+        else:
+            trig = trig or frozenset(('time',))   # a row without memory of its trigger (rebuilt after a restart): the plain temperature rule
+            ok = not fired and all(temp < K.HEAT_WARN_CLEAR_C * 100 if k == 'time' else temp < K.HEAT_EXTREME_CLEAR_C * 100 if k == 'extreme' else rise < K.HEAT_RISE_CLEAR_C * 100 for k in trig)
+            clear_since = (mono if clear_since is None else clear_since) if ok else None
+            if clear_since is not None and mono - clear_since >= HEAT_CLEAR_S * 1000:
+                state, more = clear_alert(state, nid, 'heat', now, 'below_clear_level'); fx += more; trig, clear_since = frozenset(), None
+        n2 = replace(n, heat_hot_since_mono=hot, heat_ext_since_mono=ext, heat_hist=hist, heat_triggers=trig, heat_clear_since_mono=clear_since, heat_skip_next=False, last_heat_alert_mono=stamp)
+    cur = state.nodes.get(nid, n)
+    state = replace(state, nodes={**state.nodes, nid: replace(n2, level=cur.level)}) if (n2 != n or nid not in state.nodes) else state
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), False), fx
+
+def shadow_rule(state, event, now, mode):
+    """Shadow estimator (14.2 (5)): continuous stillness (motion <= still_g_default) across fresh frames. shadow_notice opens when it reaches mandown_still_s with mandown = 0
+    (GV-25), or while an IMU fault disables the estimator. Clears on motion above still_g_default, when mandown = 1, when the IMU fault ends, or on Resolve (operator_step).
+    After a link recovery the run is suspended for rebaseline_clean_frames further fresh frames. The grace and disagreement times are not applied (open item)."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode != FULL: return state, ()
+    nid, d, mono, fx = event.node_id, event.decoded, now.mono_ms, ()
+    n = state.nodes.get(nid, NodeState())
+    imu, md = bool(_bit(d, 'status2', 'imu_fault')), bool(_bit(d, 'flags', 'mandown'))
+    moving = d['motion_x100'] / 100 > K.STILL_G_DEFAULT
+    since, left = n.shadow_still_since_mono, n.shadow_rebaseline_left
+    recovered = (open_alert(state, nid, 'signal_lost') is not None or open_alert(state, nid, 'link_lost') is not None
+                 or (n.last_fresh_mono is not None and mono - n.last_fresh_mono >= K.SIGNAL_LOST_S * 1000))
+    if recovered: since, left = None, K.REBASELINE_CLEAN_FRAMES        # the recovery frame and the next rebaseline_clean_frames frames are not tracked
+    elif left > 0: since, left = None, left - 1
+    elif imu: since = None                                              # suspended during an IMU fault
+    else: since = None if moving else (mono if since is None else since)
+    row = open_alert(state, nid, 'shadow_notice')
+    if row is not None:
+        why = 'mandown' if md else 'imu_fault_ended' if (not imu and row.reasons.startswith('imu_fault')) else 'motion' if (moving and not imu and not row.reasons.startswith('imu_fault')) else None
+        if why: state, fx = clear_alert(state, nid, 'shadow_notice', now, why)
+    if imu: state, more = raise_alert(state, nid, 'shadow_notice', 'NONE', 'imu_fault shadow estimator disabled', now); fx += more
+    elif not md and since is not None and mono - since >= K.MANDOWN_STILL_S * 1000:
+        state, more = raise_alert(state, nid, 'shadow_notice', 'NONE', f'still_since={(mono - since) // 1000} s mandown=0', now); fx += more
+    cur = state.nodes.get(nid, n); n2 = replace(cur, shadow_still_since_mono=since, shadow_rebaseline_left=left)
+    return (state if n2 == cur and nid in state.nodes else replace(state, nodes={**state.nodes, nid: n2})), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, heat_rule, shadow_rule, link_rule, checkin_rule, scba_expired_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level
