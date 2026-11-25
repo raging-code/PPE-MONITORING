@@ -90,6 +90,7 @@ uint32_t md_step(md_state_t *s, md_event_t ev, uint32_t now) {
       if (s->phase != MD_LATCHED || s->clear_armed || ev.arg < S_MS(PPE_CLEAR_HOLD_S)) return 0;
       s->clear_armed = 1; s->armed_ms = now; return MD_ACT_CLEAR_ARMED;
     case MD_EV_TICK: return tick(s, now);
+    case MD_EV_DEGRADED_LATCH: return latch(s, MD_CAUSE_MAN_DOWN);  /* an unanswered degraded prompt (degraded.c) */
     case MD_EV_BOOT:  /* restore the stored latch before anything else; the boot frame carries mandown=1, latch_restored and the cause */
       md_init(s);
       if (ev.arg == MD_CAUSE_NONE) return 0;

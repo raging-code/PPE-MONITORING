@@ -2,13 +2,13 @@
    Rule of 11.2: md_step(state, event, now_ms) updates the state and returns an action bitmask; hardware tasks only translate hardware into events.
    Events are edges from the sensor layer: STILL / MOTION = chest RMS below / at or above STILL_G, CANCEL_* = one clean 40 to 2000 ms press,
    JACKET_HOLD = a jacket CANCEL released after being held (arg = hold in ms), BOOT = reset (arg = stored latch cause). now_ms is a wrapping uint32.
-   Out of scope here: the IMU-degraded dead-man mode, the SCBA machine and the NVS layer (P16); the caller passes the same CANCEL events to the SCBA machine. */
+   Out of scope here: the NVS layer (P16b). The SCBA machine (scba.c) and the IMU-degraded mode (degraded.c) are separate; the caller passes each CANCEL to scba.c first (see scba.h) and sends MD_EV_DEGRADED_LATCH when degraded.c asks for a latch. */
 #pragma once
 #include <stdint.h>
 typedef enum { MD_NORMAL = 0, MD_CHECKIN, MD_LATCHED } md_phase_t;
 typedef enum { MD_CAUSE_NONE = 0, MD_CAUSE_MAN_DOWN, MD_CAUSE_MAYDAY } md_cause_t;
 typedef enum { MD_EV_NONE = 0, MD_EV_IMPACT, MD_EV_STILL, MD_EV_MOTION, MD_EV_HORIZONTAL, MD_EV_UPRIGHT, MD_EV_CANCEL_JACKET, MD_EV_CANCEL_WRIST,
-               MD_EV_JACKET_HOLD, MD_EV_TICK, MD_EV_BOOT } md_ev_kind_t;
+               MD_EV_JACKET_HOLD, MD_EV_TICK, MD_EV_BOOT, MD_EV_DEGRADED_LATCH } md_ev_kind_t;
 typedef struct { md_ev_kind_t kind; uint32_t arg; } md_event_t;
 
 /* Values the Technical Summary gives but shared/constants.json does not hold (docs/adr/0002.md). Everything else comes from constants.h. */

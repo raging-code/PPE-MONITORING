@@ -3,7 +3,7 @@
 Needs gcc on PATH. Run python tools/gen_frame_vectors.py first (just gen does it)."""
 import os, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TESTS = {'test_frame': ('frame', ['aes128', 'cmac', 'crc8', 'frame']), 'test_rules_fw': ('rules_fw', ['man_down'])}  # P16 adds its machines to rules_fw
+TESTS = {'test_frame': ('frame', ['aes128', 'cmac', 'crc8', 'frame']), 'test_rules_fw': ('rules_fw', ['man_down']), 'test_scba': ('rules_fw', ['man_down', 'scba', 'degraded'])}  # P16b adds nvs_latch
 def main():
     out = os.path.join(ROOT, 'firmware', 'tests', 'build'); os.makedirs(out, exist_ok=True)
     for name, (comp, parts) in TESTS.items():
