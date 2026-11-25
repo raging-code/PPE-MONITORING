@@ -15,11 +15,12 @@ dev:
 
 # P1: the frame and beacon vectors; later Parts add pytest, Vitest and gcc runs under this line
 test:
+    python -m pytest host/tests -q
     python tools/test_vectors.py
 
 # P2 and P3 add the generators here
 gen:
-    @echo "gen: no generators yet"
+    python tools/gen_abi.py
 
 # P1: design document consistency; P27 adds one lint tool per language
 lint:
