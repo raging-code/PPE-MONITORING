@@ -42,9 +42,9 @@ class RateWindow:
 def _bit(v, field, name): s, w = abi.BITS[field][name]; return (v >> s) & ((1 << w) - 1)
 
 class Ingest:
-    def __init__(self, key, sys_id, roster, writer, clock, session_id, event_seq_start=0, commit_wait_ms=120, broadcast=None, perf=time.perf_counter):
+    def __init__(self, key, sys_id, roster, writer, clock, session_id, event_seq_start=0, commit_wait_ms=120, broadcast=None, perf=time.perf_counter, health=None):
         self.key, self.sys_id, self.roster, self.writer, self.clock, self.session_id = key, sys_id, frozenset(roster), writer, clock, session_id
-        self.commit_wait_ms, self.broadcast, self.perf = commit_wait_ms, broadcast, perf
+        self.commit_wait_ms, self.broadcast, self.perf, self.health = commit_wait_ms, broadcast, perf, health   # health: io/health.Health, set by the owner (P12b)
         self.st, self.cs = EngineState(event_seq=event_seq_start), SeqState()
         self.bad_window, self.disagree_window, self.last_hb = RateWindow(BAD_FRAMES_KEPT_PER_MIN), RateWindow(BAD_FRAMES_KEPT_PER_MIN), None
         self.counters = {'rejected_frames': 0, 'rejected_BAD_LEN': 0, 'rejected_BAD_CRC': 0, 'rejected_BAD_MAC': 0, 'rejected_REJECT_ROSTER': 0,
@@ -58,8 +58,17 @@ class Ingest:
 
     def on_item(self, kind, payload):
         """The SerialReader callback."""
+        if self.health is not None: self.health.seen()          # any heartbeat or frame line from the base is a sign of life (BASE_BACK is logged here)
         if kind == 'frame': self.frame(payload)
-        elif kind == 'hb': self.last_hb = payload             # base_health rows and BASE_OFFLINE are P12b
+        elif kind == 'hb': self.heartbeat(payload)
+
+    def heartbeat(self, hb):
+        """One base_health row per heartbeat (design 2.3). The row has no event_seq column, but its unit takes one so the single ordered queue stays ordered; it is routine and droppable."""
+        self.last_hb = hb
+        with self._lock:
+            self.st, seq = next_seq(self.st)
+            self.writer.submit(Unit(seq, [Stmt('INSERT INTO base_health(session_id, ts, uptime_ms, bat_pct, rx_ok, rx_bad_len, rx_bad_crc, rx_bad_mac) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (self.session_id, self.clock.wall_ms(), hb.uptime_ms, hb.bat_pct, hb.rx_ok, hb.rx_bad_len, hb.rx_bad_crc, hb.rx_bad_mac))], droppable=True))
 
     def system_event(self, kind, detail=None, droppable=True):
         with self._lock: return self._sys(kind, detail, droppable)

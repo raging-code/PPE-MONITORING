@@ -1,5 +1,6 @@
 """clock.py: the injected Clock interface (design 1, Clock abstraction; 14.1). Every host timer reads wall_ms() and mono_ms() from a
 Clock, never from time.*, so tests and REPLAY control time. P5 holds the interface and FakeClock; P12b adds the real clock here."""
+import time
 from typing import Protocol
 from .core.rule_engine import Now
 
@@ -28,3 +29,8 @@ class FakeClock:
         self._wall = _ms(ms, 'wall_ms')
     def now(self):
         return now_of(self)
+
+class RealClock:
+    """The real clock (P12b): wall_ms from the system clock (it can step with NTP), mono_ms from time.monotonic (it cannot). The only place outside tests that reads time.*."""
+    def wall_ms(self): return time.time_ns() // 1_000_000
+    def mono_ms(self): return time.monotonic_ns() // 1_000_000
