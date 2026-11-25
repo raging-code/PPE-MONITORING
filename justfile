@@ -1,0 +1,34 @@
+# One command per task (design 14.5): setup, dev, test, gen, lint, build, package.
+# Placeholders are filled in by the Part that owns them (docs/CODING_GUIDE.md, Section 5), using `replace`.
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+default:
+    @just --list
+
+# P1: install the Python dependencies (the dev extra adds pytest and Hypothesis)
+setup:
+    python -m pip install -e ".[dev]"
+
+# P21 adds the dashboard dev server and P24 adds the host
+dev:
+    @echo "dev: nothing to run yet"
+
+# P1: the frame and beacon vectors; later Parts add pytest, Vitest and gcc runs under this line
+test:
+    python tools/test_vectors.py
+
+# P2 and P3 add the generators here
+gen:
+    @echo "gen: no generators yet"
+
+# P1: design document consistency; P27 adds one lint tool per language
+lint:
+    python tools/doc_lint.py
+
+# P27 adds the dashboard and manifest build
+build:
+    @echo "build: nothing to build yet"
+
+# P27 adds the release folder
+package:
+    @echo "package: nothing to package yet"

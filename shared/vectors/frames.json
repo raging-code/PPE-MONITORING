@@ -1,0 +1,708 @@
+{
+ "schema_version": 2,
+ "note": "TEST KEY ONLY. Never provision. CRC-8 poly 0x07 init 0. mac4 = first 4 bytes of AES-128-CMAC(key, sys_id||bytes0-17); beacon mac4 = CMAC(key, bytes0-7). Little-endian. result: OK|BAD_LEN|BAD_CRC|BAD_MAC|REJECT_ROSTER (frames), OK|BAD_CRC|BAD_MAC|IGNORE_ABI (beacons). Unspecified frame fields: temp_x100=2500, hum=50, hr=0, motion=0, bat=80, status2/3/4=0 unless the GV says otherwise, uptime_s=100, boot_ctr=7.",
+ "key_hex": "000102030405060708090a0b0c0d0e0f",
+ "wrong_key_hex": "101112131415161718191a1b1c1d1e1f",
+ "sys_id": 90,
+ "wrong_sys_id": 91,
+ "frames": [
+  {
+   "id": "F-01",
+   "gv": "GV-01",
+   "desc": "node 1, CO 52.0 ppm, node_level WARNING",
+   "hex": "64000802c40932000050000141640000000772b6c808e7",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 100,
+     "co_x10": 520,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 1,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-02",
+   "gv": "GV-02",
+   "desc": "node 1, man-down latch, DANGER, motion 0.01 g",
+   "hex": "65000000c4093200015000064164000000075ec5c3eb55",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 101,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 1,
+     "bat": 80,
+     "status2": 0,
+     "flags": 6,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-03",
+   "gv": "GV-03",
+   "desc": "node 1, man-down + MAYDAY (status4 bit 4)",
+   "hex": "66000000c4093200005000064164000010071f1c222846",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 102,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 6,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 16,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-04",
+   "gv": "GV-05a",
+   "desc": "node 1, check-in bit 7 + WARNING",
+   "hex": "67000000c409320000500081416400000007fbfebccd84",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 103,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 129,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-05",
+   "gv": "GV-06a",
+   "desc": "node 1, bat 10 %, bat_low bit 2",
+   "hex": "68000000c4093200000a0400416400000007cfe57cb8fa",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 104,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 10,
+     "status2": 4,
+     "flags": 0,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-06",
+   "gv": "GV-07a",
+   "desc": "node 1, CO fault (status2 bit 4) + fault flag, CO 52.0",
+   "hex": "69000802c409320000501008416400000007a57742c08f",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 105,
+     "co_x10": 520,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 16,
+     "flags": 8,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-07",
+   "gv": "GV-09a",
+   "desc": "node 1, CO 250 ppm, DANGER",
+   "hex": "6a00c409c4093200005000024164000000074b61eb5598",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 106,
+     "co_x10": 2500,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 2,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-08",
+   "gv": "GV-11a",
+   "desc": "node 1, seq 65535 (wrap, step 1)",
+   "hex": "ffff0000c409320000500000416400000007ddf0e00531",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 65535,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 0,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-09",
+   "gv": "GV-11b",
+   "desc": "node 1, seq 0 after 65535 (wrap)",
+   "hex": "00000000c409320000500000416400000007953ab9ccb5",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 0,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 0,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-10",
+   "gv": "GV-12a",
+   "desc": "node 1, reboot: boot_ctr 8, seq 0, reboot hint status2 bit 3",
+   "hex": "00000000c40932000050080041640000000820f39b319e",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 0,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 8,
+     "flags": 0,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 8,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-11",
+   "gv": "GV-15a",
+   "desc": "node 1, CO 40.0 ppm, WARNING (precedes CO fault)",
+   "hex": "6e009001c4093200005000014164000000079eab947789",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 110,
+     "co_x10": 400,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 1,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-12",
+   "gv": "GV-15b",
+   "desc": "node 1, CO fault + DANGER (flags 0x0A)",
+   "hex": "78000000c40932000050100a416400000007e5dafe5ddf",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 120,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 16,
+     "flags": 10,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-13",
+   "gv": "GV-16b",
+   "desc": "node 1, SHT40 temp fault + WARNING (flags 0x09)",
+   "hex": "82000000c40932000050400941640000000743a895d468",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 130,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 64,
+     "flags": 9,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-14",
+   "gv": "GV-17",
+   "desc": "node 1, node_level DANGER only (flags 0x02)",
+   "hex": "8c000000c409320000500002416400000007b81ef79347",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 140,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 2,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-15",
+   "gv": "GV-18b",
+   "desc": "node 1, 56.00 C, 50 %RH, CO 20.0 ppm (outside CO range)",
+   "hex": "9600c800e015320000500000416400000007cf6b0f9c83",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 150,
+     "co_x10": 200,
+     "temp_x100": 5600,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 0,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-16",
+   "gv": "GV-04",
+   "desc": "node 2 claims man-down, tag byte 22 flipped",
+   "hex": "c8000000c409320000500006426400000007a81318681c",
+   "expect": {
+    "result": "BAD_MAC",
+    "node_id": 2,
+    "decoded": {
+     "seq": 200,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 6,
+     "id_mode": 66,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-17",
+   "gv": "D1",
+   "desc": "F-01 with one bit flipped in byte 2 (CRC must fail)",
+   "hex": "64000902c40932000050000141640000000772b6c808e7",
+   "expect": {
+    "result": "BAD_CRC",
+    "node_id": 1,
+    "decoded": {
+     "seq": 100,
+     "co_x10": 521,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 1,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-18",
+   "gv": "D1",
+   "desc": "F-01 payload, MAC made with a wrong key",
+   "hex": "64000802c4093200005000014164000000077290948d68",
+   "expect": {
+    "result": "BAD_MAC",
+    "node_id": 1,
+    "decoded": {
+     "seq": 100,
+     "co_x10": 520,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 1,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-19",
+   "gv": "D1",
+   "desc": "F-01 payload, MAC made with a wrong sys_id",
+   "hex": "64000802c40932000050000141640000000772b6825c05",
+   "expect": {
+    "result": "BAD_MAC",
+    "node_id": 1,
+    "decoded": {
+     "seq": 100,
+     "co_x10": 520,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 1,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-20",
+   "gv": "D1",
+   "desc": "id_mode 0x40: node ID 0 is invalid (CRC and MAC are valid)",
+   "hex": "64000000c409320000500000406400000007f92e401ee7",
+   "expect": {
+    "result": "REJECT_ROSTER",
+    "node_id": 0,
+    "decoded": {
+     "seq": 100,
+     "co_x10": 0,
+     "temp_x100": 2500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 0,
+     "id_mode": 64,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-21",
+   "gv": "D1",
+   "desc": "F-01 truncated to 22 bytes",
+   "hex": "64000802c40932000050000141640000000772b6c808",
+   "expect": {
+    "result": "BAD_LEN",
+    "node_id": null,
+    "decoded": null
+   }
+  },
+  {
+   "id": "F-22",
+   "gv": "D1",
+   "desc": "F-01 padded to 24 bytes",
+   "hex": "64000802c40932000050000141640000000772b6c808e700",
+   "expect": {
+    "result": "BAD_LEN",
+    "node_id": null,
+    "decoded": null
+   }
+  },
+  {
+   "id": "F-23",
+   "gv": "GV-18g",
+   "desc": "node 1, 56.00 C, 50 %RH, CO 250.0 ppm, flags 0x02 (co_range active, CO above 200 ppm: co_threshold must still raise at DANGER)",
+   "hex": "a000c409e015320000500002416400000007614a582d7e",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 160,
+     "co_x10": 2500,
+     "temp_x100": 5600,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 2,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  },
+  {
+   "id": "F-24",
+   "gv": "D1",
+   "desc": "node 1, -5.00 C (temp_x100 = -500, bytes 0c fe): temp is a signed 16-bit value; an unsigned decoder gives 65036",
+   "hex": "aa0000000cfe320000500000416400000007c3767968db",
+   "expect": {
+    "result": "OK",
+    "node_id": 1,
+    "decoded": {
+     "seq": 170,
+     "co_x10": 0,
+     "temp_x100": -500,
+     "hum": 50,
+     "hr": 0,
+     "motion_x100": 0,
+     "bat": 80,
+     "status2": 0,
+     "flags": 0,
+     "id_mode": 65,
+     "uptime_s": 100,
+     "status3": 0,
+     "status4": 0,
+     "boot_ctr": 7,
+     "scba_on": 0,
+     "link_ok": 1,
+     "evt_unsent": 0
+    }
+   }
+  }
+ ],
+ "beacons": [
+  {
+   "id": "B-01",
+   "desc": "valid beacon, node 1 heard, ack1=100",
+   "hex": "5a010a030264000073a28dfc75",
+   "expect": {
+    "result": "OK",
+    "abi_ver": 3
+   }
+  },
+  {
+   "id": "B-02",
+   "desc": "B-01 with a bit flipped in byte 2 (CRC fails)",
+   "hex": "5a010b030264000073a28dfc75",
+   "expect": {
+    "result": "BAD_CRC",
+    "abi_ver": 3
+   }
+  },
+  {
+   "id": "B-03",
+   "desc": "beacon MAC made with a wrong key",
+   "hex": "5a010a0302640000739af06e2e",
+   "expect": {
+    "result": "BAD_MAC",
+    "abi_ver": 3
+   }
+  },
+  {
+   "id": "B-04",
+   "desc": "valid CRC and MAC but abi_ver=2 (nodes ignore)",
+   "hex": "5a010a02026400001156ab850b",
+   "expect": {
+    "result": "IGNORE_ABI",
+    "abi_ver": 2
+   }
+  }
+ ]
+}

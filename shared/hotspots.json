@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "stl_file": "jacket_model.stl",
+  "stl_sha256": "PLACEHOLDER_COMPUTE_ON_STL_DROP",
+  "up_axis": "+Z",
+  "front_axis": "+Y",
+  "scale": 1.0,
+  "hotspots": [
+    {"id": "co_sensor", "label": "CO Sensor", "pos": [0.12, 0.14, 0.42], "normal": [0.0, 1.0, 0.0]},
+    {"id": "sht40", "label": "SHT40 Temp/Humidity", "pos": [-0.12, 0.14, 0.42], "normal": [0.0, 1.0, 0.0]},
+    {"id": "chest_imu", "label": "Chest IMU", "pos": [0.0, 0.15, 0.36], "normal": [0.0, 1.0, 0.0]},
+    {"id": "wrist_module", "label": "Wrist Module & Connector", "pos": [0.34, 0.05, 0.08], "normal": [1.0, 0.0, 0.0]},
+    {"id": "scba_coupling", "label": "SCBA Coupling", "pos": [0.0, -0.16, 0.32], "normal": [0.0, -1.0, 0.0]},
+    {"id": "battery", "label": "Battery Pack", "pos": [0.0, -0.15, 0.12], "normal": [0.0, -1.0, 0.0]},
+    {"id": "radio_node", "label": "LoRa Radio Node", "pos": [-0.14, -0.14, 0.38], "normal": [0.0, -1.0, 0.0]},
+    {"id": "buzzer_led", "label": "Buzzer & Amber LED", "pos": [0.10, 0.14, 0.48], "normal": [0.0, 1.0, 0.0]},
+    {"id": "cancel_button", "label": "CANCEL Button", "pos": [-0.10, 0.14, 0.48], "normal": [0.0, 1.0, 0.0]}
+  ]
+}

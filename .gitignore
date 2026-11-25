@@ -1,0 +1,53 @@
+# Secrets and machine-specific settings (design 1, Host configuration; Section 4)
+config/secrets.json
+**/secrets.json
+config/settings.local.json
+**/settings.local.json
+.env
+# Firmware secrets header provisioned at flash time (design Section 4, System key)
+firmware/**/secrets.h
+firmware/**/*secrets*.h
+
+# Responder data under PPE_HOME: databases, backups, logs, exports (design 1, 2.6, 2.8)
+data/
+backups/
+logs/
+exports/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.corrupt-*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Dashboard (committed: dashboard/public/jacket_model.stl once it exists; built output is not)
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+node_modules/
+
+# Firmware build output
+firmware/**/build/
+firmware/**/sdkconfig.old
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

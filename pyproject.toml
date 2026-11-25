@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ppe-host"
+version = "0.0.0"
+description = "PPE Monitoring System host (Tier 1). Design of record: docs/PPE_Software_Design_Compact_Rev3_45.docx"
+requires-python = ">=3.12"
+# Versions are not pinned here: requirements.lock (P27b) pins them. Python 3.12, FastAPI, Uvicorn, Pydantic v2,
+# pyserial, cryptography and tzdata are the Python dependencies named in design Section 8 (lock notes).
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "websockets",   # not named in the design: uvicorn needs a WebSocket backend for /ws (P20); remove if an ADR picks another
+    "pydantic>=2",
+    "pyserial",
+    "cryptography",
+    "tzdata",       # Windows has no time-zone database and Asia/Manila needs it (design 3.10, Rev 3.40)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "hypothesis",
+    "httpx",        # not named in the design: fastapi.testclient needs it (P19)
+]
+
+[tool.setuptools.packages.find]
+where = ["host"]
+include = ["ppe_host*"]
+
+[tool.pytest.ini_options]
+testpaths = ["host/tests"]
+pythonpath = ["host"]

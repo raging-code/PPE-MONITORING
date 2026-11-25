@@ -1,0 +1,5 @@
+# LF everywhere so generated files give an empty `git diff` on Windows and Linux (design 12.1 CI check)
+* text=auto eol=lf
+*.docx binary
+*.stl binary
+*.wav binary
