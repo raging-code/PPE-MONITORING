@@ -61,6 +61,18 @@ class OpenAlert:
     event_seq: int
     raised_ts: int
     reasons: str
+    acknowledged_ts: Optional[int] = None   # NULL until an operator acknowledges; escalating WARNING -> DANGER resets it, lowering keeps it (14.1)
+
+@dataclass(frozen=True)
+class ChangeAlertLevel(Effect):   # P6b: an open alert row changes level in place (same alert_id, no second card); event_seq is a new one
+    node_id: int
+    type: str
+    raised_event_seq: int         # event_seq of the RaiseAlert that opened the row (identifies the row)
+    old_level: str
+    level: str
+    acknowledged_reset: bool      # True on escalation: acknowledged_ts = NULL so the siren sounds; False on lowering: acknowledged_ts kept
+    reasons: str
+    changed_ts: int
 
 # P6a: per-frame CO mode (NodeState.co_mode), set by co_state_rule and read by P6b and P6c (design 14.2 (1) and (3))
 CO_USABLE = 'usable'                    # VALID or DERATED: the reading is usable and nothing is held
@@ -82,7 +94,9 @@ class NodeState:
     sht40_fault: bool = False     # status2 bit 6 of the last fresh frame
     co_warmup: bool = False       # status3 bit 2 of the last fresh frame
     last_valid_co_mono: Optional[int] = None         # last fresh frame without a CO fault (co_timeout clock)
-    last_co_ge_warn_mono: Optional[int] = None       # last fresh frame with a usable CO of co_warn_ppm or more and SCBA OFF (read by P6c)
+    last_co_ge_warn_mono: Optional[int] = None       # last fresh frame with a usable CO of co_warn_ppm or more and SCBA OFF (read by P6c; set by P6a)
+    co_clear_since_mono: Optional[int] = None        # P6b: first fresh frame of the current run below co_warn_clear_ppm (10 s clear timer)
+    co_lower_since_mono: Optional[int] = None        # P6b: first fresh frame of the current run below co_danger_clear_ppm (10 s DANGER-to-WARNING timer)
 
 @dataclass(frozen=True)
 class EngineState:
@@ -147,7 +161,59 @@ def co_state_rule(state, event, now, mode):
     nodes = {**state.nodes, **{k: v for k, v in changes.items() if state.nodes.get(k) != v}}
     return (state, ()) if nodes == state.nodes else (replace(state, nodes=nodes), ())
 
-RULES = (co_state_rule,)  # rule functions in evaluation order; later Parts add theirs after this one (node_danger stays last, 14.1)
+# ---- P6b: co_threshold, design 14.1 row and 14.2 (3). Reads the P6a state (co_mode, co_hold_ended), so it runs after co_state_rule. ----
+RANK = {'NONE': 0, 'NORMAL': 0, 'WARNING': 1, 'DANGER': 2}
+CO_RISING_ENABLED = False  # co_rising stays disabled until its values are signed off (guide Section 6); host/config/settings.json co_rising_enabled is false too
+
+def set_alert_level(state, node_id, type, level, reasons, now):
+    """Change the level of the open alert of that node and type in place (14.1). Escalation resets acknowledged_ts; lowering keeps it.
+    No effect if none is open or the level is already that level."""
+    _check_alert(node_id, type, level)
+    row = state.alerts.get((node_id, type))
+    if row is None or row.level == level: return state, ()
+    up = RANK[level] > RANK[row.level]
+    state, seq = next_seq(state)
+    new = replace(row, level=level, reasons=reasons, acknowledged_ts=None if up else row.acknowledged_ts)
+    return replace(state, alerts={**state.alerts, (node_id, type): new}), (ChangeAlertLevel(seq, node_id, type, row.event_seq, row.level, level, up, reasons, now.wall_ms),)
+
+def refresh_level(state, node_id, flag_rank, keep_higher):
+    """NodeState.level = the highest of the frame's node_level (flag_rank 0 to 2) and the open alerts of the node; a suspect frame
+    (keep_higher) can only raise it (14.1). P7 onward reuse this."""
+    n = state.nodes.get(node_id, NodeState())
+    top = max([flag_rank] + [RANK[a.level] for (nid, _), a in state.alerts.items() if nid == node_id] + ([RANK[n.level]] if keep_higher else []))
+    lvl = ('NORMAL', 'WARNING', 'DANGER')[top]
+    return state if lvl == n.level and node_id in state.nodes else replace(state, nodes={**state.nodes, node_id: replace(n, level=lvl)})
+
+def co_threshold_rule(state, event, now, mode):
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, mono = event.node_id, event.decoded, now.mono_ms
+    n, fresh = state.nodes.get(nid, NodeState()), mode == FULL
+    ppm, scba = d['co_x10'] / 10, bool(_bit(d, 'id_mode', 'scba_on'))   # the raw reading: a high value is never hidden (GV-18 g)
+    usable = n.co_mode != CO_NO_READING_HELD if fresh else not _bit(d, 'status2', 'co_fault')   # a CO fault or CO timeout has no reading
+    want = None
+    if usable and not scba:
+        want = 'DANGER' if ppm >= K.CO_DANGER_PPM or _bit(d, 'flags', 'co_sat') else 'WARNING' if ppm >= K.CO_WARN_PPM else None
+    why, fx = f'co_ppm={min(ppm, K.CO_CLAMP_MAX_PPM):.1f}', ()
+    row = open_alert(state, nid, 'co_threshold')
+    if want and row is None: state, fx = raise_alert(state, nid, 'co_threshold', want, why, now)
+    elif want == 'DANGER' and row is not None and row.level == 'WARNING': state, fx = set_alert_level(state, nid, 'co_threshold', 'DANGER', why, now)
+    clear_s, lower_s = n.co_clear_since_mono, n.co_lower_since_mono
+    if fresh:                      # a suspect frame never lowers, clears or moves a timer (14.1)
+        row, hyst = open_alert(state, nid, 'co_threshold'), K.CO_HYSTERESIS_S * 1000
+        if row is None or not usable or scba or n.co_mode != CO_USABLE or n.co_hold_ended:
+            clear_s = lower_s = None   # nothing open, held (14.2 (3)), suppressed (SCBA ON) or the frame that ended a hold: no timer runs, a running one is reset
+        else:
+            clear_s = (mono if clear_s is None else clear_s) if ppm < K.CO_WARN_CLEAR_PPM else None
+            lower_s = (mono if lower_s is None else lower_s) if row.level == 'DANGER' and ppm < K.CO_DANGER_CLEAR_PPM else None
+            if clear_s is not None and mono - clear_s >= hyst:        # clearing wins when both timers have expired
+                state, more = clear_alert(state, nid, 'co_threshold', now, 'below_clear_level'); fx += more; clear_s = lower_s = None
+            elif lower_s is not None and mono - lower_s >= hyst and ppm >= K.CO_WARN_CLEAR_PPM:
+                state, more = set_alert_level(state, nid, 'co_threshold', 'WARNING', why, now); fx += more; lower_s = None
+    cur = state.nodes.get(nid); n2 = replace(cur or n, co_clear_since_mono=clear_s, co_lower_since_mono=lower_s)
+    if cur != n2: state = replace(state, nodes={**state.nodes, nid: n2})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+RULES = (co_state_rule, co_threshold_rule)  # rule functions in evaluation order; later Parts add theirs after these (node_danger stays last, 14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level

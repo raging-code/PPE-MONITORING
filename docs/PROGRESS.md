@@ -10,3 +10,4 @@ One line per finished Part. Each patch script appends its line here. Design of r
 - Part 5b done: host/tests/test_golden_vectors.py (golden-vector harness, CASES table with 4 placeholder cases, marker line for later Parts)
 - Docs: CODING_GUIDE rev G2 applied (Part 6 split into P6a, P6b, P6c; stage rules; per-stage design extracts)
 - Part 6a done: CO state in core/rule_engine.py (co_validity, co_reason, co_range with its 60 s clear, co_over_range and clamp, last_co_ge_warn_mono, co_mode and co_hold_ended; no alerts), host/tests/test_co_state.py
+- Part 6b done: co_threshold in core/rule_engine.py (WARNING at 35 ppm, DANGER at 200 ppm or co_sat, in-place escalate and lower via ChangeAlertLevel and set_alert_level, 10 s timers, hold rule, SCBA suppression, NodeState.level via refresh_level; co_rising stays disabled), host/tests/test_co_threshold.py, GV-01 in the harness

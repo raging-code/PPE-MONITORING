@@ -178,6 +178,8 @@ def test_other_nodes_are_independent():
     s = Sim(); s.go(co_frame(temp_x100=5600, node=2), dt_ms=0); s.go(co_frame(node=1))
     assert (s.state.nodes[1].co_range_active, s.state.nodes[2].co_range_active) == (False, True)
 
-def test_rule_does_not_touch_level_alerts_or_event_seq():
-    s = Sim(); s.frames(5, co_x10=2500, temp_x100=5600)
-    assert (s.state.nodes[1].level, s.state.alerts, s.state.event_seq) == ('NORMAL', {}, 0)
+def test_co_state_rule_alone_touches_no_level_alert_or_event_seq():
+    s, clock = EngineState(), FakeClock(0, 10_000)
+    for _ in range(5):
+        clock.advance(2000); s, fx = re_.co_state_rule(s, co_frame(co_x10=2500, temp_x100=5600), clock.now(), 'full'); assert fx == ()
+    assert (s.nodes[1].level, s.alerts, s.event_seq) == ('NORMAL', {}, 0)

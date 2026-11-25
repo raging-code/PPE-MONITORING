@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from ppe_host.clock import FakeClock
 from ppe_host.core import crypto_abi as ca
-from ppe_host.core.rule_engine import (ClearAlert, EngineState, FrameEvent, RaiseAlert, TickEvent, node_level, raise_alert, step)
+from ppe_host.core.rule_engine import (ChangeAlertLevel, ClearAlert, EngineState, FrameEvent, RaiseAlert, TickEvent, node_level, raise_alert, step)
 
 ROOT = Path(__file__).resolve().parents[2]
 VEC = json.loads((ROOT / 'shared' / 'vectors' / 'frames.json').read_text(encoding='utf8'))
@@ -22,7 +22,8 @@ def frame_event(fid, seq_class):
     return FrameEvent(r.node_id, r.result, seq_class, r.decoded)
 
 def project(fx):
-    return [('raise', e.node_id, e.type, e.level) if isinstance(e, RaiseAlert) else ('clear', e.node_id, e.type, None) for e in fx]
+    return [('clear', e.node_id, e.type, None) if isinstance(e, ClearAlert) else ('raise', e.node_id, e.type, e.level) if isinstance(e, RaiseAlert)
+            else ('escalate' if e.acknowledged_reset else 'lower', e.node_id, e.type, e.level) for e in fx]
 
 def run_case(case):
     """Returns a list of mismatch strings (empty = pass)."""
@@ -50,9 +51,10 @@ CASES = [
     {'id': 'PH-02', 'gv': 'GV-13/GV-14 (partial)', 'desc': 'A suspect frame never clears or lowers an alert: open co_threshold WARNING on node 1, suspect frame with CO 0 and no flags leaves it open',
      'open': [(1, 'co_threshold', 'WARNING')],
      'steps': [{'frame': 'F-08', 'seq_class': 'suspect', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 0}}]},
-    {'id': 'PH-03', 'gv': 'GV-01 (partial)', 'desc': 'PLACEHOLDER, replaced in P6 by GV-01 (it will raise co_threshold): until a rule exists a fresh F-01 and a timer tick produce no effects and use no event_seq',
-     'steps': [{'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'episodes': 0, 'seq_delta': 0, 'levels': {1: 'NORMAL'}}},
-               {'tick': True, 'dt_ms': 20000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0}}]},
+    {'id': 'GV-01', 'gv': 'GV-01', 'desc': 'Node 1, fresh F-01 (52.0 ppm, SCBA OFF, node_level WARNING): raises co_threshold WARNING, final level WARNING, 0 episodes; the same reading again adds nothing; a timer tick adds nothing',
+     'steps': [{'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'co_threshold', 'WARNING')], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'WARNING'}}},
+               {'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'seq_delta': 0}},
+               {'tick': True, 'dt_ms': 20000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'seq_delta': 0}}]},
     {'id': 'PH-04', 'gv': 'D1 (partial)', 'desc': 'A duplicate frame and a frame with a bad CRC are never evaluated: the open man_down alert stays open and nothing is raised',
      'open': [(1, 'man_down', 'DANGER')],
      'steps': [{'frame': 'F-01', 'seq_class': 'duplicate', 'expect': {'effects': [], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 0}},
@@ -70,7 +72,7 @@ def test_harness_itself():
         assert c['id'] and c['gv'] and c['desc'] and c['steps']
         for st in c['steps']: assert st.get('tick') or st['frame'] in HEX, c['id']
     # the harness must be able to FAIL: wrong expectations are reported with the case id, one message per mismatch
-    wrong = {'id': 'X-1', 'steps': [{'frame': 'F-01', 'seq_class': 'fresh', 'expect': {'effects': [('raise', 1, 'co_threshold', 'WARNING')], 'open': [(1, 'heat', 'WARNING')], 'episodes': 1, 'seq_delta': 3, 'levels': {1: 'DANGER'}}}]}
+    wrong = {'id': 'X-1', 'steps': [{'frame': 'F-01', 'seq_class': 'fresh', 'expect': {'effects': [('raise', 1, 'heat', 'WARNING')], 'open': [(1, 'heat', 'WARNING')], 'episodes': 1, 'seq_delta': 3, 'levels': {1: 'DANGER'}}}]}
     msgs = run_case(wrong); assert len(msgs) == 5 and all(m.startswith('X-1 step 1') for m in msgs)
 
 def test_frames_reach_the_engine_through_the_real_codec():
