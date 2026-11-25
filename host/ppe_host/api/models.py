@@ -218,3 +218,23 @@ def parse_client(raw):  # str, bytes or dict; raises pydantic.ValidationError fo
     return CLIENT_ADAPTER.validate_json(raw) if isinstance(raw, (str, bytes)) else CLIENT_ADAPTER.validate_python(raw)
 def parse_server(raw):
     return SERVER_ADAPTER.validate_json(raw) if isinstance(raw, (str, bytes)) else SERVER_ADAPTER.validate_python(raw)
+# ---- REST bodies (P19-1; the rest of the frozen endpoint list follows in P19-2 and P19c) ----
+class LoginReq(_Strict):
+    token: str = Field(min_length=1)
+class LoginResp(_Strict):
+    operator_id: int
+    display_name: str
+    session_id: int
+EventRecordType = Literal['alert_raised', 'alert_cleared', 'audit', 'system', 'advisory']
+class EventRow(_Strict):  # one row of v_events (11 DDL): never a frame row, no raw_hex, no measurement column
+    event_seq: int
+    log_ts: int
+    record_type: EventRecordType
+    node_id: Optional[int]
+    level: Optional[str]
+    code: str
+    detail: Optional[str]
+    operator_id: Optional[int]
+class EventsResp(_Strict):
+    events: list[EventRow]
+    last_seq: int
