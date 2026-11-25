@@ -3,12 +3,13 @@
 Needs gcc on PATH. Run python tools/gen_frame_vectors.py first (just gen does it)."""
 import os, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TESTS = {'test_frame': ('frame', ['aes128', 'cmac', 'crc8', 'frame']), 'test_rules_fw': ('rules_fw', ['man_down']), 'test_scba': ('rules_fw', ['man_down', 'scba', 'degraded'])}  # P16b adds nvs_latch
+TESTS = {'test_frame': ('frame', ['aes128', 'cmac', 'crc8', 'frame']), 'test_rules_fw': ('rules_fw', ['man_down']), 'test_scba': ('rules_fw', ['man_down', 'scba', 'degraded']),
+         'test_nvs': ('nvs_latch', ['nvs_latch', '../frame/aes128', '../frame/cmac', '../frame/crc8', '../frame/frame', '../rules_fw/man_down', '../rules_fw/scba'])}
 def main():
     out = os.path.join(ROOT, 'firmware', 'tests', 'build'); os.makedirs(out, exist_ok=True)
     for name, (comp, parts) in TESTS.items():
         exe = os.path.join(out, name + ('.exe' if os.name == 'nt' else ''))
-        cmd = ['gcc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-I', 'firmware/components/abi', '-I', f'firmware/components/{comp}', '-I', 'firmware/tests',
+        cmd = ['gcc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-I', 'firmware/components/abi', '-I', f'firmware/components/{comp}', '-I', 'firmware/components/frame', '-I', 'firmware/components/rules_fw', '-I', 'firmware/tests',
                *[f'firmware/components/{comp}/{p}.c' for p in parts], f'firmware/tests/{name}.c', '-o', exe]
         if subprocess.run(cmd, cwd=ROOT).returncode: return 1
         if subprocess.run([exe], cwd=ROOT).returncode: return 1
