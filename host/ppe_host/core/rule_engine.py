@@ -122,6 +122,7 @@ class NodeState:
     heat_skip_next: bool = False                     # P7c-3: the last frame had a temperature fault, so the next fresh frame is not evaluated (14.1)
     shadow_still_since_mono: Optional[int] = None    # P7c-3: first fresh frame of the current run with motion at or below still_g_default (shadow estimator)
     shadow_rebaseline_left: int = 0                  # P7c-3: fresh frames still to skip after a link recovery (rebaseline_clean_frames)
+    suspect_prev: bool = False                       # P8: the last evaluated frame met the suspect_frame condition (a one-shot notice is raised once per run, 14.1b)
 
 @dataclass(frozen=True)
 class EngineState:
@@ -682,7 +683,24 @@ def shadow_rule(state, event, now, mode):
     cur = state.nodes.get(nid, n); n2 = replace(cur, shadow_still_since_mono=since, shadow_rebaseline_left=left)
     return (state if n2 == cur and nid in state.nodes else replace(state, nodes={**state.nodes, nid: n2})), fx
 
-RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, heat_rule, shadow_rule, link_rule, checkin_rule, scba_expired_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
+# ---- P8: suspect_frame, the one-shot notice of 14.1b (level NONE, stored with cleared_ts = raised_ts, never held in state.alerts). Condition: verify OK and
+# (seq_class suspect, or a reserved status bit set). It runs on suspect frames too (raise-only gate): it only raises. Raised on the frame where the condition
+# becomes true and not again while the run lasts; a fresh or reboot frame without the condition ends the run, a suspect frame never does. Frames the gate drops
+# (flags level 3, verify other than OK) never raise it. ----
+def suspect_frame_rule(state, event, now, mode):
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fx = event.node_id, event.decoded, ()
+    n = state.nodes.get(nid, NodeState())
+    reserved = any(d.get(f, 0) & m for f, m in abi.RESERVED_MASK.items())
+    cond = event.seq_class == 'suspect' or reserved
+    if cond and not n.suspect_prev:
+        state, fx = raise_notice(state, nid, 'suspect_frame', ('reserved_bit ' if reserved else '') + f"seq={d['seq']} boot_ctr={d['boot_ctr']} " + _why(d), now)
+    prev = True if cond else (False if mode == FULL else n.suspect_prev)
+    cur = state.nodes.get(nid, n)
+    if cur.suspect_prev != prev or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, suspect_prev=prev)})
+    return state, fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, heat_rule, shadow_rule, link_rule, checkin_rule, scba_expired_rule, suspect_frame_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level

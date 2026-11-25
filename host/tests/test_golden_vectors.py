@@ -8,6 +8,7 @@ effects are ('raise', node, type, level) or ('clear', node, type, None); open is
 import json
 from pathlib import Path
 import pytest
+SUSPECT_NOTICE_ON = True   # P8: conftest.py keeps suspect_frame_rule in RULES for this module
 from ppe_host.clock import FakeClock
 from ppe_host.core import crypto_abi as ca
 from ppe_host.core.rule_engine import (ChangeAlertLevel, ClearAlert, EngineState, FrameEvent, RaiseAlert, TickEvent, node_level, raise_alert, step)
@@ -50,7 +51,7 @@ CASES = [
      'steps': [{'frame': 'F-16', 'seq_class': 'suspect', 'expect': {'effects': [('raise', 2, 'unauth_alert', 'NONE')], 'open': [(2, 'unauth_alert', 'NONE')], 'episodes': 0, 'seq_delta': 1, 'levels': {2: 'NORMAL'}}}]},
     {'id': 'PH-02', 'gv': 'GV-13/GV-14 (partial)', 'desc': 'A suspect frame never clears or lowers an alert: open co_threshold WARNING on node 1, suspect frame with CO 0 and no flags leaves it open',
      'open': [(1, 'co_threshold', 'WARNING')],
-     'steps': [{'frame': 'F-08', 'seq_class': 'suspect', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 0}}]},
+     'steps': [{'frame': 'F-08', 'seq_class': 'suspect', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'suspect_frame', 'NONE')], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 1}}]},   # P8: the one-shot suspect_frame notice is the only effect
     {'id': 'GV-01', 'gv': 'GV-01', 'desc': 'Node 1, fresh F-01 (52.0 ppm, SCBA OFF, node_level WARNING): raises co_threshold WARNING, final level WARNING, 0 episodes; the same reading again adds nothing; a timer tick adds nothing',
      'steps': [{'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'co_threshold', 'WARNING')], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'WARNING'}}},
                {'frame': 'F-01', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'seq_delta': 0}},
@@ -85,7 +86,9 @@ CASES = [
     {'id': 'GV-05d', 'gv': 'GV-05 d', 'desc': 'F-02 (man-down) with an open checkin: opens the MAN_DOWN episode, raises man_down DANGER and clears the checkin row',
      'open': [(1, 'checkin', 'WARNING')],
      'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'checkin', None), ('EpisodeOpened', 1, None, None), ('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'episodes': 1, 'seq_delta': 3, 'levels': {1: 'DANGER'}}}]},
-    # ---- GV cases above this line (each later Part adds its own here; P7c-2 added GV-05 a, b and d (GV-05 c and GV-24 are field-level, in test_checkin_scba.py); P7-1 added GV-02, GV-03, GV-17; P7-2 added GV-04, GV-06 a and d (GV-08, GV-10 and GV-12 are in test_link_battery.py)) ----
+    {'id': 'GV-14c', 'gv': 'GV-14 c', 'desc': 'F-02 (mandown) as a suspect frame, no open alert or episode: raise-only opens the MAN_DOWN episode and man_down DANGER, and the one-shot suspect_frame notice is raised first (GV-14 a, b, GV-11, GV-12 c and GV-13 run through the real classifier in test_seq_classifier.py)',
+     'steps': [{'frame': 'F-02', 'seq_class': 'suspect', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'suspect_frame', 'NONE'), ('EpisodeOpened', 1, None, None), ('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'episodes': 1, 'seq_delta': 3, 'levels': {1: 'DANGER'}}}]},
+    # ---- GV cases above this line (each later Part adds its own here; P8 added GV-14c (GV-11 to GV-14 also run through the real classifier in test_seq_classifier.py); P7c-2 added GV-05 a, b and d (GV-05 c and GV-24 are field-level, in test_checkin_scba.py); P7-1 added GV-02, GV-03, GV-17; P7-2 added GV-04, GV-06 a and d (GV-08, GV-10 and GV-12 are in test_link_battery.py)) ----
 ]
 
 @pytest.mark.parametrize('case', CASES, ids=[c['id'] for c in CASES])
