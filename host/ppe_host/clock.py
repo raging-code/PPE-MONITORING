@@ -1,6 +1,7 @@
 """clock.py: the injected Clock interface (design 1, Clock abstraction; 14.1). Every host timer reads wall_ms() and mono_ms() from a
 Clock, never from time.*, so tests and REPLAY control time. P5 holds the interface and FakeClock; P12b adds the real clock here."""
 import time
+import time
 from typing import Protocol
 from .core.rule_engine import Now
 
