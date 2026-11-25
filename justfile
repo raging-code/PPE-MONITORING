@@ -21,6 +21,7 @@ test:
 # P14: firmware unit tests built with gcc (needs gcc on PATH; CI runs this too)
 test-fw:
     python tools/gen_frame_vectors.py
+    python tools/gen_fw_vectors.py
     python tools/run_gcc_tests.py
 
 # P2, P3 and P14 add the generators here
@@ -28,6 +29,7 @@ gen:
     python tools/gen_abi.py
     python tools/gen_constants.py
     python tools/gen_frame_vectors.py
+    python tools/gen_fw_vectors.py
 
 # P1: design document consistency; P27 adds one lint tool per language
 lint:
