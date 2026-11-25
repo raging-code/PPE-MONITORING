@@ -7,6 +7,7 @@ Rules are added later by Parts P6 to P7c as functions rule(state, event, now, mo
 from dataclasses import dataclass, field, replace
 from typing import Mapping, NamedTuple, Optional
 from .. import abi
+from .. import constants as K
 
 LEVELS = ('NONE', 'WARNING', 'DANGER')
 # The 25 alerts.type values of Migration 0001 (= owner 'alerts' in shared/alert_catalog.json). A test keeps all three in step.
@@ -61,9 +62,27 @@ class OpenAlert:
     raised_ts: int
     reasons: str
 
+# P6a: per-frame CO mode (NodeState.co_mode), set by co_state_rule and read by P6b and P6c (design 14.2 (1) and (3))
+CO_USABLE = 'usable'                    # VALID or DERATED: the reading is usable and nothing is held
+CO_USABLE_HELD = 'usable_held'          # UNRELIABLE for co_range or sht40_fault: the raw reading still counts (GV-18 g), open alerts are held
+CO_NO_READING_HELD = 'no_reading_held'  # co_fault or co_timeout: no usable reading, open alerts are held
+
 @dataclass(frozen=True)
 class NodeState:
-    level: str = 'NORMAL'         # displayed node level; P6 onward maintain it
+    level: str = 'NORMAL'         # displayed node level (P6b and later Parts maintain it)
+    co_validity: str = 'VALID'    # VALID | DERATED | UNRELIABLE (14.2 (1))
+    co_reason: Optional[str] = None        # None | co_fault | co_timeout | co_range | sht40_fault
+    co_mode: str = CO_USABLE
+    co_hold_ended: bool = False   # True only on the step in which a hold ended: P6b and P6c start their 10 s timers on the NEXT fresh frame
+    co_ppm: Optional[float] = None         # last usable reading, display value (clamped); None until one arrives, never 0 for "no reading"
+    co_over_range: bool = False   # last usable frame had a reading above co_clamp_max_ppm (raw co_x10 is stored by the writer, not here)
+    co_range_active: bool = False
+    co_range_clear_since_mono: Optional[int] = None  # first fresh frame inside the narrowed band of the current run
+    co_fault: bool = False        # status2 bit 4 of the last fresh frame
+    sht40_fault: bool = False     # status2 bit 6 of the last fresh frame
+    co_warmup: bool = False       # status3 bit 2 of the last fresh frame
+    last_valid_co_mono: Optional[int] = None         # last fresh frame without a CO fault (co_timeout clock)
+    last_co_ge_warn_mono: Optional[int] = None       # last fresh frame with a usable CO of co_warn_ppm or more and SCBA OFF (read by P6c)
 
 @dataclass(frozen=True)
 class EngineState:
@@ -72,7 +91,63 @@ class EngineState:
     alerts: dict = field(default_factory=dict)               # (node_id, type) -> OpenAlert; at most one per key
     episodes: dict = field(default_factory=dict)             # node_id -> active episode; filled by P7c
 
-RULES = ()  # rule functions in evaluation order; P6 onward replace this line
+# ---- P6a: CO state, design 14.2 (1) and (2). This rule raises and clears no alert and never changes event_seq. ----
+def _bit(decoded, field, name):
+    shift, width = abi.BITS[field][name]
+    return (decoded[field] >> shift) & ((1 << width) - 1)
+
+def co_classify(n, now_mono):
+    """(co_validity, co_reason, co_mode) of a NodeState at now_mono. Reasons are checked in the order 14.2 (1) lists them."""
+    if n.co_fault: return 'UNRELIABLE', 'co_fault', CO_NO_READING_HELD
+    if n.last_valid_co_mono is not None and now_mono - n.last_valid_co_mono > K.CO_FAULT_TIMEOUT_S * 1000:
+        return 'UNRELIABLE', 'co_timeout', CO_NO_READING_HELD
+    if n.co_range_active: return 'UNRELIABLE', 'co_range', CO_USABLE_HELD
+    if n.sht40_fault: return 'UNRELIABLE', 'sht40_fault', CO_USABLE_HELD
+    return ('DERATED' if n.co_warmup else 'VALID'), None, CO_USABLE
+
+def _co_range(n, d, mono, sht40_fault):
+    """14.2 (2): (active, clear_since). Judged from the SHT40 of the same frame and only while it is healthy."""
+    if sht40_fault: return n.co_range_active, None            # not judged; the clear count restarts when the SHT40 is healthy again
+    t, h = d['temp_x100'], d['hum']
+    if t > K.CO_RANGE_TEMP_MAX_C * 100 or t < K.CO_RANGE_TEMP_MIN_C * 100 or h < K.CO_RANGE_RH_MIN_PCT or h > K.CO_RANGE_RH_MAX_PCT:
+        return True, None                                     # limits themselves are inside the range
+    if not n.co_range_active: return False, None
+    in_band = ((K.CO_RANGE_TEMP_MIN_C + K.CO_RANGE_MARGIN_C) * 100 <= t <= (K.CO_RANGE_TEMP_MAX_C - K.CO_RANGE_MARGIN_C) * 100
+               and K.CO_RANGE_RH_MIN_PCT + K.CO_RANGE_MARGIN_RH_PCT <= h <= K.CO_RANGE_RH_MAX_PCT - K.CO_RANGE_MARGIN_RH_PCT)
+    if not in_band: return True, None                         # inside the range but outside the margins restarts the count
+    since = mono if n.co_range_clear_since_mono is None else n.co_range_clear_since_mono
+    return (False, None) if mono - since >= K.CO_RANGE_CLEAR_S * 1000 else (True, since)
+
+def _co_frame(n, d, now):
+    """New NodeState after one fresh (FULL) frame."""
+    mono = now.mono_ms
+    co_fault, sht40 = bool(_bit(d, 'status2', 'co_fault')), bool(_bit(d, 'status2', 'temp_fault'))
+    active, since = _co_range(n, d, mono, sht40)
+    ppm, over, last_valid, warn = n.co_ppm, n.co_over_range, n.last_valid_co_mono, n.last_co_ge_warn_mono
+    if not co_fault:                                          # a CO fault frame carries no usable reading: keep the last one, never 0
+        raw = d['co_x10'] / 10
+        ppm, over, last_valid = min(raw, K.CO_CLAMP_MAX_PPM), raw > K.CO_CLAMP_MAX_PPM, mono
+        if raw >= K.CO_WARN_PPM and not _bit(d, 'id_mode', 'scba_on'): warn = mono
+    cand = replace(n, co_fault=co_fault, sht40_fault=sht40, co_warmup=bool(_bit(d, 'status3', 'co_warmup')), co_range_active=active,
+                   co_range_clear_since_mono=since, co_ppm=ppm, co_over_range=over, last_valid_co_mono=last_valid, last_co_ge_warn_mono=warn)
+    validity, reason, mode = co_classify(cand, mono)
+    return replace(cand, co_validity=validity, co_reason=reason, co_mode=mode, co_hold_ended=(n.co_mode != CO_USABLE and mode == CO_USABLE))
+
+def co_state_rule(state, event, now, mode):
+    """Rule 1 of RULES. Fresh frames (mode FULL) update the node's CO state; a TickEvent only lets co_timeout begin. Suspect frames
+    (RAISE_ONLY) change nothing here: they neither count towards nor restart the co_range clear time (14.2 (2))."""
+    if isinstance(event, FrameEvent):
+        if mode != FULL or event.node_id is None: return state, ()
+        changes = {event.node_id: _co_frame(state.nodes.get(event.node_id, NodeState()), event.decoded, now)}
+    else:
+        changes = {}
+        for nid, n in state.nodes.items():
+            validity, reason, cmode = co_classify(n, now.mono_ms)
+            changes[nid] = replace(n, co_validity=validity, co_reason=reason, co_mode=cmode, co_hold_ended=False)
+    nodes = {**state.nodes, **{k: v for k, v in changes.items() if state.nodes.get(k) != v}}
+    return (state, ()) if nodes == state.nodes else (replace(state, nodes=nodes), ())
+
+RULES = (co_state_rule,)  # rule functions in evaluation order; later Parts add theirs after this one (node_danger stays last, 14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level

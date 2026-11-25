@@ -9,3 +9,4 @@ One line per finished Part. Each patch script appends its line here. Design of r
 - Part 5a done: host/ppe_host/core/rule_engine.py (skeleton: types, step, 14.1 gate, event_seq, one open alert per node and type), host/ppe_host/clock.py (Clock, FakeClock), host/tests/test_rule_engine_core.py
 - Part 5b done: host/tests/test_golden_vectors.py (golden-vector harness, CASES table with 4 placeholder cases, marker line for later Parts)
 - Docs: CODING_GUIDE rev G2 applied (Part 6 split into P6a, P6b, P6c; stage rules; per-stage design extracts)
+- Part 6a done: CO state in core/rule_engine.py (co_validity, co_reason, co_range with its 60 s clear, co_over_range and clamp, last_co_ge_warn_mono, co_mode and co_hold_ended; no alerts), host/tests/test_co_state.py

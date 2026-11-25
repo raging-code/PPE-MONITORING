@@ -39,7 +39,8 @@ def test_eval_gate(verify, seq_class, flags, decoded, mode):
 def test_eval_gate_rejects_unknown_values(verify, seq_class):
     with pytest.raises(ValueError): eval_mode(ev(verify, seq_class))
 
-def test_step_without_rules_changes_nothing():
+def test_step_without_rules_changes_nothing(monkeypatch):
+    monkeypatch.setattr(re_, 'RULES', ())   # P6a registers the first rule, so 'no rules' is set up here
     s = EngineState()
     for e in (ev(), ev('OK', 'suspect'), ev('BAD_MAC'), TickEvent()):
         s2, fx = step(s, e, T0); assert s2 is s and fx == ()
