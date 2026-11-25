@@ -8,3 +8,4 @@ One line per finished Part. Each patch script appends its line here. Design of r
 - Part 4 done: host/ppe_host/core/crypto_abi.py (verify, classify, decode, signed temp), host/tests/test_codec_vectors.py (28 vectors, length, order and bit-flip tests)
 - Part 5a done: host/ppe_host/core/rule_engine.py (skeleton: types, step, 14.1 gate, event_seq, one open alert per node and type), host/ppe_host/clock.py (Clock, FakeClock), host/tests/test_rule_engine_core.py
 - Part 5b done: host/tests/test_golden_vectors.py (golden-vector harness, CASES table with 4 placeholder cases, marker line for later Parts)
+- Docs: CODING_GUIDE rev G2 applied (Part 6 split into P6a, P6b, P6c; stage rules; per-stage design extracts)

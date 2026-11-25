@@ -63,3 +63,4 @@ Where this split needed a choice the Coding Guide did not spell out:
 | `s14-4.md` | 14.4 Golden Test Vectors | 21252 |
 | `s14-5.md` | 14.5 Runtime Architecture, Module Layout & Startup Sequence | 6069 |
 | `s14-6.md` | 14.6 Rule engine as a pure core | 904 |
+- p6a-extract.md, p6b-extract.md, p6c-extract.md: verbatim extracts of 14.1, 14.2 and GV text for stages P6a to P6c (added by docs06_guide_stages)
