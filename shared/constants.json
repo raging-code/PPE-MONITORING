@@ -65,16 +65,6 @@
   "link_lost_max_s": 60,
   "base_offline_s": 5,
   "dashboard_stale_s": 4,
-  "task_stall_s": 3,
-  "supervisor_restart_target_s": 5,
-  "commit_wait_ms": 120,
-  "checkpoint_max_bytes": 16384,
-  "host_budget_ms": 200,
-  "dashboard_budget_ms": 500,
-  "recovering_target_s": 3,
-  "session_resume_max_min": 30,
-  "host_bat_warn_pct": 30,
-  "host_disk_min_gb": 1.0,
   "scba_confirm_s": 300,
   "scba_confirm_high_co_s": 120,
   "scba_response_s": 20,
@@ -86,7 +76,5 @@
   "lbt_backoff_min_ms": 10,
   "lbt_backoff_max_ms": 40,
   "unresolved_pulse_s": 120,
-  "unresolved_label_s": 300,
-  "host_alarm_budget_ms": 300,
-  "counters_interval_s": 60
+  "unresolved_label_s": 300
 }

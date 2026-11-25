@@ -21,6 +21,7 @@ test:
 # P2 and P3 add the generators here
 gen:
     python tools/gen_abi.py
+    python tools/gen_constants.py
 
 # P1: design document consistency; P27 adds one lint tool per language
 lint:
