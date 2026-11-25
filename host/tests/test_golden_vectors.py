@@ -79,7 +79,13 @@ CASES = [
     {'id': 'GV-06d', 'gv': 'GV-06 d', 'desc': 'F-05 then F-10 (reboot, boot_ctr 8, bat 80): the reboot clears battery_low',
      'steps': [{'frame': 'F-05', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'battery_low', 'WARNING')]}},
                {'frame': 'F-10', 'seq_class': 'reboot', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'battery_low', None), ('raise', 1, 'node_reboot', 'NONE')], 'open': [], 'seq_delta': 2, 'levels': {1: 'NORMAL'}}}]},   # P7b: the reboot frame also logs the one-shot node_reboot notice (14.1b)
-    # ---- GV cases above this line (each later Part adds its own here; P7-1 added GV-02, GV-03, GV-17; P7-2 added GV-04, GV-06 a and d (GV-08, GV-10 and GV-12 are in test_link_battery.py)) ----
+    {'id': 'GV-05a', 'gv': 'GV-05 a, b', 'desc': 'F-04: check-in bit 7 + WARNING raises checkin WARNING (0 episodes, level WARNING); the next frame with bit 7 at 0 clears it (level NORMAL)',
+     'steps': [{'frame': 'F-04', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'checkin', 'WARNING')], 'open': [(1, 'checkin', 'WARNING')], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'WARNING'}}},
+               {'frame': 'F-08', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'checkin', None)], 'open': [], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'NORMAL'}}}]},
+    {'id': 'GV-05d', 'gv': 'GV-05 d', 'desc': 'F-02 (man-down) with an open checkin: opens the MAN_DOWN episode, raises man_down DANGER and clears the checkin row',
+     'open': [(1, 'checkin', 'WARNING')],
+     'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'checkin', None), ('EpisodeOpened', 1, None, None), ('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'episodes': 1, 'seq_delta': 3, 'levels': {1: 'DANGER'}}}]},
+    # ---- GV cases above this line (each later Part adds its own here; P7c-2 added GV-05 a, b and d (GV-05 c and GV-24 are field-level, in test_checkin_scba.py); P7-1 added GV-02, GV-03, GV-17; P7-2 added GV-04, GV-06 a and d (GV-08, GV-10 and GV-12 are in test_link_battery.py)) ----
 ]
 
 @pytest.mark.parametrize('case', CASES, ids=[c['id'] for c in CASES])

@@ -112,6 +112,8 @@ class NodeState:
     latch_restored_prev: Optional[bool] = None       # P7b: status4 bit 1 of the last fresh frame (None = never seen: a first-seen 1 is an edge)
     restored_prev: Optional[bool] = None             # P7b: status3 bit 4 of the last fresh frame
     evt_unsent_prev: Optional[bool] = None           # P7b: id_mode bit 7 of the last fresh frame
+    checkin_prev: Optional[bool] = None              # P7c-2: flags bit 7 (check-in) of the last fresh frame (None = never seen: a first-seen 1 is an edge)
+    scba_lower_since_mono: Optional[int] = None      # P7c-2: first fresh frame of the current run below co_warn_clear_ppm on a DANGER scba_expired (10 s lowering timer)
 
 @dataclass(frozen=True)
 class EngineState:
@@ -555,7 +557,54 @@ def operator_step(state, event, now):
     latched = state.nodes.get(nid, NodeState()).mandown_prev          # the jacket latch is cleared only by the jacket CANCEL: until a frame says so the node still reports DANGER
     return refresh_level(state, nid, 2 if latched else 0, False), fx
 
-RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
+# ---- P7c-2: checkin and scba_expired, design 14.1 rows. Both may open (or, for scba_expired, escalate) on a suspect frame; neither clears, lowers or moves a timer
+# on one (14.1). They run before notice_rule and man_down_rule (man_down_rule opens the episode that ends a check-in) and node_danger_rule stays LAST. ----
+def checkin_rule(state, event, now, mode):
+    """checkin: node-originated, the host times nothing. Opens on flags bit 7 (check-in) 0->1 or a first-seen 1 (edge against the last FRESH frame, so a suspect frame
+    cannot move it): WARNING for a stillness prompt, NONE (a notice, no sound) for a fall-only prompt (activity FALL_SUSPECTED). No episode. A frame that already shows
+    mandown does not open one: man_down owns it. Clears on a fresh frame with bit 7 = 0 (jacket CANCEL or movement) or with mandown = 1 (man_down opened)."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fresh, fx = event.node_id, event.decoded, mode == FULL, ()
+    n = state.nodes.get(nid, NodeState())
+    ci, md = bool(_bit(d, 'flags', 'checkin')), bool(_bit(d, 'flags', 'mandown'))
+    if fresh and (not ci or md): state, fx = clear_alert(state, nid, 'checkin', now, 'man_down_opened' if md else 'jacket_cancel')
+    elif ci and not md and not n.checkin_prev:
+        fall = _bit(d, 'flags', 'activity') == abi.ENUMS['activity']['FALL_SUSPECTED']
+        state, fx = raise_alert(state, nid, 'checkin', 'NONE' if fall else 'WARNING', _why(d) + (' fall_prompt' if fall else ''), now)
+    cur = state.nodes.get(nid, n)
+    if fresh and (cur.checkin_prev != ci or nid not in state.nodes): state = replace(state, nodes={**state.nodes, nid: replace(cur, checkin_prev=ci)})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+def scba_expired_rule(state, event, now, mode):
+    """scba_expired: level-driven by status3 bit 3 (node SCBA timer expired). Opens at WARNING, or at DANGER when a usable CO reading is at co_warn_ppm or more; a
+    WARNING escalates to DANGER in place (acknowledged_ts = NULL); DANGER returns to WARNING in place (acknowledged_ts kept) after co_hysteresis_s of continuous
+    readings below co_warn_clear_ppm. The reading counts as in co_threshold: a CO fault or timeout has none, and the lowering timer runs only while CO is not held.
+    The CO reading counts whatever the SCBA ON bit says: the timer has expired. Clears on a FRESH frame with the bit at 0. No episode."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, mono, fresh, fx = event.node_id, event.decoded, now.mono_ms, mode == FULL, ()
+    n = state.nodes.get(nid, NodeState())
+    ppm = d['co_x10'] / 10
+    usable = n.co_mode != CO_NO_READING_HELD if fresh else not _bit(d, 'status2', 'co_fault')
+    why, lower = f'status3 bit 3 set co_ppm={min(ppm, K.CO_CLAMP_MAX_PPM):.1f}', n.scba_lower_since_mono
+    if _bit(d, 'status3', 'scba_expired'):
+        want = 'DANGER' if usable and ppm >= K.CO_WARN_PPM else 'WARNING'
+        row = open_alert(state, nid, 'scba_expired')
+        if row is None: state, fx = raise_alert(state, nid, 'scba_expired', want, why, now)
+        elif want == 'DANGER' and row.level == 'WARNING': state, fx = set_alert_level(state, nid, 'scba_expired', 'DANGER', why, now)
+        if fresh:                    # a suspect frame never lowers or moves the timer (14.1)
+            row = open_alert(state, nid, 'scba_expired')
+            if row is None or not usable or n.co_mode != CO_USABLE or n.co_hold_ended: lower = None
+            else:
+                lower = (mono if lower is None else lower) if row.level == 'DANGER' and ppm < K.CO_WARN_CLEAR_PPM else None
+                if lower is not None and mono - lower >= K.CO_HYSTERESIS_S * 1000:
+                    state, more = set_alert_level(state, nid, 'scba_expired', 'WARNING', why, now); fx += more; lower = None
+    elif fresh:
+        state, fx = clear_alert(state, nid, 'scba_expired', now, 'bit_cleared'); lower = None
+    cur = state.nodes.get(nid, n)
+    if cur.scba_lower_since_mono != lower or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, scba_lower_since_mono=lower)})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, checkin_rule, scba_expired_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level
