@@ -75,7 +75,8 @@ def test_GV17_c_an_open_danger_alert_means_no_node_danger():
     assert al(e, 'node_danger') is None and al(e, 'co_threshold').level == 'DANGER'
 
 @pytest.mark.parametrize('typ', ['link_lost', 'scba_expired', 'mayday', 'man_down'])
-def test_any_open_danger_row_blocks_it_but_a_warning_row_does_not(typ):
+def test_any_open_danger_row_blocks_it_but_a_warning_row_does_not(typ, monkeypatch):
+    monkeypatch.setattr(re_, 'RULES', tuple(r for r in re_.RULES if r is not re_.link_rule))   # P7-2: a fresh frame clears a seeded link_lost; this test is about node_danger alone
     e = Eng(); e.state, _ = raise_alert(e.state, 1, typ, 'DANGER', 's', e.clock.now())
     e.step(mk(flags=DNG), 0); assert e.step(mk(flags=DNG)) == []
     e = Eng(); e.state, _ = raise_alert(e.state, 1, 'heat', 'WARNING', 's', e.clock.now())

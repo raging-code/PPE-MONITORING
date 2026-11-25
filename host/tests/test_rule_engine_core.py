@@ -42,7 +42,7 @@ def test_eval_gate_rejects_unknown_values(verify, seq_class):
 def test_step_without_rules_changes_nothing(monkeypatch):
     monkeypatch.setattr(re_, 'RULES', ())   # P6a registers the first rule, so 'no rules' is set up here
     s = EngineState()
-    for e in (ev(), ev('OK', 'suspect'), ev('BAD_MAC'), TickEvent()):
+    for e in (ev(), ev('OK', 'suspect'), ev('BAD_MAC', flags=0), TickEvent()):   # P7-2: a BAD_MAC frame that claims an alert reaches unauth_alert_rule, so this one claims nothing
         s2, fx = step(s, e, T0); assert s2 is s and fx == ()
     with pytest.raises(TypeError): step(s, 'frame', T0)
     with pytest.raises(TypeError): step(s, ev(), (1, 2))
@@ -92,7 +92,7 @@ def test_rules_run_in_order_with_mode_and_concatenate_effects():
         s, fx = step(EngineState(), ev('OK', 'suspect'), T0)
         assert calls == [('a', 'raise_only'), ('b', 'raise_only')] and [x.type for x in fx] == ['heat', 'checkin'] and [x.event_seq for x in fx] == [1, 2]
         calls.clear(); s, fx = step(EngineState(), TickEvent(), T0); assert calls == [('a', 'full'), ('b', 'full')]
-        calls.clear(); s, fx = step(EngineState(), ev('BAD_MAC'), T0); assert calls == [] and fx == ()   # the gate runs before any rule
+        calls.clear(); s, fx = step(EngineState(), ev('BAD_MAC', flags=0), T0); assert calls == [] and fx == ()   # the gate runs before any rule (flags=0: claims nothing, see unauth_alert_rule)
         calls.clear(); s, fx = step(EngineState(), ev('OK', 'duplicate'), T0); assert calls == [] and fx == ()
     finally: re_.RULES = old
 

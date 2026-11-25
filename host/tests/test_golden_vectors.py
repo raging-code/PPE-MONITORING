@@ -46,8 +46,8 @@ def run_case(case):
     return bad
 
 CASES = [
-    {'id': 'PH-01', 'gv': 'GV-04 (partial)', 'desc': 'PLACEHOLDER, replaced in P7 by the full GV-04 (it will also raise unauth_alert): node 2 BAD_MAC frame claiming man-down opens no alert and no episode and leaves the level alone',
-     'steps': [{'frame': 'F-16', 'seq_class': 'suspect', 'expect': {'effects': [], 'open': [], 'episodes': 0, 'seq_delta': 0, 'levels': {2: 'NORMAL'}}}]},
+    {'id': 'GV-04', 'gv': 'GV-04', 'desc': 'F-16: node 2, BAD_MAC, flags 0x06 (claims man-down): raises unauth_alert NONE and nothing else; no episode, the level stays NORMAL (the diagnostic frames row and the 20 per minute limit are the writer and shell)',
+     'steps': [{'frame': 'F-16', 'seq_class': 'suspect', 'expect': {'effects': [('raise', 2, 'unauth_alert', 'NONE')], 'open': [(2, 'unauth_alert', 'NONE')], 'episodes': 0, 'seq_delta': 1, 'levels': {2: 'NORMAL'}}}]},
     {'id': 'PH-02', 'gv': 'GV-13/GV-14 (partial)', 'desc': 'A suspect frame never clears or lowers an alert: open co_threshold WARNING on node 1, suspect frame with CO 0 and no flags leaves it open',
      'open': [(1, 'co_threshold', 'WARNING')],
      'steps': [{'frame': 'F-08', 'seq_class': 'suspect', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'co_threshold', 'WARNING')], 'episodes': 0, 'seq_delta': 0}}]},
@@ -74,7 +74,12 @@ CASES = [
     {'id': 'GV-17d', 'gv': 'GV-17 d', 'desc': 'F-14 then F-08: the second frame resets the streak, so node_danger is never raised',
      'steps': [{'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'DANGER'}}},
                {'frame': 'F-08', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'NORMAL'}}}]},
-    # ---- GV cases above this line (each later Part adds its own here; P7-1 added GV-02, GV-03, GV-17) ----
+    {'id': 'GV-06a', 'gv': 'GV-06 a', 'desc': 'F-05: bat 10 %, bat_low bit: raises battery_low WARNING (latched), node level WARNING',
+     'steps': [{'frame': 'F-05', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'battery_low', 'WARNING')], 'open': [(1, 'battery_low', 'WARNING')], 'episodes': 0, 'seq_delta': 1, 'levels': {1: 'WARNING'}}}]},
+    {'id': 'GV-06d', 'gv': 'GV-06 d', 'desc': 'F-05 then F-10 (reboot, boot_ctr 8, bat 80): the reboot clears battery_low',
+     'steps': [{'frame': 'F-05', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'battery_low', 'WARNING')]}},
+               {'frame': 'F-10', 'seq_class': 'reboot', 'dt_ms': 2000, 'expect': {'effects': [('clear', 1, 'battery_low', None)], 'open': [], 'seq_delta': 1, 'levels': {1: 'NORMAL'}}}]},
+    # ---- GV cases above this line (each later Part adds its own here; P7-1 added GV-02, GV-03, GV-17; P7-2 added GV-04, GV-06 a and d (GV-08, GV-10 and GV-12 are in test_link_battery.py)) ----
 ]
 
 @pytest.mark.parametrize('case', CASES, ids=[c['id'] for c in CASES])

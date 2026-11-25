@@ -101,7 +101,11 @@ class NodeState:
     last_heat_alert_mono: Optional[int] = None       # P6c reads it for condition (ii); P7c sets it, nothing sets it before then
     mandown_prev: Optional[bool] = None              # P7-1: flags bit 2 of the last FRESH frame (None = never seen: a first-seen 1 counts as an edge)
     mayday_prev: Optional[bool] = None               # P7-1: status4 bit 4 of the last fresh frame
-    node_danger_streak: int = 0                      # P7-1: consecutive evaluated frames that meet the node_danger condition
+    node_danger_streak: int = 0                      # P7-1: consecutive evaluated frames that meet the node_danger condition (14.1)
+    last_fresh_mono: Optional[int] = None            # P7-2: mono time of the last FRESH frame (silence clock of signal_lost and link_lost); suspect frames never move it
+    last_fresh_adverse: bool = False                 # P7-2: that frame reported WARNING, DANGER or mandown (link_lost after link_lost_adverse_s)
+    unauth_count: int = 0                            # P7-2: BAD_MAC frames counted on the open unauth_alert (WebSocket unauth_count)
+    unauth_last_seen_ts: Optional[int] = None        # P7-2: wall ms of the last such frame
 
 @dataclass(frozen=True)
 class EngineState:
@@ -300,7 +304,64 @@ def node_danger_rule(state, event, now, mode):
     if cur.node_danger_streak != streak or nid not in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(cur, node_danger_streak=streak)})
     return refresh_level(state, nid, lvl, not fresh), fx
 
-RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, man_down_rule, node_danger_rule)  # evaluation order; P7-2 and later rules go BEFORE node_danger_rule, which stays last (14.1)
+# ---- P7-2: battery_low, signal_lost / link_lost and unauth_alert, design 14.1 rows and 14.1b. node_danger stays LAST (14.1). ----
+ROSTER_IDS = (1, 2, 3)   # migration 0001: roster.node_id CHECK (node_id BETWEEN 1 AND 3)
+
+def battery_low_rule(state, event, now, mode):
+    """battery_low: bat <= bat_warn_pct (status2 bit 2 with <= 10 % is the same case). One latched WARNING per node. A fresh or suspect frame may
+    open it; only a FRESH frame clears it: a reboot (boot_ctr step, seq_class reboot) or bat >= bat_recharge_clear_pct. In between it stays open
+    although bat rises (GV-06 b). A reboot frame that still shows bat <= 10 % clears the old row and opens a new one."""
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode == NONE: return state, ()
+    nid, d, fresh, fx = event.node_id, event.decoded, mode == FULL, ()
+    if fresh and (event.seq_class == 'reboot' or d['bat'] >= K.BAT_RECHARGE_CLEAR_PCT):
+        state, fx = clear_alert(state, nid, 'battery_low', now, 'reboot' if event.seq_class == 'reboot' else 'recharged')
+    if d['bat'] <= K.BAT_WARN_PCT:
+        state, more = raise_alert(state, nid, 'battery_low', 'WARNING', f"bat={d['bat']}", now); fx += more
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
+
+def _adverse(d):
+    """A frame is adverse when it reports WARNING or DANGER or a man-down latch (the design does not define the word; open question in the handoff)."""
+    return _bit(d, 'flags', 'node_level') in (abi.ENUMS['node_level']['WARNING'], abi.ENUMS['node_level']['DANGER']) or bool(_bit(d, 'flags', 'mandown'))
+
+def link_rule(state, event, now, mode):
+    """signal_lost and link_lost. The silence clock is the last FRESH frame (a suspect frame never resets it or counts towards recovery, 14.1).
+    On a tick: silent for link_lost_max_s, or for link_lost_adverse_s after an adverse frame -> link_lost (DANGER) and signal_lost clears;
+    silent for signal_lost_s after a non-adverse frame -> signal_lost (WARNING). A fresh frame (fresh or reboot) clears both."""
+    mono = now.mono_ms
+    if isinstance(event, TickEvent):
+        fx = ()
+        for nid, n in list(state.nodes.items()):
+            if n.last_fresh_mono is None: continue
+            gap = mono - n.last_fresh_mono
+            if gap >= K.LINK_LOST_MAX_S * 1000 or (n.last_fresh_adverse and gap >= K.LINK_LOST_ADVERSE_S * 1000):
+                state, a = raise_alert(state, nid, 'link_lost', 'DANGER', f'silent {gap // 1000} s', now)
+                state, b = clear_alert(state, nid, 'signal_lost', now, 'link_lost'); fx += a + b
+            elif not n.last_fresh_adverse and gap >= K.SIGNAL_LOST_S * 1000:
+                state, a = raise_alert(state, nid, 'signal_lost', 'WARNING', f'silent {gap // 1000} s', now); fx += a
+            state = refresh_level(state, nid, 0, True)
+        return state, fx
+    if not isinstance(event, FrameEvent) or event.node_id is None or mode != FULL: return state, ()
+    nid, d = event.node_id, event.decoded
+    state, a = clear_alert(state, nid, 'signal_lost', now, 'fresh_frame')
+    state, b = clear_alert(state, nid, 'link_lost', now, 'fresh_frame')
+    cur = state.nodes.get(nid, NodeState())
+    state = replace(state, nodes={**state.nodes, nid: replace(cur, last_fresh_mono=mono, last_fresh_adverse=_adverse(d))})
+    return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), False), a + b
+
+def unauth_alert_rule(state, event, now):
+    """unauth_alert (GV-04, GV-10): a BAD_MAC frame from a roster node whose flags claim an alert (level WARNING or DANGER, or mandown). Level NONE; never
+    changes a node level. At most one open row per claimed node: later frames only count (unauth_count, unauth_last_seen_ts). Acknowledge (P7c, P19)
+    closes the row, so the next claim opens a new one with count 1. The shell applies the 20 per minute limit (DIAG_RATE_LIMIT_PER_MIN) before the engine."""
+    d = event.decoded
+    if event.verify != 'BAD_MAC' or d is None or event.node_id not in ROSTER_IDS: return state, ()
+    if not (_bit(d, 'flags', 'node_level') in (abi.ENUMS['node_level']['WARNING'], abi.ENUMS['node_level']['DANGER']) or _bit(d, 'flags', 'mandown')): return state, ()
+    nid, n = event.node_id, state.nodes.get(event.node_id, NodeState())
+    was_open = open_alert(state, nid, 'unauth_alert') is not None
+    state, fx = raise_alert(state, nid, 'unauth_alert', 'NONE', f'bad_mac {_why(d)}', now)
+    n = replace(n, unauth_count=n.unauth_count + 1 if was_open else 1, unauth_last_seen_ts=now.wall_ms)
+    return replace(state, nodes={**state.nodes, nid: n}), fx
+
+RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
 
 def node_level(state, node_id):
     return state.nodes.get(node_id, NodeState()).level
@@ -357,6 +418,6 @@ def step(state, event, now):
     if not isinstance(now, Now): raise TypeError('now must be a Now(wall_ms, mono_ms)')
     if isinstance(event, FrameEvent):
         mode = eval_mode(event)
-        return (state, ()) if mode == NONE else _run_rules(state, event, now, mode)
+        return (unauth_alert_rule(state, event, now) if mode == NONE else _run_rules(state, event, now, mode))   # P7-2: a BAD_MAC frame that claims an alert is the one frame outside the gate (14.1b)
     if isinstance(event, TickEvent): return _run_rules(state, event, now, FULL)
     raise TypeError(f'unknown event: {type(event).__name__}')

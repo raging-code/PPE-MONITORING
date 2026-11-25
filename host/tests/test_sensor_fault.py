@@ -53,7 +53,8 @@ def test_scba_on_co_does_not_start_the_window():
     e = Eng(); e.step(frame(co_x10=400, scba=1), 0); e.step(frame(co_x10=400, status2=CO_FAULT, scba=1), 10000); assert sf(e).level == 'WARNING'
 
 @pytest.mark.parametrize('tick_gap_ms, level', [(6000, 'DANGER'), (61000, 'WARNING')])
-def test_co_timeout_raises_sensor_fault_on_a_tick(tick_gap_ms, level):
+def test_co_timeout_raises_sensor_fault_on_a_tick(tick_gap_ms, level, monkeypatch):
+    monkeypatch.setattr(re_, 'RULES', tuple(r for r in re_.RULES if r is not re_.link_rule))   # P7-2: after 60 s of silence link_lost also opens; this test is about the sensor_fault level
     e = Eng(); e.step(frame(co_x10=400), 0); fx = e.step(TickEvent(), tick_gap_ms)
     assert e.node.co_reason == 'co_timeout' and types(fx) == [('RaiseAlert', SF, level)] and e.state.nodes[1].level == level
     assert e.step(TickEvent()) == [] and sf(e).level == level                                              # one alert, no repeat
