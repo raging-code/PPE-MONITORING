@@ -285,9 +285,11 @@ def man_down_rule(state, event, now, mode):
     nid, d, fresh = event.node_id, event.decoded, mode == FULL
     n, fx = state.nodes.get(nid, NodeState()), ()
     md, my = bool(_bit(d, 'flags', 'mandown')), bool(_bit(d, 'status4', 'mayday'))
-    if md and not n.mandown_prev: state, fx = raise_alert(state, nid, 'man_down', 'DANGER', _why(d), now)
+    state, fx = _episode_edges(state, nid, n, md, my, now)   # P7c-1: the episode opens or upgrades BEFORE the alert rows, so alerts.episode_id can link
+    if md and not n.mandown_prev: state, more = raise_alert(state, nid, 'man_down', 'DANGER', _why(d), now); fx += more
     if my and not n.mayday_prev:
         state, more = raise_alert(state, nid, 'mayday', 'DANGER', _why(d), now); fx += more
+    if fresh: state, more = _man_down_label(state, nid, d, now); fx += more
     if fresh and (n.mandown_prev, n.mayday_prev) != (md, my):
         cur = state.nodes.get(nid, n); state = replace(state, nodes={**state.nodes, nid: replace(cur, mandown_prev=md, mayday_prev=my)})
     return refresh_level(state, nid, _bit(d, 'flags', 'node_level'), not fresh), fx
@@ -408,6 +410,151 @@ def notice_rule(state, event, now, mode):
     n2 = replace(cur, wrist_open_since_mono=since, wrist_last_open_mono=last, latch_restored_prev=latch, restored_prev=restored, evt_unsent_prev=evt)
     return (state if cur == n2 and nid in state.nodes else replace(state, nodes={**state.nodes, nid: n2})), fx
 
+# ---- P7c-1: episode lifecycle (MAN_DOWN and MAYDAY), operator Acknowledge and Resolve, and the MAN_DOWN label rule, design 14.1 (man_down / mayday row),
+# 2.3 (episodes), 3.3 and 3.8. One active episode per node (idx_episodes_one_active). Episodes close ONLY through ResolveEpisodeEvent; Acknowledge never closes a
+# safety alert (only unauth_alert closes on Acknowledge, 14.1b). checkin, scba_expired, heat and the shadow estimator are P7c-2 and P7c-3. ----
+RESOLVE_REASONS = ('rescued', 'false_alarm', 'device_removed')
+EPISODE_ALERT_TYPES = ('man_down', 'mayday')
+NO_RESPONSE, MOVEMENT_DETECTED = 'no_response', 'movement_detected'
+
+@dataclass(frozen=True)
+class Episode:
+    node_id: int
+    kind: str                       # MAN_DOWN | MAYDAY
+    state: str                      # OPEN | ACKNOWLEDGED (a RESOLVED episode leaves EngineState.episodes)
+    opened_event_seq: int           # identifies the row for the writer
+    opened_ts: int
+    acknowledged_ts: Optional[int] = None
+    acknowledged_by: Optional[int] = None
+    motion_state: Optional[str] = NO_RESPONSE   # man_down_motion_state; None for MAYDAY (no such label)
+    move_since_mono: Optional[int] = None       # first fresh frame of the current run above STILL_G (label to movement_detected after mandown_move_label_s)
+    still_since_mono: Optional[int] = None      # first fresh frame of the current run at or below STILL_G (label back after mandown_still_revert_s)
+
+@dataclass(frozen=True)
+class AckAlertEvent:                # operator: POST /api/alerts/{alert_id}/ack (idempotent)
+    node_id: int
+    type: str
+    operator_id: Optional[int] = None
+
+@dataclass(frozen=True)
+class AckEpisodeEvent:              # operator: POST /api/episodes/{episode_id}/ack (acknowledges the episode and its open alert rows)
+    node_id: int
+    operator_id: Optional[int] = None
+
+@dataclass(frozen=True)
+class ResolveEpisodeEvent:          # operator: Resolve with a reason (rescued, false_alarm, device_removed)
+    node_id: int
+    reason: str
+    operator_id: Optional[int] = None
+
+@dataclass(frozen=True)
+class EpisodeOpened(Effect):        # emitted BEFORE the RaiseAlert of the same frame, so the writer can link alerts.episode_id
+    node_id: int
+    kind: str
+    opened_ts: int
+
+@dataclass(frozen=True)
+class EpisodeEscalated(Effect):     # MAN_DOWN -> MAYDAY in place (audit EPISODE_ESCALATED)
+    node_id: int
+    old_kind: str
+    kind: str
+    ts: int
+
+@dataclass(frozen=True)
+class EpisodeLabelChanged(Effect):  # incremental episode WebSocket message (man_down_motion_state)
+    node_id: int
+    motion_state: str
+    ts: int
+
+@dataclass(frozen=True)
+class EpisodeAcknowledged(Effect):
+    node_id: int
+    operator_id: Optional[int]
+    ts: int
+
+@dataclass(frozen=True)
+class EpisodeResolved(Effect):
+    node_id: int
+    kind: str
+    reason: str
+    operator_id: int
+    ts: int
+
+@dataclass(frozen=True)
+class AlertAcknowledged(Effect):    # sets alerts.acknowledged_ts and acknowledged_by on the row identified by raised_event_seq
+    node_id: int
+    type: str
+    raised_event_seq: int
+    operator_id: Optional[int]
+    ts: int
+
+def _put_episode(state, ep): return replace(state, episodes={**state.episodes, ep.node_id: ep})
+
+def _episode_edges(state, nid, n, md, my, now):
+    """Open an episode on a mandown or mayday edge (0->1 or first-seen 1) when the node has none; upgrade an active MAN_DOWN to MAYDAY in place on a mayday edge.
+    An edge while an episode is active adds no episode (and no alert: the open rows stay, 14.1)."""
+    md_edge, my_edge, ep = md and not n.mandown_prev, my and not n.mayday_prev, state.episodes.get(nid)
+    if ep is None and (md_edge or my_edge):
+        kind = 'MAYDAY' if my else 'MAN_DOWN'
+        state, seq = next_seq(state)
+        return _put_episode(state, Episode(nid, kind, 'OPEN', seq, now.wall_ms, motion_state=None if kind == 'MAYDAY' else NO_RESPONSE)), (EpisodeOpened(seq, nid, kind, now.wall_ms),)
+    if ep is not None and my_edge and ep.kind == 'MAN_DOWN':
+        state, seq = next_seq(state)
+        return _put_episode(state, replace(ep, kind='MAYDAY', motion_state=None, move_since_mono=None, still_since_mono=None)), (EpisodeEscalated(seq, nid, 'MAN_DOWN', 'MAYDAY', now.wall_ms),)
+    return state, ()
+
+def _man_down_label(state, nid, d, now):
+    """Spec 7: chest movement above STILL_G for mandown_move_label_s changes the label to movement_detected; mandown_still_revert_s of renewed stillness reverts it.
+    Fresh frames only (the caller checks); card, siren and level never change. MAYDAY has no label."""
+    ep = state.episodes.get(nid)
+    if ep is None or ep.kind != 'MAN_DOWN': return state, ()
+    mono, moving = now.mono_ms, d['motion_x100'] / 100 > K.STILL_G_DEFAULT
+    mv, st, label = ep.move_since_mono, ep.still_since_mono, ep.motion_state
+    if label == NO_RESPONSE:
+        mv, st = ((mono if mv is None else mv) if moving else None), None
+        if mv is not None and mono - mv >= K.MANDOWN_MOVE_LABEL_S * 1000: label, mv = MOVEMENT_DETECTED, None
+    else:
+        st, mv = ((mono if st is None else st) if not moving else None), None
+        if st is not None and mono - st >= K.MANDOWN_STILL_REVERT_S * 1000: label, st = NO_RESPONSE, None
+    new = replace(ep, motion_state=label, move_since_mono=mv, still_since_mono=st)
+    if new == ep: return state, ()
+    state = _put_episode(state, new)
+    if label == ep.motion_state: return state, ()
+    state, seq = next_seq(state)
+    return state, (EpisodeLabelChanged(seq, nid, label, now.wall_ms),)
+
+def _ack_row(state, nid, type, operator_id, now):
+    row = state.alerts.get((nid, type))
+    if row is None or row.acknowledged_ts is not None: return state, ()
+    state, seq = next_seq(state)
+    return replace(state, alerts={**state.alerts, (nid, type): replace(row, acknowledged_ts=now.wall_ms)}), (AlertAcknowledged(seq, nid, type, row.event_seq, operator_id, now.wall_ms),)
+
+def operator_step(state, event, now):
+    """Acknowledge and Resolve. Acknowledge sets acknowledged_ts and never clears a row, except unauth_alert, which closes with it (14.1b, GV-10).
+    Resolve is the only way an episode ends; it also clears the episode's man_down and mayday rows. A latch still set on the jacket stays a level, not an edge."""
+    nid = event.node_id
+    _check_alert(nid, getattr(event, 'type', 'man_down'))
+    ep = state.episodes.get(nid)
+    if isinstance(event, AckAlertEvent):
+        state, fx = _ack_row(state, nid, event.type, event.operator_id, now)
+        if event.type == 'unauth_alert' and (nid, 'unauth_alert') in state.alerts:
+            state, more = clear_alert(state, nid, 'unauth_alert', now, 'acknowledged'); fx += more
+            if nid in state.nodes: state = replace(state, nodes={**state.nodes, nid: replace(state.nodes[nid], unauth_count=0)})
+        return state, fx
+    if isinstance(event, AckEpisodeEvent):
+        if ep is None or ep.state == 'ACKNOWLEDGED': return state, ()
+        state, seq = next_seq(state); fx = (EpisodeAcknowledged(seq, nid, event.operator_id, now.wall_ms),)
+        state = _put_episode(state, replace(ep, state='ACKNOWLEDGED', acknowledged_ts=now.wall_ms, acknowledged_by=event.operator_id))
+        for t in EPISODE_ALERT_TYPES: state, more = _ack_row(state, nid, t, event.operator_id, now); fx += more
+        return state, fx
+    if event.reason not in RESOLVE_REASONS or event.operator_id is None: raise ValueError('Resolve needs a reason from RESOLVE_REASONS and an operator')
+    if ep is None: return state, ()
+    state, seq = next_seq(state); fx = (EpisodeResolved(seq, nid, ep.kind, event.reason, event.operator_id, now.wall_ms),)
+    state = replace(state, episodes={k: v for k, v in state.episodes.items() if k != nid})
+    for t in EPISODE_ALERT_TYPES: state, more = clear_alert(state, nid, t, now, 'resolved'); fx += more
+    latched = state.nodes.get(nid, NodeState()).mandown_prev          # the jacket latch is cleared only by the jacket CANCEL: until a frame says so the node still reports DANGER
+    return refresh_level(state, nid, 2 if latched else 0, False), fx
+
 RULES = (co_state_rule, co_threshold_rule, sensor_fault_rule, battery_low_rule, link_rule, notice_rule, man_down_rule, node_danger_rule)  # evaluation order; new rules go before man_down_rule, node_danger_rule stays last (14.1)
 
 def node_level(state, node_id):
@@ -467,4 +614,5 @@ def step(state, event, now):
         mode = eval_mode(event)
         return (unauth_alert_rule(state, event, now) if mode == NONE else _run_rules(state, event, now, mode))   # P7-2: a BAD_MAC frame that claims an alert is the one frame outside the gate (14.1b)
     if isinstance(event, TickEvent): return _run_rules(state, event, now, FULL)
+    if isinstance(event, (AckAlertEvent, AckEpisodeEvent, ResolveEpisodeEvent)): return operator_step(state, event, now)   # P7c-1: operator actions
     raise TypeError(f'unknown event: {type(event).__name__}')

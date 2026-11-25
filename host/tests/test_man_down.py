@@ -12,7 +12,7 @@ MD, WARN, DNG, MAYDAY = 0x04, 0x01, 0x02, 0x10
 def mk(flags=0, status4=0, seq_class='fresh', **kw):
     d = dict(co_frame(**kw).decoded); d.update(flags=flags, status4=status4)
     return FrameEvent(1, 'OK', seq_class, d)
-def tys(fx): return [(type(x).__name__, x.type, getattr(x, 'level', None)) for x in fx]
+def tys(fx): return [(type(x).__name__, x.type, getattr(x, 'level', None)) for x in fx if hasattr(x, 'type')]   # P7c-1: alert effects only; the episode effects are checked in test_episodes.py
 def al(e, t): return e.state.alerts.get((1, t))
 def lvl(e): return e.state.nodes[1].level
 
@@ -22,7 +22,7 @@ def test_order_node_danger_is_last_and_man_down_before_it():
 # ---- man_down and mayday ----
 def test_GV02_man_down_latch_raises_man_down_danger():
     e = Eng(); fx = e.step(vector_event('F-02'), 0)
-    assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER')] and lvl(e) == 'DANGER' and al(e, 'node_danger') is None and e.state.episodes == {}
+    assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER')] and lvl(e) == 'DANGER' and al(e, 'node_danger') is None and len(e.state.episodes) == 1   # P7c-1: the latch now opens the episode (details in test_episodes.py)
 
 def test_GV03_mayday_on_top_of_an_open_man_down_raises_only_mayday():
     e = Eng(); e.step(mk(flags=DNG | MD), 0)
@@ -98,7 +98,7 @@ def test_a_frame_with_mandown_never_raises_it_and_clears_it():
     for _ in range(5): e.step(mk(flags=DNG | MD), 2000)
     assert al(e, 'node_danger') is None
     e = Eng(); e.step(mk(flags=DNG), 0); e.step(mk(flags=DNG))
-    fx = e.step(mk(flags=DNG | MD)); assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER'), ('ClearAlert', 'node_danger', None)] and fx[1].reason == 'mandown'
+    fx = e.step(mk(flags=DNG | MD)); assert tys(fx) == [('RaiseAlert', 'man_down', 'DANGER'), ('ClearAlert', 'node_danger', None)] and fx[2].reason == 'mandown'   # fx[0] is the EpisodeOpened of P7c-1
     assert al(e, 'node_danger') is None and al(e, 'man_down') is not None
 
 def test_it_clears_when_another_alert_reaches_danger_superseded():

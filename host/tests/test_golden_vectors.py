@@ -23,7 +23,7 @@ def frame_event(fid, seq_class):
 
 def project(fx):
     return [('clear', e.node_id, e.type, None) if isinstance(e, ClearAlert) else ('raise', e.node_id, e.type, e.level) if isinstance(e, RaiseAlert)
-            else ('escalate' if e.acknowledged_reset else 'lower', e.node_id, e.type, e.level) for e in fx]
+            else ('escalate' if e.acknowledged_reset else 'lower', e.node_id, e.type, e.level) if isinstance(e, ChangeAlertLevel) else (type(e).__name__, e.node_id, None, None) for e in fx]   # P7c-1: episode effects project as (class name, node, None, None)
 
 def run_case(case):
     """Returns a list of mismatch strings (empty = pass)."""
@@ -59,11 +59,11 @@ CASES = [
      'open': [(1, 'man_down', 'DANGER')],
      'steps': [{'frame': 'F-01', 'seq_class': 'duplicate', 'expect': {'effects': [], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 0}},
                {'frame': 'F-17', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 0}}]},
-    {'id': 'GV-02', 'gv': 'GV-02 (alert half)', 'desc': 'F-02: node 1, flags 0x06 (mandown, DANGER): raises man_down DANGER and no node_danger; the episode half is P7c',
-     'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}}]},
-    {'id': 'GV-03', 'gv': 'GV-03 (alert half)', 'desc': 'F-03 with an open man_down: status4 MAYDAY raises mayday DANGER; the episode upgrade is P7c',
-     'open': [(1, 'man_down', 'DANGER')],
-     'steps': [{'frame': 'F-03', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'mayday', 'DANGER')], 'open': [(1, 'man_down', 'DANGER'), (1, 'mayday', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-02', 'gv': 'GV-02', 'desc': 'F-02: node 1, flags 0x06 (mandown, DANGER): raises man_down DANGER and no node_danger; the episode opens before the alert row (P7c-1)',
+     'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('EpisodeOpened', 1, None, None), ('raise', 1, 'man_down', 'DANGER')], 'open': [(1, 'man_down', 'DANGER')], 'episodes': 1, 'seq_delta': 2, 'levels': {1: 'DANGER'}}}]},
+    {'id': 'GV-03', 'gv': 'GV-03', 'desc': 'F-02 then F-03 (status4 MAYDAY, latch still set): the open MAN_DOWN episode is upgraded in place to MAYDAY (EpisodeEscalated, one episode) and mayday is raised DANGER',
+     'steps': [{'frame': 'F-02', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('EpisodeOpened', 1, None, None), ('raise', 1, 'man_down', 'DANGER')], 'episodes': 1}},
+               {'frame': 'F-03', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('EpisodeEscalated', 1, None, None), ('raise', 1, 'mayday', 'DANGER')], 'open': [(1, 'man_down', 'DANGER'), (1, 'mayday', 'DANGER')], 'episodes': 1, 'seq_delta': 2, 'levels': {1: 'DANGER'}}}]},
     {'id': 'GV-17ab', 'gv': 'GV-17 a, b', 'desc': 'F-14 (flags 0x02 only) twice: the first frame raises nothing, the second raises node_danger; a normal frame (F-08) clears it',
      'steps': [{'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [], 'open': [], 'seq_delta': 0, 'levels': {1: 'DANGER'}}},
                {'frame': 'F-14', 'seq_class': 'fresh', 'dt_ms': 2000, 'expect': {'effects': [('raise', 1, 'node_danger', 'DANGER')], 'open': [(1, 'node_danger', 'DANGER')], 'seq_delta': 1, 'levels': {1: 'DANGER'}}},
