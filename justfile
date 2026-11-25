@@ -30,6 +30,7 @@ gen:
     python tools/gen_constants.py
     python tools/gen_frame_vectors.py
     python tools/gen_fw_vectors.py
+    python tools/gen_ws_schema.py
 
 # P1: design document consistency; P27 adds one lint tool per language
 lint:

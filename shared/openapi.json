@@ -1,0 +1,53 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PPE Monitoring host REST API",
+    "version": "1"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "enum": [
+              "BAD_REQUEST",
+              "UNAUTHENTICATED",
+              "ORIGIN_REJECTED",
+              "NOT_FOUND",
+              "RECOVERING",
+              "STATE_CONFLICT",
+              "VALIDATION_ERROR",
+              "INTERNAL_ERROR"
+            ],
+            "title": "Error Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "retry_after_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After S"
+          }
+        },
+        "required": [
+          "error_code",
+          "detail",
+          "retry_after_s"
+        ],
+        "title": "ErrorEnvelope",
+        "type": "object"
+      }
+    }
+  }
+}
