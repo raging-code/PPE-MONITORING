@@ -752,8 +752,13 @@ def _run_rules(state, event, now, mode):
         effects += tuple(fx)
     return state, effects
 
-def step(state, event, now):
-    """Pure: returns (new state, tuple of effects). Same inputs always give the same outputs."""
+def step(state, event, now, rebuild=False):
+    """Pure: returns (new state, tuple of effects). Same inputs always give the same outputs. Rebuild mode (14.6, Rev 3.40): rebuild=True returns the same
+    new state and an empty effects tuple, so recovery can feed stored frames through the same step() and write, broadcast and sound nothing."""
+    new, fx = _step(state, event, now)
+    return (new, ()) if rebuild else (new, fx)
+
+def _step(state, event, now):
     if not isinstance(now, Now): raise TypeError('now must be a Now(wall_ms, mono_ms)')
     if isinstance(event, FrameEvent):
         mode = eval_mode(event)
