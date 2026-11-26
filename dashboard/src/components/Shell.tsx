@@ -55,5 +55,7 @@ export default function Shell({ controller, bridge, silence, fetchFn, gate }: Sh
   if (conn === 'FORBIDDEN') return <main className="p-8 text-xl">The host refused this page address. Open http://127.0.0.1:8420.</main>;
   if (conn === 'CONNECTING') return noData || wd.noData ? <NoLiveData sirenOn={wd.sirenOn} silenced={wd.noData && !wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} /> : <main className="p-8 text-xl">Connecting to the host...</main>;
   // The worker's verdict covers a quiet /ws/tick or a quiet data socket while this page still looks connected: the red screen goes over the live screen.
-  return <>{!wd.noData && <><TopStrip fetchFn={fetchFn} /><ModeBar /><SystemBanners />{bar}</>}<LiveScreen />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} />}</>;
+  // Layout (3.7): one frame the height of the window. The header (buttons, banners, sound bar) is capped and scrolls inside itself, the tray is capped at 40% and
+  // scrolls inside itself, and the readings take the rest, so stacked banners can never push them off the screen.
+  return <div data-testid="frame" className="flex h-dvh flex-col overflow-hidden">{!wd.noData && <header data-testid="top" className="max-h-[35dvh] shrink-0 overflow-y-auto"><TopStrip fetchFn={fetchFn}><ModeBar /><SystemBanners />{bar}</TopStrip></header>}<LiveScreen />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} />}</div>;
 }

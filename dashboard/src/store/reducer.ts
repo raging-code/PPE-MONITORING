@@ -4,6 +4,7 @@
 import type {
   AdvisoryMsg, AlertBody, Banners, EpisodeBody, NodeSnap, RosterRow, ServerMessage, SessionInfo,
 } from '../gen/ws.ts';
+import { appendPoint } from '../alerts/trend.ts';
 
 export type Conn = 'CONNECTING' | 'LIVE' | 'LOGIN' | 'FORBIDDEN';
 
@@ -71,6 +72,8 @@ export function apply(s: LiveState, m: ServerMessage): { state: LiveState; resyn
           co_validity: m.co_validity, co_reason: m.co_reason,
         },
       };
+      // The chart (3.2) follows live readings. An UNRELIABLE CO is not a reading, and a duplicate frame adds no new point.
+      if (m.co_validity !== 'UNRELIABLE' && m.seq_class !== 'duplicate') n.coHistory = { ...s.coHistory, [m.node_id]: appendPoint(s.coHistory[m.node_id], m.rx_ts, m.co_ppm) };
       break;
     }
     case 'alert': {

@@ -21,7 +21,7 @@ export default function SessionsPanel({ api, onClose }: { api: Api; onClose: () 
       {load.kind === 'loading' && <p className="text-base">Loading sessions...</p>}
       {load.kind === 'failed' && <p role="status" className="text-base font-semibold">{load.text} <button type="button" className={BTN} onClick={() => { void run(); }}>Try again</button></p>}
       {load.kind === 'ok' && (load.rows.length === 0 ? <p className="text-base">No sessions yet.</p> : (
-        <div className="max-h-[40vh] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-base">
             <thead><tr><th className="p-1">Date (Manila)</th><th className="p-1">Length</th><th className="p-1">Mode</th><th className="p-1">Alerts</th><th className="p-1">Notes</th></tr></thead>
             <tbody>{load.rows.map(sessionLine).map((l) => <tr key={l.id} className="border-t border-card-border"><td className="p-1">{l.date}</td><td className="p-1">{l.length}</td><td className="p-1">{l.mode}</td><td className="p-1">{l.alerts}</td><td className="p-1">{l.notes}</td></tr>)}</tbody>

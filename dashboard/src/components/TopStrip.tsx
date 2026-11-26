@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { Api } from '../api/actions.ts';
 import type { EndBody } from '../api/shift.ts';
 import { openItems } from '../alerts/shift.ts';
@@ -12,7 +12,7 @@ import { BTN } from './btn.ts';
 const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?? ((...a) => fetch(...a)), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) });
 
 // The top strip (3.10): the Sessions list and End shift open from here, not from the main screen. Minimized-alert chips join it in P22d.
-export default function TopStrip({ fetchFn }: { fetchFn?: typeof fetch }) {
+export default function TopStrip({ fetchFn, children }: { fetchFn?: typeof fetch; children?: ReactNode }) {
   const api = useMemo(() => defaultApi(fetchFn), [fetchFn]);
   const session = useLive((s) => s.session), alerts = useLive((s) => s.alerts), episodes = useLive((s) => s.episodes), nodes = useLive((s) => s.nodes);
   const [sessions, setSessions] = useState(false), [ending, setEnding] = useState(false), [ended, setEnded] = useState<EndBody | null>(null);
@@ -26,6 +26,7 @@ export default function TopStrip({ fetchFn }: { fetchFn?: typeof fetch }) {
           <button type="button" className={BTN} onClick={() => setEnding(true)}>End shift</button>
         </span>
       </nav>
+      {children}
       {sessions && <SessionsPanel api={api} onClose={() => setSessions(false)} />}
       {ended && <ShiftSummary key={ended.closed_session_id} api={api} closedId={ended.closed_session_id} backupOk={ended.backup_ok} onClose={() => setEnded(null)} />}
       {ending && <EndShiftDialog api={api} sessionId={session?.session_id ?? null} items={items} onClose={() => setEnding(false)} onEnded={(b) => { setEnding(false); setEnded(b); }} />}
