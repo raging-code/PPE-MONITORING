@@ -159,3 +159,43 @@ async def resolve_episode(episode_id: int, body: M.ResolveReq, request: Request,
     if r is None: raise ApiError(404, 'NOT_FOUND', 'unknown episode')
     port.audit('RESOLVE_EPISODE', operator_id=op.operator_id, node_id=r.node_id, episode_id=r.episode_id, reason=r.resolve_reason)
     return M.ResolveResp(episode_id=r.episode_id, state='RESOLVED', resolved_ts=r.resolved_ts, resolve_reason=r.resolve_reason, resolved_by=r.resolved_by, latch_still_set=r.latch_still_set)
+# ---- P19c-1: GET /api/sessions and POST /api/dashboard-outage (design 3.8, 3.10) ----
+# Both read the clock through _now_ms (tests replace it; the api layer may read the clock, core/ may not). Neither needs a new Port method: the sessions list is a
+# read-only query in a worker thread (like GET /api/events, no audit row), and the outage route only validates and writes one audit row through port.audit.
+import time as _time
+_now_ms = lambda: int(_time.time() * 1000)
+SESSIONS_SQL = ("SELECT s.session_id, s.started_ts, s.ended_ts, s.mode, s.session_label, s.end_kind, "
+                "(SELECT COUNT(*) FROM alerts a WHERE a.session_id = s.session_id), "
+                "(SELECT COUNT(*) FROM episodes e WHERE e.session_id = s.session_id AND e.state != 'RESOLVED') "
+                "FROM sessions s ORDER BY s.session_id DESC LIMIT ?")
+HIGHEST_SQL = ("SELECT session_id, node_id, MAX(CASE level WHEN 'DANGER' THEN 2 WHEN 'WARNING' THEN 1 ELSE 0 END) AS rank FROM alerts "
+               "WHERE session_id IN (%s) AND node_id IS NOT NULL GROUP BY session_id, node_id HAVING rank > 0")
+LEVEL_OF_RANK = {1: 'WARNING', 2: 'DANGER'}
+def query_sessions(db_path, limit, now_ms):
+    """Runs in a worker thread, newest session first. It reads sessions, alerts and episodes only, never the frames table, so it stays fast on a 24 h database."""
+    c = connect_db(db_path, readonly=True)
+    try:
+        c.execute('BEGIN')  # one snapshot for both statements
+        rows = c.execute(SESSIONS_SQL, (limit,)).fetchall()
+        top = {}
+        if rows:
+            for sid, node, rank in c.execute(HIGHEST_SQL % ','.join('?' * len(rows)), [r[0] for r in rows]): top.setdefault(sid, {})[str(node)] = LEVEL_OF_RANK[rank]
+    finally: c.close()
+    return [M.SessionListRow(session_id=sid, started_ts=st, ended_ts=en, duration_s=max(0, ((en if en is not None else now_ms) - st) / 1000), mode=mode, session_label=label,
+                             end_kind=kind, alert_count=na, unresolved_episodes=ne, highest_level_by_node=top.get(sid, {})) for sid, st, en, mode, label, kind, na, ne in rows]
+
+@router.get('/sessions', response_model=list[M.SessionListRow])
+async def sessions(request: Request, limit: int = Query(50, ge=1, le=500), op: Operator = Depends(current_operator)):
+    return await run_in_threadpool(query_sessions, request.app.state.db_path, limit, _now_ms())  # read-only, no audit row
+
+OUTAGE_MAX_S, OUTAGE_TOLERANCE_MS = 86400, 1000  # design 3.8: at most 86400 s, duration_s within 1 s of the difference
+@router.post('/dashboard-outage', response_model=M.OutageResp)
+async def dashboard_outage(body: M.OutageReq, request: Request, op: Operator = Depends(current_operator)):
+    port, now = request.app.state.port, _now_ms()
+    def bad(why): raise ApiError(422, 'VALIDATION_ERROR', why)  # a refused report writes no audit row (ADR 0010)
+    if body.ended_ts < body.started_ts: bad('ended_ts is before started_ts')
+    if body.started_ts > now or body.ended_ts > now: bad('started_ts and ended_ts must not be in the future')
+    if body.duration_s > OUTAGE_MAX_S: bad('duration_s is over %d' % OUTAGE_MAX_S)
+    if abs(body.duration_s * 1000 - (body.ended_ts - body.started_ts)) > OUTAGE_TOLERANCE_MS: bad('duration_s differs from ended_ts - started_ts by more than 1 s')
+    port.audit('DASHBOARD_OUTAGE', operator_id=op.operator_id, reason='started_ts %d ended_ts %d duration_s %g' % (body.started_ts, body.ended_ts, body.duration_s))
+    return M.OutageResp(logged=True)

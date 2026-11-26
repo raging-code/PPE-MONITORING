@@ -273,3 +273,21 @@ class ResolveResp(_Strict):
     resolve_reason: ResolveReason
     resolved_by: int
     latch_still_set: bool
+# ---- REST bodies (P19c-1): GET /api/sessions and POST /api/dashboard-outage (design 3.8) ----
+class SessionListRow(_Strict):  # one row of GET /api/sessions; highest_level_by_node maps a node id (as a string) to WARNING or DANGER, a node with no alert above a notice is absent
+    session_id: int
+    started_ts: int
+    ended_ts: Optional[int]
+    duration_s: float
+    mode: SessionMode
+    session_label: Optional[str]
+    end_kind: Optional[Literal['ENDED', 'CLEAN_SHUTDOWN', 'ABANDONED']]
+    alert_count: int
+    unresolved_episodes: int
+    highest_level_by_node: dict[str, Literal['WARNING', 'DANGER']]
+class OutageReq(_Strict):  # times are UTC milliseconds like every stored timestamp, duration_s is seconds
+    started_ts: int
+    ended_ts: int
+    duration_s: float = Field(allow_inf_nan=False)
+class OutageResp(_Strict):
+    logged: Literal[True]
