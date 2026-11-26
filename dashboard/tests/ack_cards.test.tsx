@@ -86,22 +86,51 @@ describe('Resolve', () => {
     render(<LiveScreen actions={host().actions} />);
     expect(within(card()).queryByRole('button', { name: 'Resolve' })).toBeNull();
   });
-  it('needs a reason, names the node and the episode, and sends the reason once', async () => {
+  it('opens a dialog that names the node and the episode, needs a reason, and sends the reason once', async () => {
     const h = host();
     load([body(1, 'man_down', 'DANGER', { episode_id: 3, acknowledged_ts: 1200 })], [episode('ACKNOWLEDGED')]);
     render(<LiveScreen actions={h.actions} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(within(card()).getByRole('button', { name: 'Resolve' }));
-    const form = within(card()).getByRole('group', { name: 'Resolve episode' });
-    expect(form.textContent).toContain('FF-01'); expect(form.textContent).toContain('episode 3');
-    const confirm = within(form).getByRole('button', { name: 'Confirm resolve' }) as HTMLButtonElement;
+    const dlg = screen.getByRole('dialog', { name: 'Resolve FF-01, episode 3' });
+    expect(dlg.textContent).toContain('FF-01'); expect(dlg.textContent).toContain('episode 3'); expect(dlg.textContent).toContain('CANCEL button on the jacket');
+    const confirm = within(dlg).getByRole('button', { name: 'Confirm resolve' }) as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
     fireEvent.click(confirm); expect(h.calls).toHaveLength(0);
-    fireEvent.change(within(form).getByLabelText('Reason'), { target: { value: 'rescued' } });
+    fireEvent.click(within(dlg).getByLabelText('Rescued'));
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
     expect(h.calls).toEqual([{ url: '/api/episodes/3/resolve', body: '{"reason":"rescued"}' }]);
     await h.answer(200, { episode_id: 3, state: 'RESOLVED', resolved_ts: 9, resolve_reason: 'rescued', resolved_by: 1, latch_still_set: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(within(card()).getByRole('status').textContent).toContain('CANCEL');
+  });
+  it('offers the three reasons of the host and nothing else', () => {
+    load([body(1, 'man_down', 'DANGER', { episode_id: 3, acknowledged_ts: 1200 })], [episode('ACKNOWLEDGED')]);
+    render(<LiveScreen actions={host().actions} />);
+    fireEvent.click(within(card()).getByRole('button', { name: 'Resolve' }));
+    expect(screen.getAllByRole('radio').map((r) => r.parentElement?.textContent)).toEqual(['Rescued', 'False alarm', 'Device removed']);
+  });
+  it('Cancel and Escape close the dialog without a call, and the card stays unresolved', () => {
+    const h = host();
+    load([body(1, 'man_down', 'DANGER', { episode_id: 3, acknowledged_ts: 1200 })], [episode('ACKNOWLEDGED')]);
+    render(<LiveScreen actions={h.actions} />);
+    fireEvent.click(within(card()).getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(within(card()).getByRole('button', { name: 'Resolve' }));
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' }); expect(screen.queryByRole('dialog')).toBeNull();
+    expect(h.calls).toHaveLength(0); expect(within(card()).queryByRole('button', { name: 'Resolve' })).not.toBeNull();
+  });
+  it('a call the host did not answer keeps the dialog open so the operator can try again', async () => {
+    const h = host();
+    load([body(1, 'man_down', 'DANGER', { episode_id: 3, acknowledged_ts: 1200 })], [episode('ACKNOWLEDGED')]);
+    render(<LiveScreen actions={h.actions} />);
+    fireEvent.click(within(card()).getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByLabelText('False alarm')); fireEvent.click(screen.getByRole('button', { name: 'Confirm resolve' }));
+    await h.answer(503, {});
+    const dlg = screen.getByRole('dialog');
+    expect(within(dlg).getByRole('status').textContent).toBe('The host did not answer. Try again.');
+    expect((within(dlg).getByLabelText('False alarm') as HTMLInputElement).checked).toBe(true);
   });
   it('a card of another kind never offers Resolve', () => {
     load([body(1, 'heat', 'WARNING')]);

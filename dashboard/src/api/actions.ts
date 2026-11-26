@@ -7,7 +7,7 @@ export const REASON_LABEL: Record<ResolveReason, string> = { rescued: 'Rescued',
 export type ActionResult<T> =
   | { kind: 'ok'; body: T }
   | { kind: 'gone' } // 404: the host has no such alert or episode
-  | { kind: 'conflict' } // 409 STATE_CONFLICT: already in the target state
+  | { kind: 'conflict'; code?: string; retryAfterS?: number | null } // 409: STATE_CONFLICT (already in the target state) or RECOVERING (End shift while the host recovers)
   | { kind: 'bad'; status: number; detail: string } // 400 or 422: the request itself was refused
   | { kind: 'auth' } // 401 or 403: retrying cannot help
   | { kind: 'retry' }; // network failure or 5xx: worth another try
@@ -16,10 +16,12 @@ export interface AckBody { acknowledged_ts: number }
 export interface ResolveBody { resolved_ts: number; resolve_reason: ResolveReason; latch_still_set: boolean }
 export interface Api { fetchFn: typeof fetch; getToken: () => string | null }
 
-async function post<T>(api: Api, path: string, body: unknown): Promise<ActionResult<T>> {
+// One call, one outcome. GET sends only the token; POST sends the JSON body too.
+export async function request<T>(api: Api, method: 'GET' | 'POST', path: string, body?: unknown): Promise<ActionResult<T>> {
   let res: Response;
   try {
-    res = await api.fetchFn(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.getToken() ?? ''}` }, body: JSON.stringify(body) });
+    const auth = { Authorization: `Bearer ${api.getToken() ?? ''}` };
+    res = await api.fetchFn(path, method === 'GET' ? { method, headers: auth } : { method, headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(body) });
   } catch {
     return { kind: 'retry' };
   }
@@ -28,10 +30,11 @@ async function post<T>(api: Api, path: string, body: unknown): Promise<ActionRes
   if (res.status === 200) return { kind: 'ok', body: j as T };
   if (res.status === 401 || res.status === 403) return { kind: 'auth' };
   if (res.status === 404) return { kind: 'gone' };
-  if (res.status === 409) return { kind: 'conflict' };
+  if (res.status === 409) return { kind: 'conflict', code: typeof j.error_code === 'string' ? j.error_code : undefined, retryAfterS: typeof j.retry_after_s === 'number' ? j.retry_after_s : null };
   if (res.status === 400 || res.status === 422) return { kind: 'bad', status: res.status, detail: String(j.detail ?? 'refused') };
   return { kind: 'retry' };
 }
+const post = <T,>(api: Api, path: string, body: unknown) => request<T>(api, 'POST', path, body);
 export const postAlertAck = (api: Api, id: number) => post<AckBody>(api, `/api/alerts/${id}/ack`, {});
 export const postEpisodeAck = (api: Api, id: number) => post<AckBody>(api, `/api/episodes/${id}/ack`, {});
 export const postResolve = (api: Api, id: number, reason: ResolveReason) => post<ResolveBody>(api, `/api/episodes/${id}/resolve`, { reason });
