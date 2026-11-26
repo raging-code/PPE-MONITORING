@@ -5,6 +5,7 @@ import { TOKEN_KEY, type Controller } from '../store/controller.ts';
 import type { Bridge } from '../worker/bridge.ts';
 import { postLogin } from '../api/login.ts';
 import LoginPage from './LoginPage.tsx';
+import LiveScreen from './LiveScreen.tsx';
 import NoLiveData from './NoLiveData.tsx';
 
 export interface ShellProps {
@@ -44,5 +45,5 @@ export default function Shell({ controller, bridge, fetchFn }: ShellProps) {
   if (conn === 'LOGIN') return <LoginPage onLogin={onLogin} />;
   if (conn === 'FORBIDDEN') return <main className="p-8 text-xl">The host refused this page address. Open http://127.0.0.1:8420.</main>;
   if (conn === 'CONNECTING') return noData ? <NoLiveData /> : <main className="p-8 text-xl">Connecting to the host...</main>;
-  return <main className="p-4" data-testid="live">Connected</main>; // P22 builds the cards
+  return <LiveScreen />;
 }

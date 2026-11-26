@@ -16,3 +16,8 @@
 }
 
 body { margin: 0; background: var(--color-page); color: var(--color-ink); font-size: 16px; font-variant-numeric: tabular-nums; }
+
+/* Design 3.6: the flash is a 1 Hz border pulse (under 3 per second); with reduced motion it is a steady thick border. */
+@keyframes card-flash { 0%, 100% { border-color: var(--color-card-border); } 50% { border-color: var(--flash-on, var(--color-ink)); } }
+.flash { animation: card-flash 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; border-color: var(--flash-on, var(--color-ink)); border-width: 6px; } }
