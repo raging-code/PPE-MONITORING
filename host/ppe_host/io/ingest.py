@@ -4,7 +4,7 @@ frame's event_seq -> step() (which allocates the event_seq of any effect after i
 Calls are serialised by a lock so event_seq is allocated and submitted in the same order; P24 calls frame() from the event loop.
 P24-3a: effect_stmts() turns the effects of step() into alert, episode and EPISODE_ESCALATED rows that commit in the same unit as the frame (design 1, commit paragraph); tick() and operator() do the
 same for the 1 Hz TickEvent and for Acknowledge and Resolve. Effects also come back in Ingested.effects, with event_seq values already allocated; the committed ids are in unit._ids.
-P24-3b-1: audit() and write() give the Port (host_port.py) ordered units of its own. Not here (P24-3b-2): the messages for the dashboard. The audit rows of ACK_EPISODE, RESOLVE_EPISODE and the like are written by the REST routes through the Port, not here.
+P24-3b-1: audit() and write() give the Port (host_port.py) ordered units of its own. P24-3b-2a: Ingested.ctx carries the reading's inputs; the messages themselves are built in wire.py. The audit rows of ACK_EPISODE, RESOLVE_EPISODE and the like are written by the REST routes through the Port, not here.
 Not here (P12b): the real clock, base_health rows, COUNTERS rows, SERIAL_LOST and SERIAL_BACK."""
 import logging, threading, time
 from collections import deque
@@ -64,6 +64,7 @@ class Ingested(NamedTuple):
     committed: Optional[bool]    # True or False after the commit wait; None when no wait was made
     backend_ms: float
     unit: Optional[Unit]
+    ctx: Optional[dict] = None   # P24-3b-2a: what the reading message needs, captured under the lock (None unless verify is OK); see wire.reading_body
 
 class RateWindow:
     def __init__(self, limit, window_ms=60_000): self.limit, self.window, self.q = limit, window_ms, deque()
@@ -165,18 +166,19 @@ class Ingest:
             fx = ()
             if host != 'BAD_LEN': self.st, fx = step(self.st, FrameEvent(node, host, cls, d), now)
             backend_ms = (self.perf() - t0) * 1000.0
-            nl = backend = final = reasons = None
+            nl = backend = final = reasons = None; rlist = []
             if host == 'OK' and lvl != 3:
                 mine = sorted((a for (nid, _), a in self.st.alerts.items() if nid == node), key=lambda a: a.event_seq)
                 top = max((RANK[a.level] for a in mine), default=0)
                 nl, backend, final = LEVELS[lvl], LEVELS[top], self.st.nodes[node].level      # final = max(node_level, backend_level); a suspect frame keeps a higher displayed level (14.1)
-                reasons = '; '.join(a.reasons for a in mine if a.reasons) or None
+                reasons = '; '.join(a.reasons for a in mine if a.reasons) or None; rlist = [a.reasons for a in mine if a.reasons]
             g = (lambda k: d[k]) if d else (lambda k: None)
             over = int(host == 'OK' and not _bit(d['status2'], 'status2', 'co_fault') and d['co_x10'] / 10.0 > K.CO_CLAMP_MAX_PPM)
             row = (fseq, self.session_id, node, now.wall_ms, now.mono_ms, g('seq'), g('boot_ctr'), g('uptime_s'), g('co_x10'), over, g('temp_x100'), g('hum'), g('hr'), g('motion_x100'),
                    g('bat'), g('status2'), g('flags'), g('id_mode'), g('status3'), g('status4'), nl, backend, final, reasons, f.rssi, f.snr, host, f.base_verify, cls, lost,
                    f.raw.hex(), backend_ms)
-            drop = diag and not fx
+            ctx = dict(node=node, d=d, rx_ts=now.wall_ms, rx_mono=now.mono_ms, rssi=f.rssi, snr=f.snr, over=over, ns=self.st.nodes.get(node), reasons=rlist, seq_class=cls) if host == 'OK' else None
+            drop = (diag and not fx)
             stored = True
             if drop and not self.bad_window.allow(now.mono_ms): stored = False; self.counters['bad_frames_not_stored'] += 1      # counted, not stored: a flood cannot starve real frames
             unit = None
@@ -184,6 +186,6 @@ class Ingest:
                 unit = self.writer.submit(Unit(fseq, [Stmt(FRAME_SQL, row, tag='frame'), *effect_stmts(fx, self.session_id)], droppable=drop)); self.counters['frames_stored'] += 1
             if note: self._sys('MAC_DISAGREE', note, True)
         committed = self.writer.wait(unit, self.commit_wait_ms) if (stored and not drop) else None       # commit BEFORE broadcast, within commit_wait_ms (design 1)
-        out = Ingested(host, cls, fseq, tuple(fx), stored, committed, backend_ms, unit)
+        out = Ingested(host, cls, fseq, tuple(fx), stored, committed, backend_ms, unit, ctx)
         if stored and not drop and self.broadcast: self.broadcast(out)
         return out

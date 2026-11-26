@@ -2,7 +2,7 @@
 Not in the 14.5 file list: ADR 0031 (Proposed) explains why it is a new top-level module next to main.py. It owns no thread and no socket; every method runs on the event loop
 (end_session, which the route awaits in a worker thread, is P25). Every database write goes through Ingest (one ordered writer queue, one event_seq counter); the reads are
 short indexed look-ups on a read-only connection. Acknowledge and Resolve go through step() (Ingest.operator), so the engine and the rows never disagree.
-Not here: the snapshot and the WebSocket messages (P24-3b-2, which plugs into publish), end_session and close_session (P25), loading open alerts and episodes into the engine (P24-3c)."""
+The snapshot and the WebSocket messages are wire.py (P24-3b-2a), which plugs into publish. Not here, end_session and close_session (P25), loading open alerts and episodes into the engine (P24-3c)."""
 from .api import security as sec
 from .core.rule_engine import AckAlertEvent, AckEpisodeEvent, AlertAcknowledged, EpisodeAcknowledged, EpisodeResolved, ResolveEpisodeEvent
 from .io.db_writer import Stmt, connect_db, load_scba_corrections
@@ -10,6 +10,7 @@ from .io.db_writer import Stmt, connect_db, load_scba_corrections
 BANNERS = ('host_gap', 'logging_fault')   # the two banners an operator may acknowledge (design 3.8)
 
 class HostPort:
+    wire = None   # set by wire.Wire.attach() (P24-3b-2a)
     def __init__(self, ingest, db_path, settings, auth, publish=None, recovering=True, host_gap=None):
         """publish(effects, unit, committed) is called after the commit wait of every operator action (committed: True, False, or None when nothing was written); P24-3b-2 turns it into messages.
         host_gap is None or {'gap_s': float, 'reason': str or None}; P25 sets the real gap with set_host_gap."""
@@ -45,6 +46,10 @@ class HostPort:
     def login_failed(self): return self.auth.login_failed()
     def login_ok(self): self.auth.login_ok()
     def session_id(self): return self.ing.session_id
+    def snapshot(self):
+        """The hub's Source.snapshot (P24-3b-2a): built by wire.Wire, which attach() plugs in."""
+        if self.wire is None: raise RuntimeError('no Wire attached: build wire.Wire(port, hub).attach() first')
+        return self.wire.snapshot()
     def recovering_retry_s(self): return self.settings['recovering_target_s'] if self.recovering else None
     def set_recovering(self, on): self.recovering = bool(on)
     def audit(self, action, operator_id=None, node_id=None, episode_id=None, reason=None):
@@ -79,7 +84,7 @@ class HostPort:
             ts = next((e.ts for e in fx if isinstance(e, AlertAcknowledged) and e.raised_event_seq == eseq), live.acknowledged_ts or self.ing.clock.wall_ms())
         else:
             ts = self.ing.clock.wall_ms()
-            self._done((), self.ing.write([Stmt('UPDATE alerts SET acknowledged_ts = ?, acknowledged_by = ? WHERE alert_id = ? AND acknowledged_ts IS NULL', (ts, operator_id, alert_id))], durable=True))
+            self._done((AlertAcknowledged(0, node, typ, eseq, operator_id, ts),), self.ing.write([Stmt('UPDATE alerts SET acknowledged_ts = ?, acknowledged_by = ? WHERE alert_id = ? AND acknowledged_ts IS NULL', (ts, operator_id, alert_id))], durable=True))   # the effect only tells the Wire which row to send (event_seq 0 is never stored)
         return AlertAck(alert_id, node, ts, operator_id)
 
     def _episode(self, episode_id):
