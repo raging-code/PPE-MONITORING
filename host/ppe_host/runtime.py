@@ -1,6 +1,6 @@
 """runtime.py (P24-3c-1): start-up step 8 of design 14.5: the DBWriterThread, the SerialReaderThread with the bounded pre-replay queue, and the SerialWriterThread.
 Runtime(st) wires Ingest, DBWriter, SerialReader, SerialWriter, LinkMonitor and Health from a Startup (main.py, steps 1 to 7) and starts the threads in the design's order.
-Not here: the OS watchdog and the AudioThread (stubs until P24-3c-3), steps 9 and 10 (P24-3c-2 and P24-3c-3: open alerts, Uvicorn, the 1 Hz driver of offer_tick and Health.tick),
+Not here: the OS watchdog and the AudioThread (stubs until P24-3c-3), step 9 is load_open() (P24-3c-2); step 10 (P24-3c-3: Uvicorn, the 1 Hz driver of offer_tick and Health.tick),
 steps 11 to 13 (P25: recovery, then release()). SIMULATOR and REPLAY have no serial port: only the writer and the gate exist there.
 Pre-replay queue (design 1, recovery rule a): frames that arrive while recovering wait in a queue of at most pre_replay_queue_max. When it overflows, the oldest frame with node level
 NORMAL and no event bit is dropped first and counted (pre_replay_dropped); a frame with a non-NORMAL node level, mandown, mayday, fault or check-in is never dropped, so the queue may
@@ -84,6 +84,12 @@ class Runtime:
     def offer_tick(self):
         """One host_tick line to the SerialWriter (never blocks). P24-3c-3 calls this at 1 Hz."""
         if self.serial: self.serial_writer.offer(host_tick_line(self.clock.wall_ms(), self.st.recovering, self.st.mode))
+    def load_open(self):
+        """Step 9 (P24-3c-2): open alerts and open episodes into the engine state by indexed SQL (Ingest.load_open on the start-up connection), before Uvicorn starts, so the first snapshot
+        and the first frame agree. Safe to call again: the existing state wins. Returns the OpenReport."""
+        rep = self.ingest.load_open(self.st.conn)
+        log.info('step 9: %d open alert(s) and %d open episode(s) loaded, %d row(s) skipped', rep.alerts, rep.episodes, len(rep.skipped))
+        return rep
     def release(self):
         """Step 13 (P25 calls this after RECOVERING_EXIT)."""
         return self.gate.release()

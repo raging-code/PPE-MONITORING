@@ -211,11 +211,11 @@ def main(argv=None):
     a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
         st = startup(a.home, a.mode)
-        try: begin_session(st); rt = Runtime(st).start()                                           # steps 6 and 7, then step 8 (P24-3c-1)
+        try: begin_session(st); rt = Runtime(st).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
         except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
-    print('start-up steps 1 to 8 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
-    rt.stop(); st.close(); return EXIT_OK   # P24-3c-2 and later continue here with step 9
+    print('start-up steps 1 to 9 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
+    rt.stop(); st.close(); return EXIT_OK   # P24-3c-3 and later continue here with step 10
 
 if __name__ == '__main__': sys.exit(main())
