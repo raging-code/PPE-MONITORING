@@ -2,7 +2,9 @@
 Order: host re-verify (length, CRC, MAC, roster) -> MAC_DISAGREE check against the base's own result -> sequence classifier (verify OK only) -> allocate the
 frame's event_seq -> step() (which allocates the event_seq of any effect after it) -> one ordered writer Unit -> wait up to commit_wait_ms -> broadcast hook.
 Calls are serialised by a lock so event_seq is allocated and submitted in the same order; P24 calls frame() from the event loop.
-Not here (P24): turning effects into alerts, episodes and audit rows. They come back in Ingested.effects, with event_seq values already allocated.
+P24-3a: effect_stmts() turns the effects of step() into alert, episode and EPISODE_ESCALATED rows that commit in the same unit as the frame (design 1, commit paragraph); tick() and operator() do the
+same for the 1 Hz TickEvent and for Acknowledge and Resolve. Effects also come back in Ingested.effects, with event_seq values already allocated; the committed ids are in unit._ids.
+Not here (P24-3b): the messages for the dashboard and the Port. The audit rows of ACK_EPISODE, RESOLVE_EPISODE and the like are written by the REST routes through the Port, not here.
 Not here (P12b): the real clock, base_health rows, COUNTERS rows, SERIAL_LOST and SERIAL_BACK."""
 import logging, threading, time
 from collections import deque
@@ -10,9 +12,10 @@ from typing import NamedTuple, Optional
 from .. import abi, constants as K
 from ..clock import now_of
 from ..core import crypto_abi as ca
-from ..core.rule_engine import EngineState, FrameEvent, RANK, next_seq, step
+from ..core.rule_engine import (AlertAcknowledged, ChangeAlertLevel, ClearAlert, EPISODE_ALERT_TYPES, EngineState, EpisodeAcknowledged, EpisodeEscalated, EpisodeOpened, EpisodeResolved,
+                                FrameEvent, RANK, RaiseAlert, TickEvent, next_seq, step)
 from ..core.seq_classifier import SeqState, classify
-from .db_writer import Stmt, Unit
+from .db_writer import Ref, Stmt, Unit
 
 log = logging.getLogger('ppe.ingest')
 BAD_FRAMES_KEPT_PER_MIN = 20          # design 2.1: the first 20 diagnostic frames per minute are stored, the rest only counted (no settings key exists: module constant, like ADR 0001)
@@ -21,6 +24,35 @@ COLS = ('event_seq, session_id, node_id, rx_ts, rx_mono, seq, boot_ctr, uptime_s
         'node_level, backend_level, final_level, reasons, rssi, snr, verify, base_verify, seq_class, frames_lost, raw_hex, backend_ms')
 FRAME_SQL = 'INSERT INTO frames(%s) VALUES (%s)' % (COLS, ','.join('?' * 32))
 SYS_SQL = 'INSERT INTO system_events(session_id, event_seq, ts, kind, detail) VALUES (?, ?, ?, ?, ?)'
+ACTIVE_EP = "(SELECT episode_id FROM episodes WHERE node_id = ? AND state IN ('OPEN', 'ACKNOWLEDGED'))"   # one active episode per node (idx_episodes_one_active), so the node finds it
+IN_ACTIVE = "node_id = ? AND state IN ('OPEN', 'ACKNOWLEDGED')"
+
+def effect_stmts(fx, session_id):
+    """The rows of a tuple of step() effects, in effect order. An alert is identified by the event_seq of the effect that raised it (unique over the whole database, also across sessions);
+    an episode by its node while it is active. Tags: alert:<event_seq> and episode:<event_seq> give the new row id after the commit. A frame in the same unit supplies frame_id through Ref('frame').
+    EpisodeLabelChanged has no row: it is a WebSocket message only. A one-shot notice is stored already closed (cleared_ts = raised_ts, 14.1b)."""
+    out = []
+    for e in fx:
+        if isinstance(e, RaiseAlert):
+            ep = e.type in EPISODE_ALERT_TYPES
+            out.append(Stmt('INSERT INTO alerts(event_seq, session_id, frame_id, episode_id, node_id, type, level, authenticated, reasons, raised_ts, cleared_ts) VALUES (?, ?, ?, %s, ?, ?, ?, ?, ?, ?, ?)' % (ACTIVE_EP if ep else 'NULL'),
+                            (e.event_seq, session_id, Ref('frame'), *((e.node_id,) if ep else ()), e.node_id, e.type, e.level, int(e.type != 'unauth_alert'), e.reasons or None, e.raised_ts, e.raised_ts if e.one_shot else None), tag='alert:%d' % e.event_seq))
+        elif isinstance(e, ClearAlert): out.append(Stmt('UPDATE alerts SET cleared_ts = ?, cleared_event_seq = ? WHERE event_seq = ?', (e.cleared_ts, e.event_seq, e.raised_event_seq)))
+        elif isinstance(e, ChangeAlertLevel):   # escalation clears the acknowledgement (the siren sounds again), lowering keeps it (14.1)
+            out.append(Stmt('UPDATE alerts SET level = ?, reasons = ?, acknowledged_ts = CASE WHEN ? THEN NULL ELSE acknowledged_ts END, acknowledged_by = CASE WHEN ? THEN NULL ELSE acknowledged_by END WHERE event_seq = ?',
+                            (e.level, e.reasons or None, int(e.acknowledged_reset), int(e.acknowledged_reset), e.raised_event_seq)))
+        elif isinstance(e, AlertAcknowledged): out.append(Stmt('UPDATE alerts SET acknowledged_ts = ?, acknowledged_by = ? WHERE event_seq = ?', (e.ts, e.operator_id, e.raised_event_seq)))
+        elif isinstance(e, EpisodeOpened):
+            out.append(Stmt("INSERT INTO episodes(session_id, node_id, kind, opened_ts, state) VALUES (?, ?, ?, ?, 'OPEN')", (session_id, e.node_id, e.kind, e.opened_ts), tag='episode:%d' % e.event_seq))
+        elif isinstance(e, EpisodeEscalated):
+            out.append(Stmt('UPDATE episodes SET kind = ? WHERE ' + IN_ACTIVE, (e.kind, e.node_id)))
+            out.append(Stmt("INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action, node_id, episode_id, reason) VALUES (?, ?, ?, NULL, 'EPISODE_ESCALATED', ?, %s, ?)" % ACTIVE_EP,
+                            (session_id, e.event_seq, e.ts, e.node_id, e.node_id, '%s to %s' % (e.old_kind, e.kind))))
+        elif isinstance(e, EpisodeAcknowledged):
+            out.append(Stmt("UPDATE episodes SET state = 'ACKNOWLEDGED', acknowledged_ts = ?, acknowledged_by = ? WHERE node_id = ? AND state = 'OPEN'", (e.ts, e.operator_id, e.node_id)))
+        elif isinstance(e, EpisodeResolved):
+            out.append(Stmt("UPDATE episodes SET state = 'RESOLVED', resolved_ts = ?, resolve_reason = ?, resolved_by = ? WHERE " + IN_ACTIVE, (e.ts, e.reason, e.operator_id, e.node_id)))
+    return out
 
 class Ingested(NamedTuple):
     verify: str                  # OK | BAD_LEN | BAD_CRC | BAD_MAC | REJECT_ROSTER (REJECT_ROSTER is never stored)
@@ -76,6 +108,21 @@ class Ingest:
         self.st, seq = next_seq(self.st)
         return self.writer.submit(Unit(seq, [Stmt(SYS_SQL, (self.session_id, seq, self.clock.wall_ms(), kind, detail))], droppable=droppable))
 
+    def _fx_unit(self, fx, durable):
+        stmts = effect_stmts(fx, self.session_id)
+        return self.writer.submit(Unit(fx[0].event_seq, stmts, durable=durable)) if stmts else None   # an effect with no row (a label change) still used its event_seq: a gap is allowed
+
+    def tick(self):
+        """The 1 Hz TickEvent (silence rules and the 10 s timers). Returns (effects, unit); the owner broadcasts after the commit."""
+        with self._lock:
+            self.st, fx = step(self.st, TickEvent(), now_of(self.clock)); return tuple(fx), self._fx_unit(fx, False)
+
+    def operator(self, event):
+        """Acknowledge or Resolve (AckAlertEvent, AckEpisodeEvent, ResolveEpisodeEvent) through step(). The unit is durable (synchronous=FULL). Returns (effects, unit); a repeat gives ((), None).
+        A bad Resolve reason raises ValueError and changes nothing."""
+        with self._lock:
+            self.st, fx = step(self.st, event, now_of(self.clock)); return tuple(fx), self._fx_unit(fx, True)
+
     def _reject(self, why): c = self.counters; c['rejected_frames'] += 1; c['rejected_' + why] += 1
 
     def frame(self, f):
@@ -121,7 +168,7 @@ class Ingest:
             if drop and not self.bad_window.allow(now.mono_ms): stored = False; self.counters['bad_frames_not_stored'] += 1      # counted, not stored: a flood cannot starve real frames
             unit = None
             if stored:
-                unit = self.writer.submit(Unit(fseq, [Stmt(FRAME_SQL, row, tag='frame')], droppable=drop)); self.counters['frames_stored'] += 1
+                unit = self.writer.submit(Unit(fseq, [Stmt(FRAME_SQL, row, tag='frame'), *effect_stmts(fx, self.session_id)], droppable=drop)); self.counters['frames_stored'] += 1
             if note: self._sys('MAC_DISAGREE', note, True)
         committed = self.writer.wait(unit, self.commit_wait_ms) if (stored and not drop) else None       # commit BEFORE broadcast, within commit_wait_ms (design 1)
         out = Ingested(host, cls, fseq, tuple(fx), stored, committed, backend_ms, unit)

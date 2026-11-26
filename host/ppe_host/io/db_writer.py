@@ -154,6 +154,7 @@ class DBWriter:
                 raise
         finally:
             if raised: self._set_sync(self.sync)
+        unit._ids = ids                           # P24-3a: the ids of the tagged rows (alert:<event_seq>, episode:<event_seq>, frame) for whoever broadcasts the unit
         self.counters['commits'] += 1
         if not unit.rejected: self.logging_fault = False; self.last_error = None
 
