@@ -1,6 +1,7 @@
 """cli.py (P11-2): offline maintenance commands. A command is one entry in COMMANDS: name -> (function(args) -> exit code, [(flag, argparse kwargs)]).
 Later parts add commands with replace on the marker line inside COMMANDS. Run: python -m ppe_host.cli <command> ..."""
-import argparse, sys
+import argparse
+import sys
 from pathlib import Path
 from .io.backup import verify_backup
 from .io.db_writer import connect_db, run_migrations, applied_versions
@@ -29,9 +30,81 @@ def cmd_backup_verify(a):
 COMMANDS = {
     'seed-roster': (cmd_seed_roster, [('--db', {'required': True, 'help': 'database file to seed'})]),
     'backup-verify': (cmd_backup_verify, [('--file', {'required': True, 'help': 'backup file to check'})]),
-    # P-next commands are added here (one line each)
 }
 
+# ---- P19b-2: operator commands (design 2.8 and 4). Offline: their audit rows have session_id NULL and event_seq 0, as 2.3 says for CLI actions.
+# The token is printed once, never stored (only its HMAC) and never logged. cli ack --node needs the running host and is not here (docs/adr/0009.md). ----
+import sqlite3, time
+from .settings import SettingsError, load_settings
+OPERATOR_FLAGS = [('--home', {'help': 'PPE_HOME (default: the PPE_HOME variable, else the repository folder)'}), ('--db', {'help': 'database file (default: db_path of the settings)'})]
+def _open(a, create):
+    s = load_settings(a.home); db = Path(a.db) if a.db else s.path('db_path')
+    if not create and not db.exists(): raise SettingsError('database file not found: %s' % db)
+    db.parent.mkdir(parents=True, exist_ok=True); conn = connect_db(db)
+    if not applied_versions(conn):
+        if not create: conn.close(); raise SettingsError('database has no schema: %s' % db)
+        run_migrations(conn, str(MIGRATIONS_DIR), int(time.time() * 1000))
+    return s.home, conn
+def _write_with_audit(conn, action, write):
+    """One transaction: write() changes operators and returns the operator_id; then the audit row (session_id NULL, event_seq 0, operator_id NULL, reason names the operator)."""
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        oid = write(); conn.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action, reason) VALUES (NULL, 0, ?, NULL, ?, ?)', (int(time.time() * 1000), action, 'operator_id %d' % oid)); conn.execute('COMMIT'); return oid
+    except BaseException: conn.execute('ROLLBACK'); raise
+def _fail(cmd, msg): print('%s: %s' % (cmd, msg), file=sys.stderr); return 1
+def _salt(home, conn):
+    from .api import security as sec
+    return sec.load_or_create_salt(home, conn.execute('SELECT COUNT(*) FROM operators').fetchone()[0] > 0)
+
+def cmd_create_operator(a):
+    from .api import security as sec
+    name = (a.name or '').strip()
+    if not name: return _fail('create-operator', '--name must not be empty')
+    try:
+        home, conn = _open(a, True)
+        try:
+            salt, token, now = _salt(home, conn), sec.new_token(), int(time.time() * 1000)
+            def write(): return conn.execute('INSERT INTO operators(display_name, token_hash, active, created_ts, token_issued_ts) VALUES (?, ?, 1, ?, ?)', (name, sec.hash_token(salt, token), now, now)).lastrowid
+            oid = _write_with_audit(conn, 'OPERATOR_ADDED', write)
+        finally: conn.close()
+    except SettingsError as e: return _fail('create-operator', str(e))
+    except sqlite3.IntegrityError: return _fail('create-operator', 'an operator named %r already exists' % name)
+    print('create-operator: operator_id %d (%s)\nTOKEN (shown once, only its hash is stored): %s' % (oid, name, token)); return 0
+
+def _existing(a, cmd):
+    """(home, conn, row) of the operator --operator-id, or an exit code."""
+    home, conn = _open(a, False)
+    row = conn.execute('SELECT display_name, active FROM operators WHERE operator_id = ?', (a.operator_id,)).fetchone()
+    if row is None: conn.close(); raise SettingsError('no operator with operator_id %d' % a.operator_id)
+    return home, conn, row
+def cmd_rotate_token(a):
+    from .api import security as sec
+    try:
+        home, conn, (name, active) = _existing(a, 'rotate-token')
+        try:
+            if not active: raise SettingsError('operator %d (%s) is disabled; a disabled operator gets no new token' % (a.operator_id, name))
+            salt, token, now = _salt(home, conn), sec.new_token(), int(time.time() * 1000)
+            def write(): conn.execute('UPDATE operators SET token_hash = ?, token_issued_ts = ? WHERE operator_id = ?', (sec.hash_token(salt, token), now, a.operator_id)); return a.operator_id
+            _write_with_audit(conn, 'TOKEN_ROTATED', write)
+        finally: conn.close()
+    except SettingsError as e: return _fail('rotate-token', str(e))
+    print('rotate-token: operator_id %d (%s), the old token no longer works\nTOKEN (shown once, only its hash is stored): %s' % (a.operator_id, name, token)); return 0
+def cmd_disable_operator(a):
+    try:
+        home, conn, (name, active) = _existing(a, 'disable-operator')
+        try:
+            if active:
+                def write(): conn.execute('UPDATE operators SET active = 0 WHERE operator_id = ?', (a.operator_id,)); return a.operator_id
+                _write_with_audit(conn, 'OPERATOR_DISABLED', write)
+        finally: conn.close()
+    except SettingsError as e: return _fail('disable-operator', str(e))
+    print('disable-operator: operator_id %d (%s) %s' % (a.operator_id, name, 'is disabled' if active else 'was already disabled, nothing changed')); return 0
+
+COMMANDS.update({
+    'create-operator': (cmd_create_operator, [('--name', {'required': True, 'help': 'display name shown in the audit log'})] + OPERATOR_FLAGS),
+    'rotate-token': (cmd_rotate_token, [('--operator-id', {'type': int, 'required': True})] + OPERATOR_FLAGS),
+    'disable-operator': (cmd_disable_operator, [('--operator-id', {'type': int, 'required': True})] + OPERATOR_FLAGS),
+})
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.cli'); sub = p.add_subparsers(dest='command', required=True)
     for name, (_, flags) in COMMANDS.items():
