@@ -1,12 +1,20 @@
-// P21b stub. P22c adds the /ws/tick socket here and the 4 s NO LIVE DATA judgement from server timestamps.
-let auth: { token: string; wsTickUrl: string } | null = null;
+// Web Worker entry (design 3.7): its own authenticated /ws/tick socket and the 4 s NO LIVE DATA judgement.
+// A worker timer is not throttled like a hidden tab's page timers, which is why the judgement lives here.
+import { CONSTANTS } from '../gen/constants.ts';
+import { LiveSocket } from '../net/socket.ts';
+import { createRunner } from './runner.ts';
 
-self.onmessage = (e: MessageEvent) => {
-  const m = e.data as { type?: unknown; token?: unknown; ws_tick_url?: unknown } | null;
-  if (m && m.type === 'INIT_AUTH' && typeof m.token === 'string' && typeof m.ws_tick_url === 'string') {
-    auth = { token: m.token, wsTickUrl: m.ws_tick_url };
-    self.postMessage({ type: 'INIT_ACK', ws_tick_url: auth.wsTickUrl });
-  }
-};
-
+const runner = createRunner({
+  post: (m) => self.postMessage(m),
+  makeSocket: (o) => new LiveSocket({
+    url: o.url, getToken: () => o.token, noHb: true,
+    onMessage: (m) => { if (m.type === 'tick') o.onTick(m.srv_ts); return false; },
+    onConnecting: () => {}, onAuthRejected: o.onAuthLost, onForbidden: o.onAuthLost,
+  }),
+  now: () => performance.now(),
+  wall: () => Date.now(),
+  every: (fn, ms) => { const h = setInterval(fn, ms); return () => clearInterval(h); },
+  staleMs: CONSTANTS.dashboard_stale_s * 1000,
+});
+self.onmessage = (e: MessageEvent) => runner.handle(e.data);
 export {};

@@ -26,7 +26,8 @@ export interface SocketOptions {
   create?: (url: string) => WsLike;
   timers?: Timers;
   reconnectMs?: number; // ADR 0013 (Proposed): no design value, defaults to 1000
-  hbMs?: number; // design 3.8: the client heartbeat is 1 Hz
+  hbMs?: number; // design 3.8: the client heartbeat is 1 Hz (not on /ws/tick)
+  noHb?: boolean; // /ws/tick takes no heartbeat: only /ws does (3.8)
   now?: () => number;
 }
 
@@ -71,7 +72,8 @@ export class LiveSocket {
     const ws = (this.o.create ?? ((u: string) => new WebSocket(u) as unknown as WsLike))(this.o.url);
     this.ws = ws;
     ws.onopen = () => {
-      ws.send(JSON.stringify({ v: 1, type: 'auth', token }));
+      ws.send(JSON.stringify({ v: 1, type: 'auth', token })); // always the first message (3.8)
+      if (this.o.noHb) return;
       this.hb = this.t().setInterval(() => {
         ws.send(JSON.stringify({ v: 1, type: 'hb', srv_ts: this.lastTs || (this.o.now ?? Date.now)() }));
       }, this.o.hbMs ?? HB_MS);

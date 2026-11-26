@@ -7,10 +7,13 @@ import { postLogin } from '../api/login.ts';
 import LoginPage from './LoginPage.tsx';
 import LiveScreen from './LiveScreen.tsx';
 import NoLiveData from './NoLiveData.tsx';
+import { useWd } from '../store/watchdog.ts';
+import { useAudio } from '../audio/siren.ts';
 
 export interface ShellProps {
   controller: Pick<Controller, 'start' | 'login'>;
-  bridge: Bridge;
+  bridge: Pick<Bridge, 'init'>;
+  silence?: () => void; // Silence 60 s of the NO LIVE DATA siren, sent to the worker
   fetchFn?: typeof fetch;
 }
 
@@ -25,10 +28,11 @@ function useActiveFor(active: boolean, ms: number): boolean {
   return late;
 }
 
-export default function Shell({ controller, bridge, fetchFn }: ShellProps) {
+export default function Shell({ controller, bridge, silence, fetchFn }: ShellProps) {
   const conn = useLive((s) => s.conn);
   const staleS = useLive((s) => Number(s.constants.dashboard_stale_s ?? CONSTANTS.dashboard_stale_s));
   const noData = useActiveFor(conn === 'CONNECTING', staleS * 1000);
+  const wd = useWd((s) => s), unlocked = useAudio((s) => s.unlocked);
 
   useEffect(() => {
     controller.start(); // opens /ws when a token is stored, otherwise shows Login
@@ -44,6 +48,7 @@ export default function Shell({ controller, bridge, fetchFn }: ShellProps) {
 
   if (conn === 'LOGIN') return <LoginPage onLogin={onLogin} />;
   if (conn === 'FORBIDDEN') return <main className="p-8 text-xl">The host refused this page address. Open http://127.0.0.1:8420.</main>;
-  if (conn === 'CONNECTING') return noData ? <NoLiveData /> : <main className="p-8 text-xl">Connecting to the host...</main>;
-  return <LiveScreen />;
+  if (conn === 'CONNECTING') return noData || wd.noData ? <NoLiveData sirenOn={wd.sirenOn} silenced={wd.noData && !wd.sirenOn} unlocked={unlocked} onSilence={silence} /> : <main className="p-8 text-xl">Connecting to the host...</main>;
+  // The worker's verdict covers a quiet /ws/tick or a quiet data socket while this page still looks connected: the red screen goes over the live screen.
+  return <><LiveScreen />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} />}</>;
 }

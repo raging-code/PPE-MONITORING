@@ -47,3 +47,7 @@ export function resolveMessage(r: ActionResult<ResolveBody>): string {
     case 'retry': return 'The host did not answer. Try again.';
   }
 }
+
+// POST /api/dashboard-outage (design 3.8): the page reports a NO LIVE DATA period after the host answers again. Times are UTC ms.
+export interface OutageBody { started_ts: number; ended_ts: number; duration_s: number }
+export const postOutage = (api: Api, b: OutageBody) => post<{ logged: boolean }>(api, '/api/dashboard-outage', b);
