@@ -37,7 +37,8 @@ def test_a_tick_also_runs_advisory_step_once_enabled(tmp_path):
     c, w, clock, ing, p, h, wire = wired(tmp_path); wire.enable_advisory(HEARTBEAT_S)
     send(ing, clock, pack(seq=1)); wait(w, ing.write([]))
     n0 = len(rows(c, 'SELECT * FROM advisory_summaries'))
-    fx, u = ing.tick(); wait(w, u)
+    fx, u = ing.tick()
+if u is not None: wait(w, u)  
     assert len(rows(c, 'SELECT * FROM advisory_summaries')) >= n0; w.stop()   # no level change and no heartbeat due yet: a tick alone need not add a row, but must not error or duplicate state
 
 def test_a_risk_change_writes_a_second_row_in_the_same_unit_as_the_frame_that_caused_it(tmp_path):
