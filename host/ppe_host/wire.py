@@ -3,7 +3,7 @@ Wire turns Ingested frames and operator effects into reading, alert and episode 
 the hub adds v, srv_seq and srv_ts). Commit before broadcast (design 1): an alert or episode message is built only after its unit committed, and its body is read back from the
 committed row, so the alert_id is always the database id the REST Acknowledge uses. A unit that did not commit within commit_wait_ms is held in pending and sent by flush();
 a row the writer rejected has no id, so no message is sent and its event_seq goes into unpersisted (ADR 0032: the wire has no unpersisted field yet, which needs a decision).
-Not here (P24-3b-2b): link, system and advisory messages. No thread, no socket; every method runs on the event loop."""
+P24-3b-2b-i: link and system messages (Wire.link_state, _links, _system, on_banner_ack). Not here (P24-3b-2b-ii): the advisory message. No thread, no socket; every method runs on the event loop."""
 import sqlite3
 from collections import deque
 from . import abi, constants as K
@@ -53,11 +53,16 @@ class Wire:
         self.base_offline = base_offline or (lambda: bool(getattr(self.ing.health, 'offline', False)))
         self.audio_fault, self.host_power = audio_fault or (lambda: False), host_power or (lambda: 'ac')
         self.pending, self.unpersisted, self.unauth_sent = deque(), set(), {}
-        with self._conn() as c: self.alias = {r['node_id']: r['alias'] for r in c.execute('SELECT node_id, alias FROM roster')}
+        with self._conn() as c:
+            self.alias = {r['node_id']: r['alias'] for r in c.execute('SELECT node_id, alias FROM roster')}
+            self.mode = c.execute('SELECT mode FROM sessions WHERE session_id = ?', (self.ing.session_id,)).fetchone()['mode']
+        self.links, self.sys_key, self.sys_rej = {}, None, 0   # P24-3b-2b-i: last link state per node, last system body (without the counter), counter last sent
 
     def attach(self):
         """Plug in: operator effects (HostPort.publish), frames (Ingest.broadcast) and HostPort.snapshot (the Hub's Source)."""
-        self.port.publish, self.port.wire, self.ing.broadcast = self.on_effects, self, self.on_frame; return self
+        self.port.publish, self.port.wire, self.ing.broadcast = self.on_effects, self, self.on_frame
+        now = self.ing.clock.wall_ms(); self.links = {n: (self.link_state(n), now) for n in self.alias}   # what is true now is not news
+        b = self._sys_body(); self.sys_key, self.sys_rej = self._key(b), b['rejected_frames']; return self
     def _conn(self):
         c = connect_db(self.port.db_path, readonly=True); c.row_factory = sqlite3.Row; return _Conn(c)
 
@@ -65,7 +70,7 @@ class Wire:
     def on_frame(self, out):
         """The Ingest.broadcast hook: one reading for a verified frame, then the alert and episode messages of its effects."""
         if out.ctx is not None: self.hub.publish_reading(reading_body(out.ctx, self.alias.get(out.ctx['node'], '')))
-        self.on_effects(out.effects, out.unit, out.committed)
+        self.on_effects(out.effects, out.unit, out.committed); self._links()
     def on_effects(self, fx, unit, ok):
         """The HostPort.publish hook. ok is True (committed), False (not within commit_wait_ms: held in pending) or None (nothing was written)."""
         if not fx: return
@@ -84,6 +89,7 @@ class Wire:
         self.unauth_sent = {k: v for k, v in self.unauth_sent.items() if k in open_}
         due = [k for k, nid in open_.items() if self.unauth_sent.get(k) != getattr(self.ing.st.nodes.get(nid), 'unauth_count', 0)]
         if due: self._send([RaiseAlert(k, open_[k], 'unauth_alert', 'NONE', '', 0) for k in due])
+        self._links(); self._system(tick=True)
 
     def _send(self, fx):
         with self._conn() as c:
@@ -103,6 +109,41 @@ class Wire:
                 ep = self.ing.st.episodes.get(e.node_id)
                 self.hub.publish_episode(episode_body(r, e.motion_state if isinstance(e, EpisodeLabelChanged) else (ep.motion_state if ep else 'no_response')))
 
+    # ---- link and system messages (P24-3b-2b-i) ----
+    def _pub(self, name, body):
+        """Send to the hub only if it has that method: the 3b-2a hub fakes have no publish_link, publish_system or publish_advisory."""
+        fn = getattr(self.hub, name, None)
+        if fn is not None: fn(body)
+    def link_state(self, nid):
+        """The LinkMsg state of a node from the engine (design 3.8), shared by the link message and the snapshot. Precedence: link_lost, signal_lost, recovered (the recovery frame and the next
+        rebaseline_clean_frames frames are still counted down in shadow_rebaseline_left), weak_signal (open notice), ok. A node the engine has not heard is not_connected."""
+        ns, al = self.ing.st.nodes.get(nid), self.ing.st.alerts
+        if ns is None: return 'not_connected'
+        if (nid, 'link_lost') in al: return 'link_lost'
+        if (nid, 'signal_lost') in al: return 'signal_lost'
+        if ns.shadow_rebaseline_left > 0: return 'recovered'
+        return 'weak_signal' if (nid, 'weak_signal') in al else 'ok'
+    def _links(self):
+        """One link message per node whose state changed since the last one. It has no database id, so it is not held for a slow commit."""
+        now = self.ing.clock.wall_ms()
+        for nid in sorted(self.alias):
+            s, prev = self.link_state(nid), self.links.get(nid, ('not_connected', None))[0]
+            if s != prev: self.links[nid] = (s, now); self._pub('publish_link', dict(node_id=nid, state=s, since_ts=now, last_state=prev))
+    def _sys_body(self, banner=None, ack=None):
+        port = self.port; on, got = port.banner_state('host_gap'); g = port.host_gap
+        return dict(base='offline' if self.base_offline() else 'ok', recovering=bool(port.recovering), session_id=self.ing.session_id, session_mode=self.mode,
+                    rejected_frames=self.ing.counters['rejected_frames'], logging_fault=bool(port.writer.logging_fault),
+                    host_gap=dict(gap_s=float(g['gap_s']), reason=g['reason']) if on and got is None else None,
+                    host_power=str(self.host_power()), audio_fault=bool(self.audio_fault()), banner=banner, acknowledged_ts=ack)
+    @staticmethod
+    def _key(b): return {k: v for k, v in b.items() if k not in ('rejected_frames', 'banner', 'acknowledged_ts')}
+    def _system(self, tick=False, banner=None, ack=None):
+        """A system message when a banner source changed, or with the tick when the rejected-frame count moved (3.8: not more often), or at once for a banner acknowledgement."""
+        b = self._sys_body(banner, ack)
+        if banner is None and self._key(b) == self.sys_key and not (tick and b['rejected_frames'] != self.sys_rej): return
+        self.sys_key, self.sys_rej = self._key(b), b['rejected_frames']; self._pub('publish_system', b)
+    def on_banner_acknowledged(self, kind, ts): self._system(banner=kind, ack=ts)
+
     # ---- snapshot ----
     def snapshot(self):
         """Every SnapshotMsg field except v, type, srv_seq, srv_ts and epoch (the Hub adds those). Read from the committed rows plus the engine state, on the event loop."""
@@ -112,7 +153,7 @@ class Wire:
             roster = c.execute('SELECT node_id, alias, active FROM roster ORDER BY node_id').fetchall()
             for r in roster:
                 nid = r['node_id']; f = c.execute(FRAME_SQL, (nid,)).fetchone(); ns = ing.st.nodes.get(nid); heard = f is not None
-                link = 'not_connected' if ns is None else 'link_lost' if (nid, 'link_lost') in ing.st.alerts else 'signal_lost' if (nid, 'signal_lost') in ing.st.alerts else 'ok'
+                link = self.link_state(nid)
                 sc = port.scba.get(nid)
                 nodes.append(dict(node_id=nid, alias=r['alias'], last_rx_ts=f['rx_ts'] if heard else None, co_ppm=f['co_x10'] / 10 if heard and f['co_x10'] is not None else None,
                                   temp_c=f['temp_x100'] / 100 if heard else None, hum_pct=f['hum'] if heard else None, motion_g=f['motion_x100'] / 100 if heard else None,

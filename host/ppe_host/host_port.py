@@ -132,4 +132,6 @@ class HostPort:
         active, ts = self.banner_state(kind)
         if not active: raise self._conflict('banner is not active')
         if ts is not None: raise self._conflict('banner is already acknowledged')   # design 3.8 error-code list (ADR 0011)
-        self.banner_ack[kind] = self.ing.clock.wall_ms(); return BannerAck(kind, self.banner_ack[kind])
+        self.banner_ack[kind] = self.ing.clock.wall_ms()
+        if self.wire is not None: self.wire.on_banner_acknowledged(kind, self.banner_ack[kind])   # P24-3b-2b-i: the BANNER_ACK system message
+        return BannerAck(kind, self.banner_ack[kind])
