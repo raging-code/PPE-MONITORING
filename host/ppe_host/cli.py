@@ -105,6 +105,12 @@ COMMANDS.update({
     'rotate-token': (cmd_rotate_token, [('--operator-id', {'type': int, 'required': True})] + OPERATOR_FLAGS),
     'disable-operator': (cmd_disable_operator, [('--operator-id', {'type': int, 'required': True})] + OPERATOR_FLAGS),
 })
+# ---- P23b: test-alarm, the shift speaker check of design 3.12 (offline; plays the siren, the beep and the host chime) ----
+def cmd_test_alarm(a):
+    from .io import audio_watchdog as aw
+    ok, msg = aw.run_test_alarm(aw.WinsoundBackend(), a.seconds)
+    print('test-alarm: ' + msg, file=sys.stdout if ok else sys.stderr); return 0 if ok else 1
+COMMANDS['test-alarm'] = (cmd_test_alarm, [('--seconds', {'type': int, 'default': 3, 'help': 'how long the siren plays'})])
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.cli'); sub = p.add_subparsers(dest='command', required=True)
     for name, (_, flags) in COMMANDS.items():
