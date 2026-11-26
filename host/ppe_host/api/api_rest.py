@@ -20,6 +20,13 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def authenticate(self, token: str) -> Optional[Operator]: ...  # None for a missing, wrong or disabled-operator token
     def audit(self, action: str, operator_id: Optional[int] = None, node_id: Optional[int] = None, episode_id: Optional[int] = None, reason: Optional[str] = None) -> None: ...
     def session_id(self) -> int: ...
+    # P19-2. A method raises ApiError for a conflict and returns None for an unknown id. The host owns every write and every event_seq.
+    def recovering_retry_s(self) -> Optional[float]: ...  # recovering_target_s while recovering, else None
+    def start_monitoring(self, operator_id: int, session_label: Optional[str]) -> tuple: ...  # (SessionRow, changed); idempotent: sets operator_id only while NULL, never changes label or a second START_MONITORING
+    def end_session(self, session_id: int, operator_id: int) -> 'EndResult': ...  # close_session('ENDED') incl. its END_SHIFT audit row, then the backup; runs in a worker thread; ApiError STATE_CONFLICT if session_id is no longer open
+    def ack_alert(self, alert_id: int, operator_id: int) -> Optional['AlertAck']: ...  # idempotent; also for a cleared alert
+    def ack_episode(self, episode_id: int, operator_id: int) -> Optional['EpisodeAck']: ...  # idempotent when ACKNOWLEDGED; ApiError STATE_CONFLICT when RESOLVED
+    def resolve_episode(self, episode_id: int, reason: str, operator_id: int) -> Optional['EpisodeResolve']: ...  # ApiError STATE_CONFLICT when already RESOLVED
 
 class ApiError(Exception):
     """Any non-2xx answer. The envelope model refuses a code outside the 3.8 list and a retry_after_s on a code that may not carry one."""
@@ -75,3 +82,69 @@ def query_events(db_path, after_seq, limit):
 @router.get('/events', response_model=M.EventsResp)
 async def events(request: Request, after_seq: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=1000), op: Operator = Depends(current_operator)):
     return await run_in_threadpool(query_events, request.app.state.db_path, after_seq, limit)  # read-only, no audit row
+# ---- P19-2: session start and end, Acknowledge and Resolve (design 3.8) ----
+# Start, Acknowledge and Resolve call the port on the event loop (the engine is single-threaded). End shift is awaited in a worker thread because it runs
+# the backup. The port owns every database write and every event_seq; this file only checks the request, maps the answer and writes the audit row
+# the port does not write itself. END_SHIFT is written by close_session inside its own transaction (2.3), so the route never audits it.
+class SessionRow(NamedTuple):
+    session_id: int
+    started_ts: int
+    mode: str
+class EndResult(NamedTuple):
+    closed_session_id: int
+    new_session_id: int
+    backup_ok: bool
+class AlertAck(NamedTuple):
+    alert_id: int
+    node_id: Optional[int]
+    acknowledged_ts: int
+    acknowledged_by: int
+class EpisodeAck(NamedTuple):
+    episode_id: int
+    node_id: int
+    acknowledged_ts: int
+    acknowledged_by: int
+class EpisodeResolve(NamedTuple):
+    episode_id: int
+    node_id: int
+    resolved_ts: int
+    resolve_reason: str
+    resolved_by: int
+    latch_still_set: bool
+
+@router.post('/session/start', response_model=M.SessionStartResp)
+async def session_start(request: Request, op: Operator = Depends(current_operator), body: Optional[M.SessionStartReq] = None):
+    port = request.app.state.port; row, changed = port.start_monitoring(op.operator_id, body.session_label if body else None)
+    if changed: port.audit('START_MONITORING', operator_id=op.operator_id)  # a second call changes nothing and writes no second row
+    return M.SessionStartResp(session_id=row.session_id, started_ts=row.started_ts, mode=row.mode, monitoring_active=True)
+
+@router.post('/session/end', response_model=M.SessionEndResp)
+async def session_end(body: M.SessionEndReq, request: Request, op: Operator = Depends(current_operator)):
+    port = request.app.state.port
+    if body.confirm_text != 'END': raise ApiError(400, 'BAD_REQUEST', 'confirm_text must be END')
+    retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    if body.session_id != port.session_id(): raise ApiError(409, 'STATE_CONFLICT', 'session_id is not the open session')
+    r = await run_in_threadpool(port.end_session, body.session_id, op.operator_id)  # the port re-checks atomically and may raise ApiError STATE_CONFLICT
+    return M.SessionEndResp(closed_session_id=r.closed_session_id, new_session_id=r.new_session_id, backup_ok=r.backup_ok)
+
+@router.post('/alerts/{alert_id}/ack', response_model=M.AckAlertResp)
+async def ack_alert(alert_id: int, request: Request, op: Operator = Depends(current_operator), body: Optional[M.EmptyReq] = None):
+    port = request.app.state.port; r = port.ack_alert(alert_id, op.operator_id)  # 200 also for an alert that already cleared, and again on a repeat
+    if r is None: raise ApiError(404, 'NOT_FOUND', 'unknown alert')
+    port.audit('ACK_ALERT', operator_id=op.operator_id, node_id=r.node_id, reason='alert_id %d' % r.alert_id)
+    return M.AckAlertResp(alert_id=r.alert_id, acknowledged_ts=r.acknowledged_ts, acknowledged_by=r.acknowledged_by)
+
+@router.post('/episodes/{episode_id}/ack', response_model=M.AckEpisodeResp)
+async def ack_episode(episode_id: int, request: Request, op: Operator = Depends(current_operator), body: Optional[M.EmptyReq] = None):
+    port = request.app.state.port; r = port.ack_episode(episode_id, op.operator_id)  # the port raises ApiError STATE_CONFLICT for a RESOLVED episode
+    if r is None: raise ApiError(404, 'NOT_FOUND', 'unknown episode')
+    port.audit('ACK_EPISODE', operator_id=op.operator_id, node_id=r.node_id, episode_id=r.episode_id)
+    return M.AckEpisodeResp(episode_id=r.episode_id, state='ACKNOWLEDGED', acknowledged_ts=r.acknowledged_ts, acknowledged_by=r.acknowledged_by)
+
+@router.post('/episodes/{episode_id}/resolve', response_model=M.ResolveResp)
+async def resolve_episode(episode_id: int, body: M.ResolveReq, request: Request, op: Operator = Depends(current_operator)):
+    port = request.app.state.port; r = port.resolve_episode(episode_id, body.reason, op.operator_id)  # the port raises ApiError STATE_CONFLICT for an episode already RESOLVED
+    if r is None: raise ApiError(404, 'NOT_FOUND', 'unknown episode')
+    port.audit('RESOLVE_EPISODE', operator_id=op.operator_id, node_id=r.node_id, episode_id=r.episode_id, reason=r.resolve_reason)
+    return M.ResolveResp(episode_id=r.episode_id, state='RESOLVED', resolved_ts=r.resolved_ts, resolve_reason=r.resolve_reason, resolved_by=r.resolved_by, latch_still_set=r.latch_still_set)

@@ -238,3 +238,38 @@ class EventRow(_Strict):  # one row of v_events (11 DDL): never a frame row, no 
 class EventsResp(_Strict):
     events: list[EventRow]
     last_seq: int
+# ---- REST bodies (P19-2): session start and end, Acknowledge, Resolve (design 3.8) ----
+class EmptyReq(_Strict):  # the ack bodies are {} (or no body at all)
+    pass
+class SessionStartReq(_Strict):
+    session_label: Optional[str] = None
+class SessionStartResp(_Strict):
+    session_id: int
+    started_ts: int
+    mode: SessionMode
+    monitoring_active: Literal[True]
+class SessionEndReq(_Strict):  # confirm_text is a plain str: a wrong value is 400 BAD_REQUEST (design 8), not a 422 schema failure
+    confirm_text: str
+    session_id: int
+class SessionEndResp(_Strict):
+    closed_session_id: int
+    new_session_id: int
+    backup_ok: bool
+class AckAlertResp(_Strict):
+    alert_id: int
+    acknowledged_ts: int
+    acknowledged_by: int
+class AckEpisodeResp(_Strict):
+    episode_id: int
+    state: Literal['ACKNOWLEDGED']
+    acknowledged_ts: int
+    acknowledged_by: int
+class ResolveReq(_Strict):  # a reason outside the three is 422 VALIDATION_ERROR
+    reason: ResolveReason
+class ResolveResp(_Strict):
+    episode_id: int
+    state: Literal['RESOLVED']
+    resolved_ts: int
+    resolve_reason: ResolveReason
+    resolved_by: int
+    latch_still_set: bool
