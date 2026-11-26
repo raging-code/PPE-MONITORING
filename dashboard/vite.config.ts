@@ -12,6 +12,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: {
+    fs: { allow: ['..'] }, // the dashboard reads ../shared/alert_catalog.json (ADR 0015)
     proxy: {
       '/api': { target: 'http://' + HOST, changeOrigin: true, headers: asHost },
       '/ws': { target: 'ws://' + HOST, ws: true, changeOrigin: true, headers: asHost },
