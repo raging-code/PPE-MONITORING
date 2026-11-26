@@ -1,4 +1,6 @@
-// P21a placeholder: P21b replaces this line with the Login page and the NO LIVE DATA page.
+import Shell from './components/Shell.tsx';
+import { getRuntime } from './app/runtime.ts';
 export default function App() {
-  return <main className="p-4">PPE Monitoring dashboard (scaffold)</main>;
+  const rt = getRuntime();
+  return <Shell controller={rt.controller} bridge={rt.bridge} />;
 }
