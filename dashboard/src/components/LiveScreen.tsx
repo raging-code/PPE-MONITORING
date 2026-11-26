@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, type ComponentType } from 'react';
+import { CONSTANTS } from '../gen/constants.ts';
 import { ackTargets, overlayAcks, pendingIds, pruneAcks } from '../alerts/ack.ts';
 import { badgesFor, trayOrder } from '../alerts/rules.ts';
 import { buildCards, chipText, isFlashing, type Card } from '../alerts/group.ts';
@@ -8,13 +9,15 @@ import { useLive } from '../store/live.ts';
 import { dismissAlerts, minimizeCard, restoreCard, selectNode, useUi } from '../store/ui.ts';
 import { acksStore, defaultActions, useAcks, type Actions } from '../store/actions.ts';
 import AlertCard from './AlertCard.tsx';
+import JacketView from './JacketView.tsx';
 import CardActions from './CardActions.tsx';
+import type { GridProps } from './ComponentGrid.tsx';
 import NodeCard from './NodeCard.tsx';
 
 // Node cards, chips of minimized alerts and the tray. The tray is in normal flow, so it pushes the page down and covers no reading (3.3).
 // Chips move to the top strip in P22d.
-export default function LiveScreen({ actions = defaultActions }: { actions?: Actions }) {
-  const alerts = useLive((s) => s.alerts), nodes = useLive((s) => s.nodes), roster = useLive((s) => s.roster), now = useLive((s) => s.lastSrvTs), episodes = useLive((s) => s.episodes), acks = useAcks((s) => s.acks);
+export default function LiveScreen({ actions = defaultActions, grid }: { actions?: Actions; grid?: ComponentType<GridProps> }) {
+  const alerts = useLive((s) => s.alerts), nodes = useLive((s) => s.nodes), roster = useLive((s) => s.roster), now = useLive((s) => s.lastSrvTs), episodes = useLive((s) => s.episodes), acks = useAcks((s) => s.acks), consts = useLive((s) => s.constants);
   const selected = useUi((s) => s.selected), minimized = useUi((s) => s.minimized), dismissed = useUi((s) => s.dismissed);
   const list = useMemo(() => overlayAcks(Object.values(alerts), acks), [alerts, acks]);
   const pending = useMemo(() => pendingIds(acks), [acks]);
@@ -34,6 +37,10 @@ export default function LiveScreen({ actions = defaultActions }: { actions?: Act
           <NodeCard key={r.node_id} node={nodes[r.node_id]} badges={badgesFor(list, r.node_id)} flashing={flashing.has(r.node_id)} selected={current === r.node_id} onSelect={selectNode} />
         ))}
       </div>
+      {current !== null && nodes[current] && (
+        <JacketView grid={grid} node={nodes[current]} alerts={list}
+          limits={{ bat_warn_pct: Number(consts.bat_warn_pct ?? CONSTANTS.bat_warn_pct), co_clamp_max_ppm: Number(consts.co_clamp_max_ppm ?? CONSTANTS.co_clamp_max_ppm) }} />
+      )}
       <nav aria-label="Minimized alerts" className="flex flex-wrap gap-2">
         {[...view.cards, ...view.slim].filter(isMin).map((c) => (
           <button key={c.key} type="button" data-testid={`chip-${c.key}`} onClick={() => restoreCard(c.key)}
