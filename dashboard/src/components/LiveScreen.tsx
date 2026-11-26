@@ -12,13 +12,14 @@ import AlertCard from './AlertCard.tsx';
 import JacketView from './JacketView.tsx';
 import CardActions from './CardActions.tsx';
 import type { GridProps } from './ComponentGrid.tsx';
-import NodeCard from './NodeCard.tsx';
+import NodeCard from './NodeCard.tsx'; // P22c-3: the never-heard card
+import NotConnectedCard from './NotConnectedCard.tsx';
 
 // Node cards, chips of minimized alerts and the tray. The tray is in normal flow, so it pushes the page down and covers no reading (3.3).
 // Chips move to the top strip in P22d.
 export default function LiveScreen({ actions = defaultActions, grid }: { actions?: Actions; grid?: ComponentType<GridProps> }) {
   const alerts = useLive((s) => s.alerts), nodes = useLive((s) => s.nodes), roster = useLive((s) => s.roster), now = useLive((s) => s.lastSrvTs), episodes = useLive((s) => s.episodes), acks = useAcks((s) => s.acks), consts = useLive((s) => s.constants);
-  const selected = useUi((s) => s.selected), minimized = useUi((s) => s.minimized), dismissed = useUi((s) => s.dismissed);
+  const monitoring = useLive((s) => s.monitoringActive), selected = useUi((s) => s.selected), minimized = useUi((s) => s.minimized), dismissed = useUi((s) => s.dismissed);
   const list = useMemo(() => overlayAcks(Object.values(alerts), acks), [alerts, acks]);
   const pending = useMemo(() => pendingIds(acks), [acks]);
   useEffect(() => { const next = pruneAcks(acksStore.getState().acks, alerts); if (next !== acksStore.getState().acks) acksStore.setState({ acks: next }); }, [alerts, acks]);
@@ -32,11 +33,13 @@ export default function LiveScreen({ actions = defaultActions, grid }: { actions
   );
   return (
     <main className="space-y-4 p-4" data-testid="live">
-      <div className="grid gap-4 md:grid-cols-3">
-        {roster.filter((r) => r.active && nodes[r.node_id]).map((r) => (
-          <NodeCard key={r.node_id} node={nodes[r.node_id]} badges={badgesFor(list, r.node_id)} flashing={flashing.has(r.node_id)} selected={current === r.node_id} onSelect={selectNode} />
-        ))}
-      </div>
+      {roster.some((r) => r.active) ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          {roster.filter((r) => r.active).map((r) => nodes[r.node_id] && nodes[r.node_id].last_rx_ts !== null
+            ? <NodeCard key={r.node_id} node={nodes[r.node_id]} badges={badgesFor(list, r.node_id)} flashing={flashing.has(r.node_id)} selected={current === r.node_id} onSelect={selectNode} />
+            : <NotConnectedCard key={r.node_id} alias={r.alias} notReady={!monitoring} />)}
+        </div>
+      ) : <p className="text-xl font-semibold text-stale-text">No responders on the roster</p>}
       {current !== null && nodes[current] && (
         <JacketView grid={grid} node={nodes[current]} alerts={list}
           limits={{ bat_warn_pct: Number(consts.bat_warn_pct ?? CONSTANTS.bat_warn_pct), co_clamp_max_ppm: Number(consts.co_clamp_max_ppm ?? CONSTANTS.co_clamp_max_ppm) }} />

@@ -10,7 +10,8 @@ import NoLiveData from './NoLiveData.tsx';
 import { useWd } from '../store/watchdog.ts';
 import { useAudio } from '../audio/siren.ts'; // P22c-2: the gate and its bar
 import type { Gate } from '../audio/gate.ts';
-import AudioBar from './AudioBar.tsx';
+import AudioBar from './AudioBar.tsx'; // P22c-3: banners next
+import SystemBanners, { ModeBar } from './SystemBanners.tsx';
 
 export interface ShellProps {
   controller: Pick<Controller, 'start' | 'login'>;
@@ -53,5 +54,5 @@ export default function Shell({ controller, bridge, silence, fetchFn, gate }: Sh
   if (conn === 'FORBIDDEN') return <main className="p-8 text-xl">The host refused this page address. Open http://127.0.0.1:8420.</main>;
   if (conn === 'CONNECTING') return noData || wd.noData ? <NoLiveData sirenOn={wd.sirenOn} silenced={wd.noData && !wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} /> : <main className="p-8 text-xl">Connecting to the host...</main>;
   // The worker's verdict covers a quiet /ws/tick or a quiet data socket while this page still looks connected: the red screen goes over the live screen.
-  return <>{!wd.noData && bar}<LiveScreen />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} />}</>;
+  return <>{!wd.noData && <><ModeBar /><SystemBanners />{bar}</>}<LiveScreen />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} />}</>;
 }

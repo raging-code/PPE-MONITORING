@@ -54,3 +54,6 @@ export const postOutage = (api: Api, b: OutageBody) => post<{ logged: boolean }>
 
 // POST /api/session/start (design 3.8): records Start monitoring. Repeating it is safe: the host answers 200 and changes nothing.
 export const postSessionStart = (api: Api) => post<{ session_id: number; started_ts: number; mode: string; monitoring_active: boolean }>(api, '/api/session/start', {});
+
+// POST /api/system-banners/{kind}/ack (design 3.8): only host_gap and logging_fault are accepted; 409 means already acknowledged.
+export const postBannerAck = (api: Api, kind: string) => post<{ kind: string; acknowledged_ts: number }>(api, `/api/system-banners/${kind}/ack`, {});
