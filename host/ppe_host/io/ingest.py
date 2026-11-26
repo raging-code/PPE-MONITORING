@@ -5,6 +5,8 @@ Calls are serialised by a lock so event_seq is allocated and submitted in the sa
 P24-3a: effect_stmts() turns the effects of step() into alert, episode and EPISODE_ESCALATED rows that commit in the same unit as the frame (design 1, commit paragraph); tick() and operator() do the
 same for the 1 Hz TickEvent and for Acknowledge and Resolve. Effects also come back in Ingested.effects, with event_seq values already allocated; the committed ids are in unit._ids.
 P24-3b-1: audit() and write() give the Port (host_port.py) ordered units of its own. P24-3b-2a: Ingested.ctx carries the reading's inputs; the messages themselves are built in wire.py. The audit rows of ACK_EPISODE, RESOLVE_EPISODE and the like are written by the REST routes through the Port, not here.
+P24-3b-2b-ii: advisory_step (core/advisory.py, P9) runs after step() on every frame() and tick() when adv_cfg is set (None until a Wire turns it on: the advisory table needs no reader until the
+dashboard does); its AdvisoryRow effects get one advisory_summaries row each, in the same unit as the frame or tick, and come back in Ingested.effects so wire.py can build the advisory message.
 Not here (P12b): the real clock, base_health rows, COUNTERS rows, SERIAL_LOST and SERIAL_BACK."""
 import logging, threading, time
 from collections import deque
@@ -12,6 +14,7 @@ from typing import NamedTuple, Optional
 from .. import abi, constants as K
 from ..clock import now_of
 from ..core import crypto_abi as ca
+from ..core.advisory import AdvisoryConfig, AdvisoryRow, AdvisoryState, advisory_step
 from ..core.rule_engine import (AlertAcknowledged, ChangeAlertLevel, ClearAlert, EPISODE_ALERT_TYPES, EngineState, EpisodeAcknowledged, EpisodeEscalated, EpisodeOpened, EpisodeResolved,
                                 FrameEvent, RANK, RaiseAlert, TickEvent, next_seq, step)
 from ..core.seq_classifier import SeqState, classify
@@ -53,6 +56,9 @@ def effect_stmts(fx, session_id):
             out.append(Stmt("UPDATE episodes SET state = 'ACKNOWLEDGED', acknowledged_ts = ?, acknowledged_by = ? WHERE node_id = ? AND state = 'OPEN'", (e.ts, e.operator_id, e.node_id)))
         elif isinstance(e, EpisodeResolved):
             out.append(Stmt("UPDATE episodes SET state = 'RESOLVED', resolved_ts = ?, resolve_reason = ?, resolved_by = ? WHERE " + IN_ACTIVE, (e.ts, e.reason, e.operator_id, e.node_id)))
+        elif isinstance(e, AdvisoryRow):   # P24-3b-2b-ii: advisory_summaries has no row for passage_ids yet (Tier 1: source is always 'table', passage_ids stays NULL)
+            out.append(Stmt('INSERT INTO advisory_summaries(session_id, event_seq, ts, node_id, window_s, risk, reasons, action, source, passage_ids, quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            (session_id, e.event_seq, e.ts, e.node_id, e.window_s, e.risk, e.reasons, e.action, e.source, e.passage_ids, e.quality)))
     return out
 
 class Ingested(NamedTuple):
@@ -79,7 +85,8 @@ class Ingest:
     def __init__(self, key, sys_id, roster, writer, clock, session_id, event_seq_start=0, commit_wait_ms=120, broadcast=None, perf=time.perf_counter, health=None):
         self.key, self.sys_id, self.roster, self.writer, self.clock, self.session_id = key, sys_id, frozenset(roster), writer, clock, session_id
         self.commit_wait_ms, self.broadcast, self.perf, self.health = commit_wait_ms, broadcast, perf, health   # health: io/health.Health, set by the owner (P12b)
-        self.st, self.cs = EngineState(event_seq=event_seq_start), SeqState()
+        self.st, self.cs, self.adv = EngineState(event_seq=event_seq_start), SeqState(), AdvisoryState()
+        self.adv_cfg = None   # P24-3b-2b-ii: off until a Wire calls enable_advisory(); advisory_step is skipped while this is None
         self.bad_window, self.disagree_window, self.last_hb = RateWindow(BAD_FRAMES_KEPT_PER_MIN), RateWindow(BAD_FRAMES_KEPT_PER_MIN), None
         self.counters = {'rejected_frames': 0, 'rejected_BAD_LEN': 0, 'rejected_BAD_CRC': 0, 'rejected_BAD_MAC': 0, 'rejected_REJECT_ROSTER': 0,
                          'bad_frames_not_stored': 0, 'mac_disagree': 0, 'suspect_logged': 0, 'frames_stored': 0}
@@ -89,6 +96,10 @@ class Ingest:
     def from_settings(cls, settings, roster, writer, clock, session_id, **kw):
         """key from config/secrets.json, sys_id and commit_wait_ms from settings; nothing secret comes from the repo."""
         return cls(settings.cmac_key(), settings['sys_id'], roster, writer, clock, session_id, commit_wait_ms=settings['commit_wait_ms'], **kw)
+
+    def enable_advisory(self, heartbeat_s):
+        """P24-3b-2b-ii: turn the Tier 1 advisory table on (settings key advisory_heartbeat_s). Idempotent; a second call with a different heartbeat_s replaces cfg without resetting AdvisoryState."""
+        self.adv_cfg = AdvisoryConfig(heartbeat_s=heartbeat_s)
 
     def on_item(self, kind, payload):
         """The SerialReader callback."""
@@ -117,7 +128,10 @@ class Ingest:
     def tick(self):
         """The 1 Hz TickEvent (silence rules and the 10 s timers). Returns (effects, unit); the owner broadcasts after the commit."""
         with self._lock:
-            self.st, fx = step(self.st, TickEvent(), now_of(self.clock)); return tuple(fx), self._fx_unit(fx, False)
+            now = now_of(self.clock); self.st, fx = step(self.st, TickEvent(), now); event = TickEvent()
+            if self.adv_cfg is not None:
+                self.st, self.adv, afx = advisory_step(self.st, self.adv, event, now, self.adv_cfg); fx = tuple(fx) + afx
+            return tuple(fx), self._fx_unit(fx, False)
 
     def operator(self, event):
         """Acknowledge or Resolve (AckAlertEvent, AckEpisodeEvent, ResolveEpisodeEvent) through step(). The unit is durable (synchronous=FULL). Returns (effects, unit); a repeat gives ((), None).
@@ -164,7 +178,10 @@ class Ingest:
                 if cls == 'suspect': self.counters['suspect_logged'] += 1; log.warning('suspect frame: node %s', node)
             self.st, fseq = next_seq(self.st)                              # the frame's own event_seq comes BEFORE the effects of this frame
             fx = ()
-            if host != 'BAD_LEN': self.st, fx = step(self.st, FrameEvent(node, host, cls, d), now)
+            if host != 'BAD_LEN':
+                event = FrameEvent(node, host, cls, d); self.st, fx = step(self.st, event, now)
+                if self.adv_cfg is not None:
+                    self.st, self.adv, afx = advisory_step(self.st, self.adv, event, now, self.adv_cfg); fx = tuple(fx) + afx
             backend_ms = (self.perf() - t0) * 1000.0
             nl = backend = final = reasons = None; rlist = []
             if host == 'OK' and lvl != 3:
@@ -186,6 +203,6 @@ class Ingest:
                 unit = self.writer.submit(Unit(fseq, [Stmt(FRAME_SQL, row, tag='frame'), *effect_stmts(fx, self.session_id)], droppable=drop)); self.counters['frames_stored'] += 1
             if note: self._sys('MAC_DISAGREE', note, True)
         committed = self.writer.wait(unit, self.commit_wait_ms) if (stored and not drop) else None       # commit BEFORE broadcast, within commit_wait_ms (design 1)
-        out = Ingested(host, cls, fseq, tuple(fx), stored, committed, backend_ms, unit, ctx)
+        out = Ingested(host, cls, fseq, tuple(fx), stored, committed, backend_ms, unit, ctx)   # fx may now include AdvisoryRow effects (P24-3b-2b-ii)
         if stored and not drop and self.broadcast: self.broadcast(out)
         return out

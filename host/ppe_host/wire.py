@@ -3,10 +3,12 @@ Wire turns Ingested frames and operator effects into reading, alert and episode 
 the hub adds v, srv_seq and srv_ts). Commit before broadcast (design 1): an alert or episode message is built only after its unit committed, and its body is read back from the
 committed row, so the alert_id is always the database id the REST Acknowledge uses. A unit that did not commit within commit_wait_ms is held in pending and sent by flush();
 a row the writer rejected has no id, so no message is sent and its event_seq goes into unpersisted (ADR 0032: the wire has no unpersisted field yet, which needs a decision).
-P24-3b-2b-i: link and system messages (Wire.link_state, _links, _system, on_banner_ack). Not here (P24-3b-2b-ii): the advisory message. No thread, no socket; every method runs on the event loop."""
+P24-3b-2b-i: link and system messages (Wire.link_state, _links, _system, on_banner_ack). P24-3b-2b-ii: the advisory message (Wire.enable_advisory, _advisory), sent straight from the
+AdvisoryRow effect (it has a passage_ids field but no database id of its own to read back, unlike an alert or episode). No thread, no socket; every method runs on the event loop."""
 import sqlite3
 from collections import deque
 from . import abi, constants as K
+from .core.advisory import AdvisoryRow
 from .core.rule_engine import (AlertAcknowledged, ChangeAlertLevel, ClearAlert, EpisodeAcknowledged, EpisodeEscalated, EpisodeLabelChanged, EpisodeOpened, EpisodeResolved,
                                NodeState, RaiseAlert)
 from .io.db_writer import connect_db
@@ -40,6 +42,11 @@ def alert_body(r, ns=None):
                 raised_ts=r['raised_ts'], cleared_ts=r['cleared_ts'], acknowledged_ts=r['acknowledged_ts'], acknowledged_by=r['acknowledged_by'],
                 unauth_count=(ns.unauth_count if ns else 0) if u else None, last_seen_ts=((ns.unauth_last_seen_ts if ns else None) or r['raised_ts']) if u else None)
 
+def advisory_body(e):
+    """AdvisoryMsg fields (no envelope) from an AdvisoryRow effect. No database id: Tier 1 never acknowledges or re-reads an advisory row (design 14.3), so unlike alert_body and
+    episode_body this is built straight from the effect, with no read-back and nothing added by _send."""
+    return dict(node_id=e.node_id, risk=e.risk, reasons=e.reasons, action=e.action, quality=e.quality, source=e.source)
+
 def episode_body(r, label):
     """EpisodeBody fields from an episodes row. The motion label exists only for an unresolved MAN_DOWN."""
     return dict(episode_id=r['episode_id'], node_id=r['node_id'], kind=r['kind'], state=r['state'], resolve_reason=r['resolve_reason'], operator=r['operator'],
@@ -57,6 +64,11 @@ class Wire:
             self.alias = {r['node_id']: r['alias'] for r in c.execute('SELECT node_id, alias FROM roster')}
             self.mode = c.execute('SELECT mode FROM sessions WHERE session_id = ?', (self.ing.session_id,)).fetchone()['mode']
         self.links, self.sys_key, self.sys_rej = {}, None, 0   # P24-3b-2b-i: last link state per node, last system body (without the counter), counter last sent
+
+    def enable_advisory(self, heartbeat_s):
+        """P24-3b-2b-ii: turn the Tier 1 advisory table on in the Ingest this Wire is attached to. Call before or after attach(); advisory rows reach the hub through the normal _send path
+        either way, since AdvisoryRow effects travel in Ingested.effects / step()'s own fx exactly like alert and episode effects do."""
+        self.ing.enable_advisory(heartbeat_s)
 
     def attach(self):
         """Plug in: operator effects (HostPort.publish), frames (Ingest.broadcast) and HostPort.snapshot (the Hub's Source)."""
@@ -97,6 +109,7 @@ class Wire:
             rows = {r['event_seq']: r for r in c.execute(ALERT_SQL + 'WHERE event_seq IN (%s)' % ','.join('?' * len(keys)), tuple(keys))} if keys else {}
             eps = {n: c.execute(EPISODE_SQL + 'WHERE node_id = ? ORDER BY episode_id DESC LIMIT 1', (n,)).fetchone() for n in {e.node_id for e in fx if isinstance(e, EPISODE_FX)}}
         for e in fx:
+            if isinstance(e, AdvisoryRow): self._pub('publish_advisory', advisory_body(e)); continue   # no row to read back (design 14.3): send straight from the effect
             if isinstance(e, ALERT_FX):
                 k = e.event_seq if isinstance(e, RaiseAlert) else e.raised_event_seq; r = rows.get(k)
                 if r is None: self.unpersisted.add(k); continue   # the row was rejected: no id, no message (ADR 0032)
