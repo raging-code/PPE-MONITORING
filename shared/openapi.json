@@ -1,34 +1,862 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "PPE Monitoring host REST API",
-    "version": "1"
+    "title": "PPE Monitoring host API",
+    "version": "1",
+    "description": "WebSocket message and REST error-envelope schemas only (P18b). REST paths are added as P19 and P19c land."
   },
   "paths": {},
   "components": {
     "schemas": {
-      "ErrorEnvelope": {
+      "AdvisoryMsg": {
         "additionalProperties": false,
         "properties": {
-          "error_code": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "advisory",
+            "title": "Type",
+            "type": "string"
+          },
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "risk": {
+            "title": "Risk",
+            "type": "string"
+          },
+          "reasons": {
+            "title": "Reasons",
+            "type": "string"
+          },
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "quality": {
             "enum": [
-              "BAD_REQUEST",
-              "UNAUTHENTICATED",
-              "ORIGIN_REJECTED",
-              "NOT_FOUND",
-              "RECOVERING",
-              "STATE_CONFLICT",
-              "VALIDATION_ERROR",
-              "INTERNAL_ERROR"
+              "high",
+              "medium",
+              "low"
             ],
-            "title": "Error Code",
+            "title": "Quality",
             "type": "string"
           },
-          "detail": {
-            "title": "Detail",
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type",
+          "node_id",
+          "risk",
+          "reasons",
+          "action",
+          "quality",
+          "source"
+        ],
+        "title": "AdvisoryMsg",
+        "type": "object"
+      },
+      "AlertBody": {
+        "additionalProperties": false,
+        "properties": {
+          "alert_id": {
+            "title": "Alert Id",
+            "type": "integer"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "alert_type": {
+            "enum": [
+              "mayday",
+              "man_down",
+              "co_threshold",
+              "link_lost",
+              "signal_lost",
+              "checkin",
+              "scba_expired",
+              "sensor_fault",
+              "wrist_open",
+              "wrist_close",
+              "battery_low",
+              "heat",
+              "unauth_alert",
+              "node_reboot",
+              "button_stuck",
+              "missed_event",
+              "suspect_frame",
+              "estimate",
+              "shadow_notice",
+              "weak_signal",
+              "co_warmup",
+              "co_rising",
+              "latch_restored",
+              "watchdog_recovery",
+              "node_danger"
+            ],
+            "title": "Alert Type",
             "type": "string"
           },
-          "retry_after_s": {
+          "level": {
+            "enum": [
+              "NONE",
+              "WARNING",
+              "DANGER"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "reasons": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasons"
+          },
+          "authenticated": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Authenticated",
+            "type": "integer"
+          },
+          "episode_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Id"
+          },
+          "raised_ts": {
+            "title": "Raised Ts",
+            "type": "integer"
+          },
+          "cleared_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleared Ts"
+          },
+          "acknowledged_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged Ts"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged By"
+          },
+          "unauth_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unauth Count"
+          },
+          "last_seen_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen Ts"
+          }
+        },
+        "required": [
+          "alert_id",
+          "node_id",
+          "alert_type",
+          "level",
+          "reasons",
+          "authenticated",
+          "episode_id",
+          "raised_ts",
+          "cleared_ts",
+          "acknowledged_ts",
+          "acknowledged_by",
+          "unauth_count",
+          "last_seen_ts"
+        ],
+        "title": "AlertBody",
+        "type": "object"
+      },
+      "AlertMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "alert_id": {
+            "title": "Alert Id",
+            "type": "integer"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "alert_type": {
+            "enum": [
+              "mayday",
+              "man_down",
+              "co_threshold",
+              "link_lost",
+              "signal_lost",
+              "checkin",
+              "scba_expired",
+              "sensor_fault",
+              "wrist_open",
+              "wrist_close",
+              "battery_low",
+              "heat",
+              "unauth_alert",
+              "node_reboot",
+              "button_stuck",
+              "missed_event",
+              "suspect_frame",
+              "estimate",
+              "shadow_notice",
+              "weak_signal",
+              "co_warmup",
+              "co_rising",
+              "latch_restored",
+              "watchdog_recovery",
+              "node_danger"
+            ],
+            "title": "Alert Type",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "NONE",
+              "WARNING",
+              "DANGER"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "reasons": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasons"
+          },
+          "authenticated": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Authenticated",
+            "type": "integer"
+          },
+          "episode_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Id"
+          },
+          "raised_ts": {
+            "title": "Raised Ts",
+            "type": "integer"
+          },
+          "cleared_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleared Ts"
+          },
+          "acknowledged_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged Ts"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged By"
+          },
+          "unauth_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unauth Count"
+          },
+          "last_seen_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen Ts"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "alert",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alert_id",
+          "node_id",
+          "alert_type",
+          "level",
+          "reasons",
+          "authenticated",
+          "episode_id",
+          "raised_ts",
+          "cleared_ts",
+          "acknowledged_ts",
+          "acknowledged_by",
+          "unauth_count",
+          "last_seen_ts",
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type"
+        ],
+        "title": "AlertMsg",
+        "type": "object"
+      },
+      "AuthMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "auth",
+            "title": "Type",
+            "type": "string"
+          },
+          "token": {
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "token"
+        ],
+        "title": "AuthMsg",
+        "type": "object"
+      },
+      "Banners": {
+        "additionalProperties": false,
+        "properties": {
+          "base_offline": {
+            "title": "Base Offline",
+            "type": "boolean"
+          },
+          "logging_fault": {
+            "title": "Logging Fault",
+            "type": "boolean"
+          },
+          "host_gap": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HostGap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_power": {
+            "title": "Host Power",
+            "type": "string"
+          },
+          "audio_fault": {
+            "title": "Audio Fault",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "base_offline",
+          "logging_fault",
+          "host_gap",
+          "host_power",
+          "audio_fault"
+        ],
+        "title": "Banners",
+        "type": "object"
+      },
+      "EpisodeBody": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_id": {
+            "title": "Episode Id",
+            "type": "integer"
+          },
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "MAN_DOWN",
+              "MAYDAY"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "OPEN",
+              "ACKNOWLEDGED",
+              "RESOLVED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "man_down_motion_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_response",
+                  "movement_detected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Man Down Motion State"
+          },
+          "resolve_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "rescued",
+                  "false_alarm",
+                  "device_removed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolve Reason"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          }
+        },
+        "required": [
+          "episode_id",
+          "node_id",
+          "kind",
+          "state",
+          "man_down_motion_state",
+          "resolve_reason",
+          "operator"
+        ],
+        "title": "EpisodeBody",
+        "type": "object"
+      },
+      "EpisodeMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_id": {
+            "title": "Episode Id",
+            "type": "integer"
+          },
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "MAN_DOWN",
+              "MAYDAY"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "OPEN",
+              "ACKNOWLEDGED",
+              "RESOLVED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "man_down_motion_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_response",
+                  "movement_detected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Man Down Motion State"
+          },
+          "resolve_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "rescued",
+                  "false_alarm",
+                  "device_removed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolve Reason"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "episode",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "episode_id",
+          "node_id",
+          "kind",
+          "state",
+          "man_down_motion_state",
+          "resolve_reason",
+          "operator",
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type"
+        ],
+        "title": "EpisodeMsg",
+        "type": "object"
+      },
+      "HbMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "hb",
+            "title": "Type",
+            "type": "string"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "srv_ts"
+        ],
+        "title": "HbMsg",
+        "type": "object"
+      },
+      "HostGap": {
+        "additionalProperties": false,
+        "properties": {
+          "gap_s": {
+            "title": "Gap S",
+            "type": "number"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "const": "db_restored",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "gap_s",
+          "reason"
+        ],
+        "title": "HostGap",
+        "type": "object"
+      },
+      "LinkMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "link",
+            "title": "Type",
+            "type": "string"
+          },
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "not_connected",
+              "ok",
+              "weak_signal",
+              "signal_lost",
+              "link_lost",
+              "recovered"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "since_ts": {
+            "title": "Since Ts",
+            "type": "integer"
+          },
+          "last_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_connected",
+                  "ok",
+                  "weak_signal",
+                  "signal_lost",
+                  "link_lost",
+                  "recovered"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last State"
+          }
+        },
+        "required": [
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type",
+          "node_id",
+          "state",
+          "since_ts",
+          "last_state"
+        ],
+        "title": "LinkMsg",
+        "type": "object"
+      },
+      "MlMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "ml",
+            "title": "Type",
+            "type": "string"
+          },
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "forecast_5min_ppm": {
             "anyOf": [
               {
                 "type": "number"
@@ -37,15 +865,891 @@
                 "type": "null"
               }
             ],
-            "title": "Retry After S"
+            "title": "Forecast 5Min Ppm"
+          },
+          "early_warning": {
+            "title": "Early Warning",
+            "type": "boolean"
+          },
+          "anomaly_unusual": {
+            "title": "Anomaly Unusual",
+            "type": "boolean"
+          },
+          "cohb_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohb Low"
+          },
+          "cohb_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohb High"
           }
         },
         "required": [
-          "error_code",
-          "detail",
-          "retry_after_s"
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type",
+          "node_id",
+          "forecast_5min_ppm",
+          "early_warning",
+          "anomaly_unusual",
+          "cohb_low",
+          "cohb_high"
         ],
-        "title": "ErrorEnvelope",
+        "title": "MlMsg",
+        "type": "object"
+      },
+      "NodeSnap": {
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "last_rx_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Rx Ts"
+          },
+          "co_ppm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Co Ppm"
+          },
+          "temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp C"
+          },
+          "hum_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hum Pct"
+          },
+          "motion_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motion G"
+          },
+          "bat_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bat Pct"
+          },
+          "scba": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scba"
+          },
+          "mandown": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandown"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NORMAL",
+                  "WARNING",
+                  "DANGER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "link_state": {
+            "enum": [
+              "not_connected",
+              "ok",
+              "weak_signal",
+              "signal_lost",
+              "link_lost",
+              "recovered"
+            ],
+            "title": "Link State",
+            "type": "string"
+          },
+          "status2": {
+            "anyOf": [
+              {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status2"
+          },
+          "flags": {
+            "anyOf": [
+              {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flags"
+          },
+          "id_mode": {
+            "anyOf": [
+              {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Mode"
+          },
+          "status3": {
+            "anyOf": [
+              {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status3"
+          },
+          "status4": {
+            "anyOf": [
+              {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status4"
+          },
+          "co_validity": {
+            "enum": [
+              "VALID",
+              "DERATED",
+              "UNRELIABLE"
+            ],
+            "title": "Co Validity",
+            "type": "string"
+          },
+          "co_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Co Reason"
+          },
+          "scba_correction": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ScbaCorrection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "node_id",
+          "alias",
+          "last_rx_ts",
+          "co_ppm",
+          "temp_c",
+          "hum_pct",
+          "motion_g",
+          "bat_pct",
+          "scba",
+          "mandown",
+          "level",
+          "link_state",
+          "status2",
+          "flags",
+          "id_mode",
+          "status3",
+          "status4",
+          "co_validity",
+          "co_reason",
+          "scba_correction"
+        ],
+        "title": "NodeSnap",
+        "type": "object"
+      },
+      "ReadingMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "reading",
+            "title": "Type",
+            "type": "string"
+          },
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "rx_ts": {
+            "title": "Rx Ts",
+            "type": "integer"
+          },
+          "co_ppm": {
+            "title": "Co Ppm",
+            "type": "number"
+          },
+          "co_over_range": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Co Over Range",
+            "type": "integer"
+          },
+          "co_validity": {
+            "enum": [
+              "VALID",
+              "DERATED",
+              "UNRELIABLE"
+            ],
+            "title": "Co Validity",
+            "type": "string"
+          },
+          "co_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Co Reason"
+          },
+          "temp_c": {
+            "title": "Temp C",
+            "type": "number"
+          },
+          "hum_pct": {
+            "title": "Hum Pct",
+            "type": "integer"
+          },
+          "motion_g": {
+            "title": "Motion G",
+            "type": "number"
+          },
+          "posture": {
+            "enum": [
+              "UPRIGHT",
+              "LOW_LEANING",
+              "HORIZONTAL",
+              "UNKNOWN"
+            ],
+            "title": "Posture",
+            "type": "string"
+          },
+          "stillness_s": {
+            "title": "Stillness S",
+            "type": "number"
+          },
+          "bat_pct": {
+            "title": "Bat Pct",
+            "type": "integer"
+          },
+          "scba": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Scba",
+            "type": "integer"
+          },
+          "mandown": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Mandown",
+            "type": "integer"
+          },
+          "level": {
+            "enum": [
+              "NORMAL",
+              "WARNING",
+              "DANGER"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "seq_class": {
+            "enum": [
+              "fresh",
+              "duplicate",
+              "reboot",
+              "suspect"
+            ],
+            "title": "Seq Class",
+            "type": "string"
+          },
+          "rssi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rssi"
+          },
+          "snr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr"
+          },
+          "status2": {
+            "maximum": 255,
+            "minimum": 0,
+            "title": "Status2",
+            "type": "integer"
+          },
+          "flags": {
+            "maximum": 255,
+            "minimum": 0,
+            "title": "Flags",
+            "type": "integer"
+          },
+          "id_mode": {
+            "maximum": 255,
+            "minimum": 0,
+            "title": "Id Mode",
+            "type": "integer"
+          },
+          "status3": {
+            "maximum": 255,
+            "minimum": 0,
+            "title": "Status3",
+            "type": "integer"
+          },
+          "status4": {
+            "maximum": 255,
+            "minimum": 0,
+            "title": "Status4",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type",
+          "node_id",
+          "alias",
+          "rx_ts",
+          "co_ppm",
+          "co_over_range",
+          "co_validity",
+          "co_reason",
+          "temp_c",
+          "hum_pct",
+          "motion_g",
+          "posture",
+          "stillness_s",
+          "bat_pct",
+          "scba",
+          "mandown",
+          "level",
+          "reasons",
+          "seq_class",
+          "rssi",
+          "snr",
+          "status2",
+          "flags",
+          "id_mode",
+          "status3",
+          "status4"
+        ],
+        "title": "ReadingMsg",
+        "type": "object"
+      },
+      "RosterRow": {
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "maximum": 7,
+            "minimum": 1,
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "active": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Active",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "alias",
+          "active"
+        ],
+        "title": "RosterRow",
+        "type": "object"
+      },
+      "ScbaCorrection": {
+        "additionalProperties": false,
+        "properties": {
+          "recorded_ts": {
+            "title": "Recorded Ts",
+            "type": "integer"
+          },
+          "operator": {
+            "title": "Operator",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recorded_ts",
+          "operator"
+        ],
+        "title": "ScbaCorrection",
+        "type": "object"
+      },
+      "SessionInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "integer"
+          },
+          "started_ts": {
+            "title": "Started Ts",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "LIVE",
+              "SIMULATOR",
+              "REPLAY"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Label"
+          }
+        },
+        "required": [
+          "session_id",
+          "started_ts",
+          "mode",
+          "session_label"
+        ],
+        "title": "SessionInfo",
+        "type": "object"
+      },
+      "SnapshotMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "const": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "snapshot",
+            "title": "Type",
+            "type": "string"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "recovering": {
+            "title": "Recovering",
+            "type": "boolean"
+          },
+          "monitoring_active": {
+            "title": "Monitoring Active",
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/$defs/SessionInfo"
+          },
+          "roster": {
+            "items": {
+              "$ref": "#/$defs/RosterRow"
+            },
+            "title": "Roster",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/$defs/NodeSnap"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "open_alerts": {
+            "items": {
+              "$ref": "#/$defs/AlertBody"
+            },
+            "title": "Open Alerts",
+            "type": "array"
+          },
+          "open_episodes": {
+            "items": {
+              "$ref": "#/$defs/EpisodeBody"
+            },
+            "title": "Open Episodes",
+            "type": "array"
+          },
+          "co_history_30m": {
+            "additionalProperties": {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "title": "Co History 30M",
+            "type": "object"
+          },
+          "banners": {
+            "$ref": "#/$defs/Banners"
+          },
+          "constants": {
+            "additionalProperties": true,
+            "title": "Constants",
+            "type": "object"
+          }
+        },
+        "required": [
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type",
+          "epoch",
+          "recovering",
+          "monitoring_active",
+          "session",
+          "roster",
+          "nodes",
+          "open_alerts",
+          "open_episodes",
+          "co_history_30m",
+          "banners",
+          "constants"
+        ],
+        "title": "SnapshotMsg",
+        "type": "object"
+      },
+      "SystemMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "system",
+            "title": "Type",
+            "type": "string"
+          },
+          "base": {
+            "enum": [
+              "ok",
+              "offline"
+            ],
+            "title": "Base",
+            "type": "string"
+          },
+          "recovering": {
+            "title": "Recovering",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "integer"
+          },
+          "session_mode": {
+            "enum": [
+              "LIVE",
+              "SIMULATOR",
+              "REPLAY"
+            ],
+            "title": "Session Mode",
+            "type": "string"
+          },
+          "rejected_frames": {
+            "title": "Rejected Frames",
+            "type": "integer"
+          },
+          "logging_fault": {
+            "title": "Logging Fault",
+            "type": "boolean"
+          },
+          "host_gap": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HostGap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_power": {
+            "title": "Host Power",
+            "type": "string"
+          },
+          "audio_fault": {
+            "title": "Audio Fault",
+            "type": "boolean"
+          },
+          "banner": {
+            "anyOf": [
+              {
+                "enum": [
+                  "host_gap",
+                  "logging_fault"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banner"
+          },
+          "acknowledged_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged Ts"
+          }
+        },
+        "required": [
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type",
+          "base",
+          "recovering",
+          "session_id",
+          "session_mode",
+          "rejected_frames",
+          "logging_fault",
+          "host_gap",
+          "host_power",
+          "audio_fault",
+          "banner",
+          "acknowledged_ts"
+        ],
+        "title": "SystemMsg",
+        "type": "object"
+      },
+      "TickMsg": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "srv_seq": {
+            "minimum": 0,
+            "title": "Srv Seq",
+            "type": "integer"
+          },
+          "srv_ts": {
+            "minimum": 0,
+            "title": "Srv Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "tick",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "v",
+          "srv_seq",
+          "srv_ts",
+          "type"
+        ],
+        "title": "TickMsg",
         "type": "object"
       }
     }
