@@ -4,7 +4,7 @@ frame's event_seq -> step() (which allocates the event_seq of any effect after i
 Calls are serialised by a lock so event_seq is allocated and submitted in the same order; P24 calls frame() from the event loop.
 P24-3a: effect_stmts() turns the effects of step() into alert, episode and EPISODE_ESCALATED rows that commit in the same unit as the frame (design 1, commit paragraph); tick() and operator() do the
 same for the 1 Hz TickEvent and for Acknowledge and Resolve. Effects also come back in Ingested.effects, with event_seq values already allocated; the committed ids are in unit._ids.
-Not here (P24-3b): the messages for the dashboard and the Port. The audit rows of ACK_EPISODE, RESOLVE_EPISODE and the like are written by the REST routes through the Port, not here.
+P24-3b-1: audit() and write() give the Port (host_port.py) ordered units of its own. Not here (P24-3b-2): the messages for the dashboard. The audit rows of ACK_EPISODE, RESOLVE_EPISODE and the like are written by the REST routes through the Port, not here.
 Not here (P12b): the real clock, base_health rows, COUNTERS rows, SERIAL_LOST and SERIAL_BACK."""
 import logging, threading, time
 from collections import deque
@@ -24,6 +24,7 @@ COLS = ('event_seq, session_id, node_id, rx_ts, rx_mono, seq, boot_ctr, uptime_s
         'node_level, backend_level, final_level, reasons, rssi, snr, verify, base_verify, seq_class, frames_lost, raw_hex, backend_ms')
 FRAME_SQL = 'INSERT INTO frames(%s) VALUES (%s)' % (COLS, ','.join('?' * 32))
 SYS_SQL = 'INSERT INTO system_events(session_id, event_seq, ts, kind, detail) VALUES (?, ?, ?, ?, ?)'
+AUDIT_SQL = 'INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action, node_id, episode_id, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
 ACTIVE_EP = "(SELECT episode_id FROM episodes WHERE node_id = ? AND state IN ('OPEN', 'ACKNOWLEDGED'))"   # one active episode per node (idx_episodes_one_active), so the node finds it
 IN_ACTIVE = "node_id = ? AND state IN ('OPEN', 'ACKNOWLEDGED')"
 
@@ -122,6 +123,18 @@ class Ingest:
         A bad Resolve reason raises ValueError and changes nothing."""
         with self._lock:
             self.st, fx = step(self.st, event, now_of(self.clock)); return tuple(fx), self._fx_unit(fx, True)
+
+    def audit(self, action, operator_id=None, node_id=None, episode_id=None, reason=None, durable=False):
+        """P24-3b-1: one audit_events row for the Port (the REST routes and the WebSocket hub), in the current session, with its own event_seq. Returns the Unit."""
+        with self._lock:
+            self.st, seq = next_seq(self.st)
+            return self.writer.submit(Unit(seq, [Stmt(AUDIT_SQL, (self.session_id, seq, self.clock.wall_ms(), operator_id, action, node_id, episode_id, reason))], durable=durable))
+
+    def write(self, stmts, durable=False):
+        """P24-3b-1: rows the host itself writes (a session update, the acknowledgement of a cleared alert) as one ordered unit with its own event_seq. Returns the Unit."""
+        with self._lock:
+            self.st, seq = next_seq(self.st)
+            return self.writer.submit(Unit(seq, list(stmts), durable=durable))
 
     def _reject(self, why): c = self.counters; c['rejected_frames'] += 1; c['rejected_' + why] += 1
 
