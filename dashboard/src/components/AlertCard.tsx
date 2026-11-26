@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { NodeSnap } from '../gen/ws.ts';
 import { isFlashing, lineText, MAX_LINES, type Card } from '../alerts/group.ts';
 import { levelView } from '../alerts/style.ts';
@@ -10,12 +10,14 @@ export interface AlertCardProps {
   onSelect: (id: number) => void;
   onMinimize: () => void;
   onDismiss?: () => void; // given only to estimate cards: a safety or unverified card is never closed
+  actions?: ReactNode; // Acknowledge and Resolve (P22-3)
+  pendingIds?: ReadonlySet<number>; // alerts whose Acknowledge the host has not confirmed yet
 }
 const LABEL = { slim: 'estimate', unauth: 'unverified' } as const;
 const FLASH: Record<string, string> = { WARNING: 'var(--color-level-warning)', DANGER: 'var(--color-level-danger)' };
 const BTN = 'min-h-11 rounded-lg bg-slate-800 px-4 text-base font-semibold text-white';
 
-export default function AlertCard({ card, nodes, onSelect, onMinimize, onDismiss }: AlertCardProps) {
+export default function AlertCard({ card, nodes, onSelect, onMinimize, onDismiss, actions, pendingIds }: AlertCardProps) {
   const [open, setOpen] = useState(false);
   const node = card.node_id === null ? undefined : nodes[card.node_id];
   const lines = open ? card.lines : card.lines.slice(0, MAX_LINES);
@@ -34,11 +36,13 @@ export default function AlertCard({ card, nodes, onSelect, onMinimize, onDismiss
             {lineText(l.alert, node)}
             {l.count > 1 && <span className="ml-2 rounded bg-ink px-2 text-base text-white">×{l.count}</span>}
             {l.cleared && <span className="ml-2 text-base font-normal text-stale-text">cleared</span>}
+            {pendingIds && l.ids.some((i) => pendingIds.has(i)) && <span className="ml-2 text-base font-normal text-stale-text">ack pending</span>}
           </li>
         ))}
       </ul>
       {more > 0 && <button type="button" className="mt-2 min-h-11 text-base font-semibold underline" onClick={(e) => { e.stopPropagation(); setOpen(true); }}>+{more} more</button>}
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
+        {actions}
         <button type="button" className={BTN} onClick={(e) => { e.stopPropagation(); onMinimize(); }}>Minimize</button>
         {onDismiss && <button type="button" className={BTN} onClick={(e) => { e.stopPropagation(); onDismiss(); }}>Dismiss</button>}
       </div>
