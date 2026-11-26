@@ -26,7 +26,7 @@ export const LISTED: Record<HotspotId, Partial<Record<Byte, number[]>>> = {
 
 const on = (v: number | null, f: { shift: number }): boolean => v !== null && ((v >> f.shift) & 1) === 1;
 const num = (v: number | null, f: { shift: number; width: number }): number => (v === null ? 0 : (v >> f.shift) & ((1 << f.width) - 1));
-const LINK: Record<NodeSnap['link_state'], string> = { ok: 'link OK', not_connected: 'not connected', weak_signal: 'weak signal', signal_lost: 'signal lost', link_lost: 'link lost', recovered: 'recovered' };
+export const LINK: Record<NodeSnap['link_state'], string> = { ok: 'link OK', not_connected: 'not connected', weak_signal: 'weak signal', signal_lost: 'signal lost', link_lost: 'link lost', recovered: 'recovered' };
 const ACTIVITY = ['still', 'active', 'fall suspected', 'uncertain'];
 const LEVEL_WORD: [string, Tone][] = [['off', 'neutral'], ['WARNING', 'warning'], ['DANGER', 'danger'], ['invalid', 'grey']];
 

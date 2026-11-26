@@ -2,11 +2,14 @@
 // apply() returns resync = true when the message cannot be trusted (an increment before the
 // snapshot, or a gap in srv_seq): the caller reconnects, and the host sends a snapshot first.
 import type {
-  AdvisoryMsg, AlertBody, Banners, EpisodeBody, NodeSnap, RosterRow, ServerMessage, SessionInfo,
+  AdvisoryMsg, AlertBody, Banners, EpisodeBody, NodeSnap, ReadingMsg, RosterRow, ServerMessage, SessionInfo,
 } from '../gen/ws.ts';
 import { appendPoint } from '../alerts/trend.ts';
 
 export type Conn = 'CONNECTING' | 'LIVE' | 'LOGIN' | 'FORBIDDEN';
+
+// What a reading carries beyond the snapshot's node record (P22d-1): the Details row and the stillness estimate of the side panel read it.
+export interface ReadingDetail { posture: ReadingMsg['posture']; stillness_s: number; rssi: number | null; snr: number | null }
 
 export interface LiveState {
   conn: Conn;
@@ -22,6 +25,7 @@ export interface LiveState {
   episodes: Record<number, EpisodeBody>;
   advisories: Record<number, Omit<AdvisoryMsg, 'v' | 'type' | 'srv_seq' | 'srv_ts'> & { srv_ts: number }>;
   coHistory: Record<string, number[][]>;
+  detail: Record<number, ReadingDetail>;
   banners: Banners | null;
   bannerAck: Record<string, number>;
   rejectedFrames: number;
@@ -31,7 +35,7 @@ export interface LiveState {
 export function initialState(conn: Conn): LiveState {
   return {
     conn, epoch: null, lastSeq: -1, lastSrvTs: null, recovering: false, monitoringActive: false,
-    session: null, roster: [], nodes: {}, alerts: {}, episodes: {}, advisories: {}, coHistory: {},
+    session: null, roster: [], nodes: {}, alerts: {}, episodes: {}, advisories: {}, coHistory: {}, detail: {},
     banners: null, bannerAck: {}, rejectedFrames: 0, constants: {},
   };
 }
@@ -52,7 +56,7 @@ export function apply(s: LiveState, m: ServerMessage): { state: LiveState; resyn
         monitoringActive: m.monitoring_active, session: m.session, roster: m.roster,
         nodes: byId(m.nodes, (n) => n.node_id), alerts: byId(m.open_alerts, (a) => a.alert_id),
         episodes: byId(m.open_episodes, (e) => e.episode_id), advisories: {},
-        coHistory: m.co_history_30m, banners: m.banners, bannerAck: {}, rejectedFrames: 0,
+        coHistory: m.co_history_30m, detail: {}, banners: m.banners, bannerAck: {}, rejectedFrames: 0,
         constants: m.constants,
       },
     };
@@ -72,6 +76,7 @@ export function apply(s: LiveState, m: ServerMessage): { state: LiveState; resyn
           co_validity: m.co_validity, co_reason: m.co_reason,
         },
       };
+      n.detail = { ...s.detail, [m.node_id]: { posture: m.posture, stillness_s: m.stillness_s, rssi: m.rssi, snr: m.snr } };
       // The chart (3.2) follows live readings. An UNRELIABLE CO is not a reading, and a duplicate frame adds no new point.
       if (m.co_validity !== 'UNRELIABLE' && m.seq_class !== 'duplicate') n.coHistory = { ...s.coHistory, [m.node_id]: appendPoint(s.coHistory[m.node_id], m.rx_ts, m.co_ppm) };
       break;
