@@ -186,3 +186,19 @@ class DBWriter:
         if now - self._fault_log.get(msg, -10**12) >= 60000:
             self._fault_log[msg] = now
             if self.on_logging_fault: self.on_logging_fault(table, msg)
+
+# ---- P19c-2: SCBA corrections re-applied from audit_events (design 2.10) ----
+_FRAME_OK = "verify = 'OK' AND seq_class IN ('fresh', 'reboot')"   # a duplicate or suspect frame neither sets nor changes the SCBA state
+_SCBA_BITS = '(((id_mode >> 3) & 1) * 2 + ((status3 >> 3) & 1))'    # id_mode bit 3 (SCBA ON) and status3 bit 3 (scba_expired)
+def load_scba_corrections(conn):
+    """{node_id: (recorded_ts, operator display name)}: the latest SCBA_CORRECTION of each node from any session, kept until a later verified frame of that node
+    differs from the node's SCBA bits at the time of the correction (the last frame at or before it, or the first frame after it if there is none). Read-only."""
+    out = {}
+    for node, ts, name in conn.execute("SELECT a.node_id, a.ts, COALESCE(o.display_name, '') FROM audit_events a LEFT JOIN operators o ON o.operator_id = a.operator_id "
+                                       "WHERE a.action = 'SCBA_CORRECTION' AND a.node_id IS NOT NULL AND a.audit_id = (SELECT MAX(b.audit_id) FROM audit_events b "
+                                       "WHERE b.action = 'SCBA_CORRECTION' AND b.node_id = a.node_id)").fetchall():
+        base = conn.execute('SELECT %s FROM frames WHERE node_id = ? AND rx_ts <= ? AND %s ORDER BY rx_ts DESC, frame_id DESC LIMIT 1' % (_SCBA_BITS, _FRAME_OK), (node, ts)).fetchone()
+        if base is None: base = conn.execute('SELECT %s FROM frames WHERE node_id = ? AND rx_ts > ? AND %s ORDER BY rx_ts, frame_id LIMIT 1' % (_SCBA_BITS, _FRAME_OK), (node, ts)).fetchone()
+        if base is not None and conn.execute('SELECT 1 FROM frames WHERE node_id = ? AND rx_ts > ? AND %s AND %s != ? LIMIT 1' % (_FRAME_OK, _SCBA_BITS), (node, ts, base[0])).fetchone(): continue
+        out[node] = (ts, name)
+    return out

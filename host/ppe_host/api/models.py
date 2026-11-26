@@ -291,3 +291,10 @@ class OutageReq(_Strict):  # times are UTC milliseconds like every stored timest
     duration_s: float = Field(allow_inf_nan=False)
 class OutageResp(_Strict):
     logged: Literal[True]
+# ---- REST bodies (P19c-2): SCBA correction and banner acknowledgement (design 3.8); the response of scba-correction is ScbaCorrection above ----
+class ScbaCorrectionReq(_Strict):
+    node_id: int
+    note: Optional[str] = None
+class BannerAckResp(_Strict):
+    kind: BannerKind
+    acknowledged_ts: int

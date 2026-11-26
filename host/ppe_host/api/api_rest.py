@@ -29,6 +29,9 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def ack_alert(self, alert_id: int, operator_id: int) -> Optional['AlertAck']: ...  # idempotent; also for a cleared alert
     def ack_episode(self, episode_id: int, operator_id: int) -> Optional['EpisodeAck']: ...  # idempotent when ACKNOWLEDGED; ApiError STATE_CONFLICT when RESOLVED
     def resolve_episode(self, episode_id: int, reason: str, operator_id: int) -> Optional['EpisodeResolve']: ...  # ApiError STATE_CONFLICT when already RESOLVED
+    # P19c-2
+    def set_scba_correction(self, node_id: int, note: Optional[str], operator_id: int) -> Optional['ScbaRecord']: ...  # live state only; None when node_id is not in the roster; the audit row is written by the route
+    def ack_banner(self, kind: str, operator_id: int) -> 'BannerAck': ...  # idempotent while the banner is active (first time kept); ApiError STATE_CONFLICT when it is not
 
 class ApiError(Exception):
     """Any non-2xx answer. The envelope model refuses a code outside the 3.8 list and a retry_after_s on a code that may not carry one."""
@@ -199,3 +202,29 @@ async def dashboard_outage(body: M.OutageReq, request: Request, op: Operator = D
     if abs(body.duration_s * 1000 - (body.ended_ts - body.started_ts)) > OUTAGE_TOLERANCE_MS: bad('duration_s differs from ended_ts - started_ts by more than 1 s')
     port.audit('DASHBOARD_OUTAGE', operator_id=op.operator_id, reason='started_ts %d ended_ts %d duration_s %g' % (body.started_ts, body.ended_ts, body.duration_s))
     return M.OutageResp(logged=True)
+# ---- P19c-2: POST /api/scba-correction and POST /api/system-banners/{kind}/ack (design 3.8) ----
+# The host owns the live state and every write (ADR 0011). SCBA correction is display state only: it is never an input of the rule engine, so it cannot clear
+# scba_expired or suppress an ambient CO alert. The latest correction of each node is re-applied after a restart by io/db_writer.load_scba_corrections.
+from typing import get_args as _get_args
+class ScbaRecord(NamedTuple):
+    recorded_ts: int
+    operator: str
+class BannerAck(NamedTuple):
+    kind: str
+    acknowledged_ts: int
+BANNER_KINDS = ('no_live_data', 'base_offline', 'logging_fault', 'host_gap', 'recovering', 'host_power', 'audio_fault')  # the banners of alert_catalog.json (a test compares)
+
+@router.post('/scba-correction', response_model=M.ScbaCorrection)
+async def scba_correction(body: M.ScbaCorrectionReq, request: Request, op: Operator = Depends(current_operator)):
+    port = request.app.state.port; r = port.set_scba_correction(body.node_id, body.note, op.operator_id)  # None for a node that is not in the roster
+    if r is None: raise ApiError(404, 'NOT_FOUND', 'unknown node')
+    port.audit('SCBA_CORRECTION', operator_id=op.operator_id, node_id=body.node_id, reason=body.note)
+    return M.ScbaCorrection(recorded_ts=r.recorded_ts, operator=r.operator)
+
+@router.post('/system-banners/{kind}/ack', response_model=M.BannerAckResp)
+async def ack_banner(kind: str, request: Request, op: Operator = Depends(current_operator), body: Optional[M.EmptyReq] = None):
+    if kind not in BANNER_KINDS: raise ApiError(404, 'NOT_FOUND', 'unknown banner kind')
+    if kind not in _get_args(M.BannerKind): raise ApiError(400, 'BAD_REQUEST', 'this banner cannot be acknowledged')  # host_gap and logging_fault only
+    port = request.app.state.port; r = port.ack_banner(kind, op.operator_id)  # idempotent while the banner is active; the port raises ApiError STATE_CONFLICT when it is not
+    port.audit('BANNER_ACK', operator_id=op.operator_id, reason=kind)
+    return M.BannerAckResp(kind=r.kind, acknowledged_ts=r.acknowledged_ts)
