@@ -57,5 +57,5 @@ export default function Shell({ controller, bridge, silence, fetchFn, gate }: Sh
   // The worker's verdict covers a quiet /ws/tick or a quiet data socket while this page still looks connected: the red screen goes over the live screen.
   // Layout (3.7): one frame the height of the window. The header (buttons, banners, sound bar) is capped and scrolls inside itself, the tray is capped at 40% and
   // scrolls inside itself, and the readings take the rest, so stacked banners can never push them off the screen.
-  return <div data-testid="frame" className="flex h-dvh flex-col overflow-hidden">{!wd.noData && <header data-testid="top" className="max-h-[35dvh] shrink-0 overflow-y-auto"><TopStrip fetchFn={fetchFn}><ModeBar /><SystemBanners />{bar}</TopStrip></header>}<LiveScreen chipsInStrip />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} />}</div>;
+  return <div data-testid="frame" className="flex h-dvh flex-col overflow-hidden">{!wd.noData && <header data-testid="top" className="max-h-[35dvh] shrink-0 overflow-y-auto"><TopStrip fetchFn={fetchFn}><ModeBar /><SystemBanners />{bar}</TopStrip></header>}<LiveScreen chipsInStrip fetchFn={fetchFn} />{wd.noData && <NoLiveData sirenOn={wd.sirenOn} silenced={!wd.sirenOn} unlocked={unlocked} onSilence={silence} extra={bar} />}</div>;
 }

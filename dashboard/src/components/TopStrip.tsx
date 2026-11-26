@@ -10,7 +10,7 @@ import SessionsPanel from './SessionsPanel.tsx';
 import ShiftSummary from './ShiftSummary.tsx';
 import { BTN } from './btn.ts';
 
-const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?? ((...a) => fetch(...a)), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) });
+export const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?? ((...a) => fetch(...a)), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) });
 
 // The top strip (3.10): the Sessions list and End shift open from here, not from the main screen. The chips of minimized alerts and the LIVE or TEST word sit here too (P22d-1).
 export default function TopStrip({ fetchFn, children }: { fetchFn?: typeof fetch; children?: ReactNode }) {

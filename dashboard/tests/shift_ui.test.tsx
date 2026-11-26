@@ -95,7 +95,7 @@ describe('End shift (3.7)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'End shift' }));
     fireEvent.change(screen.getByLabelText('Type END to confirm'), { target: { value: 'END' } });
     await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End shift' })); });
-    expect(h.calls[0]).toMatchObject({ url: '/api/session/end', method: 'POST', body: '{"confirm_text":"END","session_id":4}' });
+    expect(h.calls.find((c) => c.url === '/api/session/end')).toMatchObject({ url: '/api/session/end', method: 'POST', body: '{"confirm_text":"END","session_id":4}' });
     const sum = await screen.findByRole('region', { name: 'Shift summary' });
     await within(sum).findByText('8 h 05 min');
     expect(sum.textContent).toContain('Backup saved'); expect(sum.textContent).toContain('FF-01: ✖ DANGER'); expect(sum.textContent).toContain('Alerts raised6'); expect(sum.textContent).toContain('Unresolved episodes1');

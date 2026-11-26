@@ -13,6 +13,8 @@ import JacketView, { Boundary } from './JacketView.tsx';
 import CoChart from './CoChart.tsx';
 import Chips from './Chips.tsx';
 import SidePanel from './SidePanel.tsx';
+import EventLog from './EventLog.tsx';
+import type { SaveDeps } from '../api/shift.ts';
 import { limitsFrom } from '../alerts/trend.ts';
 import CardActions from './CardActions.tsx';
 import type { GridProps } from './ComponentGrid.tsx';
@@ -22,7 +24,7 @@ import NotConnectedCard from './NotConnectedCard.tsx';
 // Node cards, chips of minimized alerts and the tray. The tray is in normal flow, so it pushes the page down and covers no reading (3.3).
 // Layout (3.7): the chips and the tray sit outside the scrolling readings area. The tray is capped at 40% of the window and scrolls inside itself, danger first.
 // The chips render in the top strip when the Shell asks for it (chipsInStrip); on their own, LiveScreen keeps them above the tray.
-export default function LiveScreen({ actions = defaultActions, grid, chipsInStrip = false }: { actions?: Actions; grid?: ComponentType<GridProps>; chipsInStrip?: boolean }) {
+export default function LiveScreen({ actions = defaultActions, grid, chipsInStrip = false, fetchFn, saveDeps }: { actions?: Actions; grid?: ComponentType<GridProps>; chipsInStrip?: boolean; fetchFn?: typeof fetch; saveDeps?: SaveDeps }) {
   const alerts = useLive((s) => s.alerts), nodes = useLive((s) => s.nodes), roster = useLive((s) => s.roster), now = useLive((s) => s.lastSrvTs), episodes = useLive((s) => s.episodes), acks = useAcks((s) => s.acks), consts = useLive((s) => s.constants);
   const monitoring = useLive((s) => s.monitoringActive), selected = useUi((s) => s.selected), minimized = useUi((s) => s.minimized), dismissed = useUi((s) => s.dismissed);
   const list = useMemo(() => overlayAcks(Object.values(alerts), acks), [alerts, acks]);
@@ -62,6 +64,7 @@ export default function LiveScreen({ actions = defaultActions, grid, chipsInStri
           </Boundary>
         </div>
       )}
+      <Boundary text="Event log unavailable"><EventLog fetchFn={fetchFn} saveDeps={saveDeps} /></Boundary>
       </main>
       {!chipsInStrip && <Chips />}
       <section aria-label="Alerts" data-testid="tray" className={cn('max-h-[40dvh] shrink-0 space-y-4 overflow-y-auto bg-page', visible > 0 && 'border-t-2 border-card-border p-4')}>
