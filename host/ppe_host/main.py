@@ -1,11 +1,12 @@
-"""main.py (P24-1): start-up steps 1 to 5 of design 14.5 and the start-up failure policy (a to d). Steps 6 onward (session, threads, Uvicorn, 1 Hz tick) are P24-2 and later.
+"""main.py (P24-1): start-up steps 1 to 5 of design 14.5 and the start-up failure policy (a to d). P24-2 added steps 6 and 7 (begin_session); steps 8 to 10 (threads, Uvicorn, 1 Hz tick) come with the real Source and Port (P24-3).
 Exit codes: 0 = clean exit or another host already runs (the supervisor does not respawn), 1 = unexpected crash, 2 = configuration or database failure (counts toward the crash-loop guard).
 Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME]"""
-import argparse, json, logging, os, shutil, stat, sys, time
+import argparse, json, logging, os, shutil, stat, sys, time, uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from .settings import SettingsError, load_settings
+from .clock import RealClock
+from .settings import SettingsError, constants_hash, load_settings, settings_hash
 from .io.backup import backup_before_migration, verify_backup
 from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, init_event_seq, run_migrations
 from .cli import MIGRATIONS_DIR, seed_roster
@@ -113,7 +114,12 @@ class Startup:
     conn: object
     event_seq: int
     applied: list
-    recovery: object = None          # None, or {'quarantined', 'backup'} when quick_check failed: P24-2 writes INTEGRITY_FAIL (and in LIVE DB_RESTORED, host_gap db_restored)
+    recovery: object = None          # None, or {'quarantined', 'backup'} when quick_check failed; begin_session writes INTEGRITY_FAIL (and in LIVE DB_RESTORED)
+    session_id: int = None           # set by begin_session (steps 6 and 7)
+    resumed: bool = False
+    recovering: bool = False         # True from step 7 until RECOVERING_EXIT (P25)
+    host_boot_id: str = None
+    host_gap_reason: str = None      # 'db_restored' in LIVE after a restore: the host_gap banner (P24-3 shows it)
     def close(self):
         try: self.conn.close()
         finally: self.lock.release()
@@ -154,13 +160,61 @@ def startup(home=None, mode='LIVE', now_ms=lambda: int(time.time() * 1000), proc
             raise
     except BaseException: lock.release(); raise
 
+def host_build():
+    try:
+        from importlib.metadata import version
+        return 'ppe-host ' + version('ppe-host')
+    except Exception: return 'ppe-host 0.0.0+dev'
+
+def _sys(conn, st, sid, ts, kind, detail=None):
+    conn.execute('INSERT INTO system_events(session_id, event_seq, ts, kind, detail) VALUES (?, ?, ?, ?, ?)', (sid, st.event_seq, ts, kind, detail)); st.event_seq += 1
+
+def last_row_ts(conn, sid):
+    """The newest stored timestamp of the session over frames, alerts, audit_events and system_events (its start if it has no row)."""
+    qs = ('SELECT COALESCE(MAX(rx_ts), 0) FROM frames WHERE session_id = ?', 'SELECT MAX(COALESCE(MAX(raised_ts), 0), COALESCE(MAX(cleared_ts), 0)) FROM alerts WHERE session_id = ?',
+          'SELECT COALESCE(MAX(ts), 0) FROM audit_events WHERE session_id = ?', 'SELECT COALESCE(MAX(ts), 0) FROM system_events WHERE session_id = ?', 'SELECT started_ts FROM sessions WHERE session_id = ?')
+    return max(conn.execute(q, (sid,)).fetchone()[0] for q in qs)
+
+def begin_session(st, clock=None):
+    """Steps 6 and 7 in one transaction. Resume the open session only if its mode and both hashes match and its last row is younger than session_resume_max_min;
+    otherwise close it ABANDONED (SESSION_ABANDONED with detail mode_changed, config_hash_changed or stale_30min, in that order of precedence) and open a new one.
+    Then log HOST_START (host_boot_id, mono_base_ms), RECOVERING_ENTER and, after a quick_check failure, INTEGRITY_FAIL and in LIVE the DB_RESTORED audit row (session_id NULL).
+    Alerts and episodes are never touched (2.11). The general close_session(kind) and the rebase of old monotonic stamps are P25."""
+    clock = clock or RealClock(); now = clock.wall_ms(); conn = st.conn; ch, sh = constants_hash(), settings_hash(st.settings); limit = st.settings['session_resume_max_min'] * 60_000
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        row = conn.execute('SELECT session_id, mode, constants_hash, settings_hash FROM sessions WHERE ended_ts IS NULL').fetchone(); sid, changed = None, False
+        if row:
+            why = 'mode_changed' if row[1] != st.mode else 'config_hash_changed' if (row[2], row[3]) != (ch, sh) else 'stale_30min' if now - last_row_ts(conn, row[0]) >= limit else None
+            if why is None: sid, st.resumed = row[0], True
+            else:
+                _sys(conn, st, row[0], now, 'SESSION_ABANDONED', why); conn.execute("UPDATE sessions SET ended_ts = ?, end_kind = 'ABANDONED' WHERE session_id = ?", (now, row[0])); changed = why == 'config_hash_changed'
+        if sid is None:
+            sid = conn.execute('INSERT INTO sessions(started_ts, mode, host_build, constants_hash, settings_hash) VALUES (?, ?, ?, ?, ?)', (now, st.mode, host_build(), ch, sh)).lastrowid
+        st.host_boot_id = uuid.uuid4().hex
+        _sys(conn, st, sid, now, 'HOST_START', json.dumps({'host_boot_id': st.host_boot_id, 'mono_base_ms': clock.mono_ms(), 'wall_base_ms': now, 'mode': st.mode}))
+        _sys(conn, st, sid, now, 'RECOVERING_ENTER')
+        if st.recovery:
+            _sys(conn, st, sid, now, 'INTEGRITY_FAIL', 'quarantined %s; backup used: %s' % (st.recovery['quarantined'], st.recovery['backup'] or 'none (fresh database)'))
+            if st.mode == 'LIVE':
+                conn.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action, reason) VALUES (NULL, ?, ?, NULL, ?, ?)', (st.event_seq, now, 'DB_RESTORED', st.recovery['backup'] or 'fresh database')); st.event_seq += 1
+                st.host_gap_reason = 'db_restored'
+        if changed: _sys(conn, st, sid, now, 'CONFIG_CHANGED', 'constants_hash or settings_hash changed; the previous session was closed')
+        conn.execute('COMMIT')
+    except BaseException: conn.execute('ROLLBACK'); raise
+    st.session_id, st.recovering = sid, True
+    return st
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.main'); p.add_argument('--mode', choices=MODES, default='LIVE'); p.add_argument('--home')
     a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-    try: st = startup(a.home, a.mode)
+    try:
+        st = startup(a.home, a.mode)
+        try: begin_session(st)
+        except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
-    print('start-up steps 1 to 5 done: %s, database %s, event_seq starts at %d' % (st.mode, st.db_path, st.event_seq))
-    st.close(); return EXIT_OK              # P24-2 continues here with step 6
+    print('start-up steps 1 to 7 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
+    st.close(); return EXIT_OK              # P24-3 and later continue here with step 8
 
 if __name__ == '__main__': sys.exit(main())
