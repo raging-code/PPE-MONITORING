@@ -51,3 +51,6 @@ export function resolveMessage(r: ActionResult<ResolveBody>): string {
 // POST /api/dashboard-outage (design 3.8): the page reports a NO LIVE DATA period after the host answers again. Times are UTC ms.
 export interface OutageBody { started_ts: number; ended_ts: number; duration_s: number }
 export const postOutage = (api: Api, b: OutageBody) => post<{ logged: boolean }>(api, '/api/dashboard-outage', b);
+
+// POST /api/session/start (design 3.8): records Start monitoring. Repeating it is safe: the host answers 200 and changes nothing.
+export const postSessionStart = (api: Api) => post<{ session_id: number; started_ts: number; mode: string; monitoring_active: boolean }>(api, '/api/session/start', {});
