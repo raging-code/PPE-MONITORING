@@ -2,7 +2,7 @@
 Wire turns Ingested frames and operator effects into reading, alert and episode bodies and hands them to the Hub (api/ws_hub.py: publish_reading, publish_alert, publish_episode;
 the hub adds v, srv_seq and srv_ts). Commit before broadcast (design 1): an alert or episode message is built only after its unit committed, and its body is read back from the
 committed row, so the alert_id is always the database id the REST Acknowledge uses. A unit that did not commit within commit_wait_ms is held in pending and sent by flush();
-a row the writer rejected has no id, so no message is sent and its event_seq goes into unpersisted (ADR 0032: the wire has no unpersisted field yet, which needs a decision).
+a row the writer rejected has no id, so no message is sent and its event_seq goes into unpersisted (ADR 0032 and ADR 0033: the wire has no unpersisted field yet, which needs a decision).
 P24-3b-2b-i: link and system messages (Wire.link_state, _links, _system, on_banner_ack). P24-3b-2b-ii: the advisory message (Wire.enable_advisory, _advisory), sent straight from the
 AdvisoryRow effect (it has a passage_ids field but no database id of its own to read back, unlike an alert or episode). No thread, no socket; every method runs on the event loop."""
 import sqlite3
