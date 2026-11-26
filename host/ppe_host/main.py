@@ -10,6 +10,7 @@ from .settings import SettingsError, constants_hash, load_settings, settings_has
 from .io.backup import backup_before_migration, verify_backup
 from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, init_event_seq, run_migrations
 from .cli import MIGRATIONS_DIR, seed_roster
+from .runtime import Runtime
 
 LOG = logging.getLogger('ppe_host')
 EXIT_OK, EXIT_CRASH, EXIT_CONFIG = 0, 1, 2
@@ -210,11 +211,11 @@ def main(argv=None):
     a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
         st = startup(a.home, a.mode)
-        try: begin_session(st)
+        try: begin_session(st); rt = Runtime(st).start()                                           # steps 6 and 7, then step 8 (P24-3c-1)
         except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
-    print('start-up steps 1 to 7 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
-    st.close(); return EXIT_OK              # P24-3 and later continue here with step 8
+    print('start-up steps 1 to 8 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
+    rt.stop(); st.close(); return EXIT_OK   # P24-3c-2 and later continue here with step 9
 
 if __name__ == '__main__': sys.exit(main())
