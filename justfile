@@ -11,7 +11,7 @@ setup:
 
 # P21 adds the dashboard dev server and P24 adds the host
 dev:
-    @echo "dev: nothing to run yet"
+    Set-Location dashboard; npm run dev
 
 # P1: the frame and beacon vectors; later Parts add pytest, Vitest and gcc runs under this line
 test:

@@ -1,0 +1,18 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+
+/* Design 3.6 (Proposed): colours and type. Levels use only these three hues; buttons are slate. */
+@theme {
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --color-page: #f7f8fa;
+  --color-card-border: #e5e7eb;
+  --color-ink: #111827;
+  --color-level-normal: #15803d;
+  --color-level-warning: #facc15;
+  --color-level-danger: #b91c1c;
+  --color-stale-text: #6b7280;
+  --color-stale-fill: #e5e7eb;
+  --radius-card: 14px;
+}
+
+body { margin: 0; background: var(--color-page); color: var(--color-ink); font-size: 16px; font-variant-numeric: tabular-nums; }
