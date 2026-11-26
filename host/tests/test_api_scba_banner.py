@@ -17,7 +17,8 @@ class FakePort:
     def ack_banner(self, kind, operator_id):
         self.calls.append(('banner', kind))
         if not self.active.get(kind): raise R.ApiError(409, 'STATE_CONFLICT', 'banner is not active')
-        return R.BannerAck(kind, self.acked.setdefault(kind, 9000))      # a repeat keeps the first time
+        if kind in self.acked: raise R.ApiError(409, 'STATE_CONFLICT', 'banner is already acknowledged')      # design 3.8: already in the target state
+        self.acked[kind] = 9000; return R.BannerAck(kind, 9000)
 @pytest.fixture
 def rig():
     port = FakePort(); return TestClient(R.create_app(port, 'unused.db'), base_url='http://127.0.0.1:8420', raise_server_exceptions=False), port
@@ -51,9 +52,9 @@ def test_scba_correction_body_that_fails_the_schema_is_422_and_reaches_nothing(r
 def test_banner_ack_on_the_two_allowed_kinds_is_200_and_logs_banner_ack(rig, kind):
     client, port = rig; r = post(client, '/api/system-banners/%s/ack' % kind, {})
     assert r.status_code == 200 and r.json() == {'kind': kind, 'acknowledged_ts': 9000} and port.audits == [('BANNER_ACK', 1, None, None, kind)]
-def test_banner_ack_accepts_no_body_and_a_repeat_returns_the_first_time(rig):
-    client, port = rig; a = post(client, '/api/system-banners/host_gap/ack'); port.acked['host_gap'] = 9000; b = post(client, '/api/system-banners/host_gap/ack', {})
-    assert a.status_code == b.status_code == 200 and a.json() == b.json()
+def test_banner_ack_accepts_no_body_and_a_second_ack_of_the_same_banner_is_409_state_conflict_with_no_second_audit_row(rig):
+    client, port = rig; a = post(client, '/api/system-banners/host_gap/ack'); b = post(client, '/api/system-banners/host_gap/ack', {})
+    assert a.status_code == 200 and b.status_code == 409 and envelope(b)['error_code'] == 'STATE_CONFLICT' and [x[0] for x in port.audits] == ['BANNER_ACK']
 @pytest.mark.parametrize('kind', ['no_live_data', 'base_offline', 'recovering', 'host_power', 'audio_fault'])
 def test_a_known_banner_that_cannot_be_acknowledged_is_400_and_reaches_nothing(rig, kind):
     client, port = rig; r = post(client, '/api/system-banners/%s/ack' % kind, {}); assert r.status_code == 400 and envelope(r)['error_code'] == 'BAD_REQUEST' and port.calls == [] and port.audits == []

@@ -31,7 +31,7 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def resolve_episode(self, episode_id: int, reason: str, operator_id: int) -> Optional['EpisodeResolve']: ...  # ApiError STATE_CONFLICT when already RESOLVED
     # P19c-2
     def set_scba_correction(self, node_id: int, note: Optional[str], operator_id: int) -> Optional['ScbaRecord']: ...  # live state only; None when node_id is not in the roster; the audit row is written by the route
-    def ack_banner(self, kind: str, operator_id: int) -> 'BannerAck': ...  # idempotent while the banner is active (first time kept); ApiError STATE_CONFLICT when it is not
+    def ack_banner(self, kind: str, operator_id: int) -> 'BannerAck': ...  # ApiError STATE_CONFLICT when the banner is not active or is already acknowledged (design 3.8 error-code list)
 
 class ApiError(Exception):
     """Any non-2xx answer. The envelope model refuses a code outside the 3.8 list and a retry_after_s on a code that may not carry one."""
@@ -225,6 +225,6 @@ async def scba_correction(body: M.ScbaCorrectionReq, request: Request, op: Opera
 async def ack_banner(kind: str, request: Request, op: Operator = Depends(current_operator), body: Optional[M.EmptyReq] = None):
     if kind not in BANNER_KINDS: raise ApiError(404, 'NOT_FOUND', 'unknown banner kind')
     if kind not in _get_args(M.BannerKind): raise ApiError(400, 'BAD_REQUEST', 'this banner cannot be acknowledged')  # host_gap and logging_fault only
-    port = request.app.state.port; r = port.ack_banner(kind, op.operator_id)  # idempotent while the banner is active; the port raises ApiError STATE_CONFLICT when it is not
+    port = request.app.state.port; r = port.ack_banner(kind, op.operator_id)  # the port raises ApiError STATE_CONFLICT for a banner that is not active or is already acknowledged; a refused call writes no audit row
     port.audit('BANNER_ACK', operator_id=op.operator_id, reason=kind)
     return M.BannerAckResp(kind=r.kind, acknowledged_ts=r.acknowledged_ts)
