@@ -127,8 +127,9 @@ def test_pending_migration_runs_after_an_online_backup(tmp_path):
     assert st.applied == [2] and list((h / 'backups').glob('pre-migration-*.db')); st.close()
 
 # ---- main() exit codes ----
+async def no_serve(rt, host, port): return         # step 10 (P24-3c-3) would block on Uvicorn; test_serve.py covers it
 def test_main_exit_codes(tmp_path, monkeypatch, capsys):
-    h = home(tmp_path); assert M.main(['--home', str(h)]) == 0 and not (h / M.LOCK_NAME).exists()
+    h = home(tmp_path); assert M.main(['--home', str(h)], serve=no_serve) == 0 and not (h / M.LOCK_NAME).exists()
     assert M.main(['--home', str(home(tmp_path / 'x' if (tmp_path / 'x').mkdir() is None else tmp_path, secrets=False))]) == 2
     (h / M.LOCK_NAME).write_text(json.dumps({'pid': os.getpid(), 'start': M.process_start(os.getpid())})); assert M.main(['--home', str(h)]) == 0 and (h / M.LOCK_NAME).exists()
     (h / M.LOCK_NAME).unlink(); monkeypatch.setattr(M, 'quick_check', lambda db: 1 / 0); assert M.main(['--home', str(h)]) == 1 and not (h / M.LOCK_NAME).exists()

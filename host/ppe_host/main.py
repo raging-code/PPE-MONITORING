@@ -1,7 +1,7 @@
-"""main.py (P24-1): start-up steps 1 to 5 of design 14.5 and the start-up failure policy (a to d). P24-2 added steps 6 and 7 (begin_session); steps 8 to 10 (threads, Uvicorn, 1 Hz tick) come with the real Source and Port (P24-3).
-Exit codes: 0 = clean exit or another host already runs (the supervisor does not respawn), 1 = unexpected crash, 2 = configuration or database failure (counts toward the crash-loop guard).
+"""main.py (P24-1): start-up steps 1 to 5 of design 14.5 and the start-up failure policy (a to d). P24-2 added steps 6 and 7 (begin_session); step 8 (threads, P24-3c-1), step 9 (open state, P24-3c-2), step 10 (Uvicorn and the 1 Hz driver, serve.py, P24-3c-3).
+Exit codes: 0 = clean exit or another host already runs (the supervisor does not respawn), 1 = unexpected crash, 2 = configuration or database failure, or Uvicorn cannot bind its port (counts toward the crash-loop guard).
 Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME]"""
-import argparse, json, logging, os, shutil, stat, sys, time, uuid
+import argparse, asyncio, json, logging, os, shutil, stat, sys, time, uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +11,7 @@ from .io.backup import backup_before_migration, verify_backup
 from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, init_event_seq, run_migrations
 from .cli import MIGRATIONS_DIR, seed_roster
 from .runtime import Runtime
+from .serve import ServeError, run_server
 
 LOG = logging.getLogger('ppe_host')
 EXIT_OK, EXIT_CRASH, EXIT_CONFIG = 0, 1, 2
@@ -206,7 +207,8 @@ def begin_session(st, clock=None):
     st.session_id, st.recovering = sid, True
     return st
 
-def main(argv=None):
+def main(argv=None, serve=run_server):
+    """serve(rt, host, port) is the coroutine function of step 10; tests pass a fake that returns at once."""
     p = argparse.ArgumentParser(prog='ppe_host.main'); p.add_argument('--mode', choices=MODES, default='LIVE'); p.add_argument('--home')
     a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
@@ -216,6 +218,10 @@ def main(argv=None):
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
     print('start-up steps 1 to 9 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
-    rt.stop(); st.close(); return EXIT_OK   # P24-3c-3 and later continue here with step 10
+    try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port']))                                 # step 10 (P24-3c-3); steps 11 to 13 are P25
+    except ServeError as e: print('step 10 failed: %s' % e, file=sys.stderr); return EXIT_CONFIG
+    except Exception: LOG.exception('step 10 failed'); return EXIT_CRASH
+    finally: rt.stop(); st.close()
+    return EXIT_OK
 
 if __name__ == '__main__': sys.exit(main())

@@ -3,7 +3,7 @@ import json, os
 import pytest
 from ppe_host import main as M
 from ppe_host.clock import FakeClock
-from test_startup import home, run, corrupt, good_backup, NOW
+from test_startup import home, run, corrupt, good_backup, no_serve, NOW
 
 MIN = 60_000
 def start(h, mode='LIVE', dt=0, **kw):
@@ -72,5 +72,5 @@ def test_a_failure_inside_the_transaction_leaves_no_session_and_no_rows(tmp_path
     assert st.conn.execute('SELECT (SELECT COUNT(*) FROM sessions), (SELECT COUNT(*) FROM system_events)').fetchone() == (0, 0) and not st.recovering; st.close()
 
 def test_main_runs_steps_1_to_7_and_releases_the_lock(tmp_path, capsys):
-    h = home(tmp_path); assert M.main(['--home', str(h)]) == 0 and not (h / M.LOCK_NAME).exists() and 'steps 1 to 9 done' in capsys.readouterr().out
+    h = home(tmp_path); assert M.main(['--home', str(h)], serve=no_serve) == 0 and not (h / M.LOCK_NAME).exists() and 'steps 1 to 9 done' in capsys.readouterr().out
     import sqlite3; assert sqlite3.connect(str(h / 'data' / 'ppe.db')).execute("SELECT COUNT(*) FROM system_events WHERE kind = 'HOST_START'").fetchone()[0] == 1

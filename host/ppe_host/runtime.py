@@ -1,6 +1,6 @@
 """runtime.py (P24-3c-1): start-up step 8 of design 14.5: the DBWriterThread, the SerialReaderThread with the bounded pre-replay queue, and the SerialWriterThread.
 Runtime(st) wires Ingest, DBWriter, SerialReader, SerialWriter, LinkMonitor and Health from a Startup (main.py, steps 1 to 7) and starts the threads in the design's order.
-Not here: the OS watchdog and the AudioThread (stubs until P24-3c-3), step 9 is load_open() (P24-3c-2, ADR 0034); step 10 (P24-3c-3: Uvicorn, the 1 Hz driver of offer_tick and Health.tick),
+Not here: the OS watchdog and the AudioThread (stubs until P24-3c-3), step 9 is load_open() (P24-3c-2, ADR 0034); step 10 is serve.py (P24-3c-3: Uvicorn and the 1 Hz driver, which calls Runtime.tick()),
 steps 11 to 13 (P25: recovery, then release()). SIMULATOR and REPLAY have no serial port: only the writer and the gate exist there.
 Pre-replay queue (design 1, recovery rule a): frames that arrive while recovering wait in a queue of at most pre_replay_queue_max. When it overflows, the oldest frame with node level
 NORMAL and no event bit is dropped first and counted (pre_replay_dropped); a frame with a non-NORMAL node level, mandown, mayday, fault or check-in is never dropped, so the queue may
@@ -60,6 +60,18 @@ class PreReplayGate:
             except Exception: log.exception('queued frame failed')                 # one bad frame must not strand the rest
             n += 1
 
+class LoopHub:
+    """Thread bridge between Wire and the Hub (P24-3c-3). The Hub and its asyncio queues belong to the event loop, but Wire.on_frame runs on the SerialReader thread and Wire.tick on a worker
+    thread. Every publish_*(body) is handed to the loop with call_soon_threadsafe, in call order; anything else is passed through. After the loop has closed (shutdown) a publish is dropped."""
+    def __init__(self, hub, loop): self._hub, self._loop = hub, loop
+    def __getattr__(self, name):
+        fn = getattr(self._hub, name)                                              # a missing method raises AttributeError, which Wire._pub relies on
+        if not name.startswith('publish_'): return fn
+        def call(body):
+            try: self._loop.call_soon_threadsafe(fn, body)
+            except RuntimeError: pass                                              # the loop is closed
+        return call
+
 class Runtime:
     def __init__(self, st, clock=None, open_port=None):
         s, self.st, self.clock = st.settings, st, clock or RealClock()
@@ -75,15 +87,22 @@ class Runtime:
         counters = Counters.for_host(self.ingest, self.writer, self.reader, self.serial_writer,
                                      extra={'pre_replay_dropped': lambda: self.gate.dropped, 'pre_replay_overflow': lambda: self.gate.overflow})
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
-        self.started = False
+        self.started, self.wire, self.port, self.ticks = False, None, None, 0   # wire and port are set by serve.build_app (step 10)
     def start(self):
         """Step 8, in the design's order: DBWriterThread, SerialReaderThread, SerialWriterThread, then the first host_tick (recovering=1, the Base OLED shows HOST RECOVERING)."""
         self.writer.start()
         if self.serial: self.reader.start(); self.serial_writer.start()
         self.started = True; self.offer_tick(); return self
     def offer_tick(self):
-        """One host_tick line to the SerialWriter (never blocks). P24-3c-3 calls this at 1 Hz."""
+        """One host_tick line to the SerialWriter (never blocks). Runtime.tick() calls this at 1 Hz."""
         if self.serial: self.serial_writer.offer(host_tick_line(self.clock.wall_ms(), self.st.recovering, self.st.mode))
+    def tick(self):
+        """The 1 Hz body (step 10): host_tick to the base first, then Health.tick (BASE_OFFLINE, COUNTERS), then Wire.tick (engine tick, held messages, unauth repeats, links, system).
+        Wire.tick waits for the commit (commit_wait_ms), so the driver runs this in a worker thread, never on the event loop. Each part is guarded: one failure is logged and the others still run."""
+        for name, fn in (('host_tick', self.offer_tick), ('health', self.health.tick), ('wire', lambda: self.wire.tick() if self.wire is not None else None)):
+            try: fn()
+            except Exception: log.exception('1 Hz tick: %s failed', name)
+        self.ticks += 1
     def load_open(self):
         """Step 9 (P24-3c-2): open alerts and open episodes into the engine state by indexed SQL (Ingest.load_open on the start-up connection), before Uvicorn starts, so the first snapshot
         and the first frame agree. Safe to call again: the existing state wins. Returns the OpenReport."""
