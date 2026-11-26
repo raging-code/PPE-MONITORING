@@ -12,12 +12,14 @@ class FakePort:
         self.auth_threads.append(threading.get_ident()); return R.Operator(1, 'Ana') if token == 'good-token' else None
     def audit(self, action, operator_id=None, node_id=None, episode_id=None, reason=None): self.audits.append((action, operator_id))
     def session_id(self): return 4
+    def login_failed(self): return None
+    def login_ok(self): pass
 @pytest.fixture
 def rig(tmp_path):
     db = tmp_path / 't.db'; c = connect_db(db); run_migrations(c, str(MIG), 1000)
     c.execute("INSERT INTO sessions(session_id, started_ts, mode, host_build, constants_hash, settings_hash) VALUES (1, 1, 'LIVE', 'b', 'c', 's')")
     c.executemany('INSERT INTO roster(node_id, alias) VALUES (?, ?)', [(1, 'FF-01'), (2, 'FF-02')])
-    port = FakePort(); return TestClient(R.create_app(port, db), raise_server_exceptions=False), port, c
+    port = FakePort(); return TestClient(R.create_app(port, db), base_url='http://127.0.0.1:8420', raise_server_exceptions=False), port, c
 def alert(c, seq, cleared_seq=None, typ='co_threshold', node=1):
     c.execute('INSERT INTO alerts(event_seq, cleared_event_seq, session_id, node_id, type, level, raised_ts, cleared_ts) VALUES (?, ?, 1, ?, ?, \'WARNING\', ?, ?)', (seq, cleared_seq, node, typ, seq * 10, cleared_seq and cleared_seq * 10))
 def get(client, qs='', headers=GOOD): return client.get('/api/events' + qs, headers=headers)
@@ -80,7 +82,7 @@ def test_unknown_path_wrong_method_and_a_crash_all_use_the_envelope(rig, monkeyp
     monkeypatch.setattr(R, 'query_events', boom); r = get(client)
     assert r.status_code == 500 and envelope(r) == {'error_code': 'INTERNAL_ERROR', 'detail': 'internal error', 'retry_after_s': None} and 'secret' not in r.text
 def test_docs_and_openapi_are_not_served_and_the_envelope_refuses_a_bad_code():
-    c = TestClient(R.create_app(FakePort(), 'x.db'), raise_server_exceptions=False)
+    c = TestClient(R.create_app(FakePort(), 'x.db'), base_url='http://127.0.0.1:8420', raise_server_exceptions=False)
     assert c.get('/docs').status_code == 404 and c.get('/openapi.json').status_code == 404 and c.get('/redoc').status_code == 404
     for args in ((400, 'BAD_CODE', 'd'), (404, 'NOT_FOUND', 'd', 3.0)):      # a code outside the 3.8 list, and retry_after_s on a code that may not carry it
         with pytest.raises(ValueError): R.ApiError(*args)

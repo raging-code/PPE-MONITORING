@@ -42,7 +42,7 @@ class FakePort:
         e['state'] = 'RESOLVED'; return R.EpisodeResolve(episode_id, e['node'], 7000, reason, operator_id, e['latch'])
 @pytest.fixture
 def rig():
-    port = FakePort(); return TestClient(R.create_app(port, 'unused.db'), raise_server_exceptions=False), port
+    port = FakePort(); return TestClient(R.create_app(port, 'unused.db'), base_url='http://127.0.0.1:8420', raise_server_exceptions=False), port
 def envelope(r):
     b = r.json(); M.ErrorEnvelope(**b); assert set(b) == {'error_code', 'detail', 'retry_after_s'}; return b
 def post(client, url, body=None, headers=GOOD): return client.post(url, json=body, headers=headers) if body is not None else client.post(url, headers=headers)
@@ -53,7 +53,7 @@ def test_every_action_needs_a_token_and_reaches_nothing_without_one(rig, url, bo
     client, port = rig
     for h in ({}, {'Authorization': 'Bearer wrong'}):
         r = client.post(url, json=body, headers=h); assert r.status_code == 401 and envelope(r)['error_code'] == 'UNAUTHENTICATED'
-    assert port.calls == [] and port.audits == []
+    assert port.calls == [] and {a[0] for a in port.audits} <= {'LOGIN_REJECTED'}      # a refused token is audited (P19b) and reaches nothing
 def test_the_five_routes_are_registered_beside_login_and_events():
     paths = {(m, r.path) for r in R.router.routes for m in r.methods}
     assert {('POST', '/api' + u) for u in ('/session/start', '/session/end', '/alerts/{alert_id}/ack', '/episodes/{episode_id}/ack', '/episodes/{episode_id}/resolve')} <= paths

@@ -2,7 +2,7 @@
 The host process (P24) is behind the Port protocol below, so this file does no engine work and owns no event_seq: audit rows and the open session come through the port.
 Reads open their own read-only connection inside the thread pool, never on the event loop. Token hashing, the failed-login delay and the Origin/Host checks are P19b: the
 port's authenticate() is where P19b plugs in, and until then a failed login answers retry_after_s null. /docs and /openapi.json are not served (frozen endpoint list)."""
-import logging
+import asyncio, logging
 from typing import NamedTuple, Optional, Protocol
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from ..io.db_writer import connect_db
-from . import models as M
+from . import models as M, security as sec
 
 log = logging.getLogger('ppe.api')
 class Operator(NamedTuple):
@@ -20,6 +20,8 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def authenticate(self, token: str) -> Optional[Operator]: ...  # None for a missing, wrong or disabled-operator token
     def audit(self, action: str, operator_id: Optional[int] = None, node_id: Optional[int] = None, episode_id: Optional[int] = None, reason: Optional[str] = None) -> None: ...
     def session_id(self) -> int: ...
+    def login_failed(self) -> Optional[float]: ...  # P19b: the delay for this failed login (retry_after_s), None for no delay
+    def login_ok(self) -> None: ...  # P19b: a successful login resets the delay
     # P19-2. A method raises ApiError for a conflict and returns None for an unknown id. The host owns every write and every event_seq.
     def recovering_retry_s(self) -> Optional[float]: ...  # recovering_target_s while recovering, else None
     def start_monitoring(self, operator_id: int, session_label: Optional[str]) -> tuple: ...  # (SessionRow, changed); idempotent: sets operator_id only while NULL, never changes label or a second START_MONITORING
@@ -35,11 +37,17 @@ class ApiError(Exception):
 def _reply(status, code, detail, retry_after_s=None):
     return JSONResponse(M.ErrorEnvelope(error_code=code, detail=detail, retry_after_s=retry_after_s).model_dump(), status_code=status)
 
+_sleep = asyncio.sleep  # the failed-login delay; tests replace it
 router = APIRouter(prefix='/api')
-def create_app(port, db_path):
+def create_app(port, db_path, bind_port=8420):
     app = FastAPI(title='PPE Monitoring host', docs_url=None, redoc_url=None, openapi_url=None)
-    app.state.port, app.state.db_path = port, db_path
+    app.state.port, app.state.db_path, app.state.bind_port = port, db_path, bind_port
     app.include_router(router)
+    @app.middleware('http')
+    async def _origin(request, call_next):  # P19b: Host and Origin on every call, before the token is looked at (design 4); a rejection is audited as ORIGIN_REJECTED
+        if not sec.origin_ok(request.headers.get('origin'), request.headers.get('host'), bind_port):
+            port.audit('ORIGIN_REJECTED'); return _reply(403, 'ORIGIN_REJECTED', 'origin or host not allowed')
+        return await call_next(request)
     @app.exception_handler(ApiError)
     async def _api(request, e): return JSONResponse(e.env.model_dump(), status_code=e.status)
     @app.exception_handler(RequestValidationError)
@@ -56,14 +64,17 @@ def create_app(port, db_path):
 async def current_operator(request: Request, authorization: Optional[str] = Header(None)) -> Operator:
     scheme, _, token = (authorization or '').partition(' ')
     op = request.app.state.port.authenticate(token.strip()) if scheme.lower() == 'bearer' and token.strip() else None
-    if op is None: raise ApiError(401, 'UNAUTHENTICATED', 'missing, invalid or disabled token')
+    if op is None: request.app.state.port.audit('LOGIN_REJECTED'); raise ApiError(401, 'UNAUTHENTICATED', 'missing, invalid or disabled token')
     return op
 
 @router.post('/login', response_model=M.LoginResp)
 async def login(body: M.LoginReq, request: Request):
     port = request.app.state.port; op = port.authenticate(body.token)
-    if op is None: port.audit('LOGIN_REJECTED'); raise ApiError(401, 'UNAUTHENTICATED', 'invalid token')
-    port.audit('LOGIN_OK', operator_id=op.operator_id)
+    if op is None:
+        port.audit('LOGIN_REJECTED'); delay = port.login_failed()
+        if delay: await _sleep(delay)  # slows guessing without locking a valid token out
+        raise ApiError(401, 'UNAUTHENTICATED', 'invalid token', delay)
+    port.login_ok(); port.audit('LOGIN_OK', operator_id=op.operator_id)
     return M.LoginResp(operator_id=op.operator_id, display_name=op.display_name, session_id=port.session_id())
 
 EV_COLS = 'event_seq, log_ts, record_type, node_id, level, code, detail, operator_id'
