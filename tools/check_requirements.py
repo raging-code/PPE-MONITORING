@@ -2,8 +2,9 @@
 Reads requirements/requirements.yaml and fails (exit 1, one line per problem) when:
   - the file is malformed: an id that is not REQ-<AREA>-<nnn> (AREA is a key of `areas`, nnn is three digits), a duplicate id, a status that is not Spec, Proposed or Decided, a missing title or source, a dtests entry that is not D<n> or D-FW;
   - a hazard H1 to H22 is missing, or maps to no requirement, or names an id that is not in the file;
-  - a test file names an id that is not in the file. Test files are host/tests/*.py, dashboard/tests/*.ts(x) and e2e/tests/*.ts. Any token that looks like REQ-<letters>-<digits> counts, so a typo such as REQ-API-12 is reported too.
-`--report` also prints the requirements that no test names yet and the hazards with the number of tests behind them (information only: P27b-3 adds the ids to the test names and the "Spec item has no test" check).
+  - a requirement with status Spec has no test that names it (design 8.1, P27b-3; Proposed and Decided are not checked);
+  - a test file names an id that is not in the file. Test files are host/tests/*.py, dashboard/tests/*.ts(x), e2e/tests/*.ts and firmware/tests/*.c. Any token that looks like REQ-<letters>-<digits> counts, so a typo such as REQ-API-12 is reported too.
+`--report` also prints the requirements that no test names yet and the hazards with the number of tests behind them (information only; the ids sit in the module docstring or a header comment of each test file, P27b-3, ADR 0045).
 Needs pyyaml (a dev dependency in requirements-dev.lock). Nothing is imported or run from the tests; they are only read as text."""
 import re, sys
 from pathlib import Path
@@ -15,7 +16,7 @@ HAZARDS = tuple('H%d' % n for n in range(1, 23))
 ID = re.compile(r'REQ-([A-Z]{2,3})-(\d{3})')
 LOOSE = re.compile(r'REQ-[A-Za-z]+-\d+')
 DTEST = re.compile(r'D\d+|D-FW')
-TEST_GLOBS = (('host/tests', '*.py'), ('dashboard/tests', '*.ts'), ('dashboard/tests', '*.tsx'), ('e2e/tests', '*.ts'))
+TEST_GLOBS = (('host/tests', '*.py'), ('dashboard/tests', '*.ts'), ('dashboard/tests', '*.tsx'), ('e2e/tests', '*.ts'), ('firmware/tests', '*.c'))
 
 def load(root=ROOT):
     import yaml
@@ -64,11 +65,17 @@ def scan(root=ROOT):
             for m in LOOSE.finditer(line): out.setdefault(m.group(0), []).append((p.relative_to(root).as_posix(), n))
     return out
 
+def spec_without_test(doc, used):
+    """One line per requirement with status Spec that no test file names (design 8.1: CI fails when a Spec item has no test)."""
+    return ['%s: %s is Spec and no test names it' % (FILE.as_posix(), r['id']) for r in doc['requirements'] if isinstance(r, dict) and r.get('status') == 'Spec' and r.get('id') not in used]
+
 def check(root=ROOT):
     doc = load(root); bad = check_file(doc)
     known = {r['id'] for r in doc['requirements'] if isinstance(r, dict) and 'id' in r} if isinstance(doc, dict) and isinstance(doc.get('requirements'), list) else set()
-    for tok, where in sorted(scan(root).items()):
+    used = scan(root)
+    for tok, where in sorted(used.items()):
         if tok not in known: bad += ['%s:%d: %s is not in %s' % (f, n, tok, FILE.as_posix()) for f, n in where]
+    if isinstance(doc, dict) and isinstance(doc.get('requirements'), list): bad += spec_without_test(doc, used)
     return bad, doc
 
 def main(argv):

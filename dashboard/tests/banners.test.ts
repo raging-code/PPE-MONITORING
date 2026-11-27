@@ -1,3 +1,4 @@
+// Requirements: REQ-API-007, REQ-UI-008
 import { describe, it, expect, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { ACKABLE, bannersFor, modeText, parseHostPower } from '../src/alerts/banners.ts';

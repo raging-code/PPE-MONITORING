@@ -1,4 +1,4 @@
-"""P24-2: start-up steps 6 and 7 (design 14.5, 2.3 session resume, section 1 restart sequence)."""
+"""P24-2: start-up steps 6 and 7 (design 14.5, 2.3 session resume, section 1 restart sequence). Requirements: REQ-DB-006, REQ-REC-001, REQ-REC-007."""
 import json
 import pytest
 from ppe_host import main as M

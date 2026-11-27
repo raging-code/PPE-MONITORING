@@ -1,5 +1,5 @@
 """P9: core/advisory.py (design 14.3). The table is compared with docs/design/s14-3.md row by row; cadence, change rows, heartbeat, quality and
-rebuild mode are tested with the real engine in front of advisory_step. window_s is a module constant (docs/adr/0001.md)."""
+rebuild mode are tested with the real engine in front of advisory_step. window_s is a module constant (docs/adr/0001.md). Requirements: REQ-RUL-010."""
 import json, re
 from pathlib import Path
 import pytest

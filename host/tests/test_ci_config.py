@@ -1,5 +1,5 @@
 """P27-2 (ADR 0041): the CI workflow parses and says what design 12.1 and 14.5 ask of it, and the import rule of tools/check_imports.py catches what it names.
-The workflow is read as YAML (pyyaml, which P27b needs anyway: python -m pip install pyyaml); without it only the five tests that read the workflow are skipped, the import-rule tests still run."""
+The workflow is read as YAML (pyyaml, which P27b needs anyway: python -m pip install pyyaml); without it only the five tests that read the workflow are skipped, the import-rule tests still run. Requirements: REQ-OPS-001."""
 import importlib.util, re, sys, textwrap
 from pathlib import Path
 import pytest

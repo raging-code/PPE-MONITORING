@@ -1,4 +1,4 @@
-"""P11-1: DBWriter behaviour (design 2.1, 2.10, Section 1 commit paragraph, Rev 3.28 and 3.36). The disk stall is real: a second connection holds the write lock."""
+"""P11-1: DBWriter behaviour (design 2.1, 2.10, Section 1 commit paragraph, Rev 3.28 and 3.36). The disk stall is real: a second connection holds the write lock. Requirements: REQ-DB-002, REQ-DB-003, REQ-DB-004."""
 import pytest
 from ppe_host.clock import FakeClock
 from ppe_host.io.db_writer import DBWriter, Unit, Stmt, Ref, connect_db, init_event_seq

@@ -1,4 +1,4 @@
-"""P24-3c-2 (Part 2): load_open_state() and Ingest.load_open() (start-up step 9, ADR 0034). Real database, real writer, FakeClock."""
+"""P24-3c-2 (Part 2): load_open_state() and Ingest.load_open() (start-up step 9, ADR 0034). Real database, real writer, FakeClock. Requirements: REQ-API-003, REQ-REC-003, REQ-REC-004."""
 import logging
 from ppe_host.clock import FakeClock
 from ppe_host.core import rule_engine as eng

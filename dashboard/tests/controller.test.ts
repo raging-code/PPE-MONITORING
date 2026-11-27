@@ -1,3 +1,4 @@
+// Requirements: REQ-SEC-003
 import { describe, it, expect } from 'vitest';
 import { createController, TOKEN_KEY } from '../src/store/controller.ts';
 import { initialState, type LiveState } from '../src/store/reducer.ts';

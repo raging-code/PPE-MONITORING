@@ -1,5 +1,5 @@
 """P18b: tools/gen_ws_schema.py (design 3.13): shared/ws.schema.json, shared/openapi.json and dashboard/src/gen/ws.ts regenerate with an empty diff.
-If a generated-file test fails with 'out of date', run: python tools/gen_ws_schema.py"""
+If a generated-file test fails with 'out of date', run: python tools/gen_ws_schema.py Requirements: REQ-API-004, REQ-RUL-001."""
 import importlib.util, json, re, sys
 from pathlib import Path
 import pytest

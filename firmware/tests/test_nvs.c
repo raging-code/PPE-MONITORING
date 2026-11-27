@@ -1,3 +1,4 @@
+/* Requirements: REQ-FW-003, REQ-FW-004 */
 /* P16b gcc test runner: components/nvs_latch with a mocked NVS, the man-down and SCBA machines, and the frame packer (boot frame).
    The mock keeps a durable copy and a staged copy per key; a power cut drops the staged copy. Injection: failed set, failed commit, read-back mismatch,
    unreadable key, power cut during commit, slow commit. Timing proof of "never stalls the 10 Hz loop" is the D2 bench test; here the proof is that

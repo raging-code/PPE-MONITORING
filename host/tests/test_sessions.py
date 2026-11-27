@@ -1,5 +1,5 @@
 """P25-3 (ADR 0037): close_session(kind) in services/sessions.py, the atomic unit of the DBWriter, Ingest.close_session, HostPort.end_session with its backup, and the CLEAN_SHUTDOWN close of Runtime.stop(clean=True).
-Real database, writer and FakeClock. Design 2.3 (unified close_session), 2.11 (open alerts and episodes are not touched), 3.8 (POST /api/session/end), 8 (End shift test, End shift conflict test, session transition test)."""
+Real database, writer and FakeClock. Design 2.3 (unified close_session), 2.11 (open alerts and episodes are not touched), 3.8 (POST /api/session/end), 8 (End shift test, End shift conflict test, session transition test). Requirements: REQ-REC-004, REQ-SES-002, REQ-SES-003, REQ-SES-004."""
 import json, sqlite3
 import pytest
 from ppe_host import main as M

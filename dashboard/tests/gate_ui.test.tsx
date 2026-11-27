@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// Requirements: REQ-AUD-001
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 import Shell from '../src/components/Shell.tsx';

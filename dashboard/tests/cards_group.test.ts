@@ -1,3 +1,4 @@
+// Requirements: REQ-UI-001, REQ-UI-003
 import { describe, expect, it } from 'vitest';
 import type { AlertBody } from '../src/gen/ws.ts';
 import { buildCards, chipText, formatElapsed, isFlashing, lineText, mergeRepeats } from '../src/alerts/group.ts';

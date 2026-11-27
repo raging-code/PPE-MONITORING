@@ -1,6 +1,6 @@
 """P7-2: battery_low (GV-06), signal_lost and link_lost (GV-08, GV-12 link half) and unauth_alert (GV-04, GV-10) (design 14.1 and 14.1b).
 All rules are registered here. GV-04 and GV-06 a, d also run in the harness table; GV-08 and GV-12 live in this file because a silent node
-also gets a co_timeout sensor_fault from P6c (see the OPEN QUESTION test), so these tests look at link effects only."""
+also gets a co_timeout sensor_fault from P6c (see the OPEN QUESTION test), so these tests look at link effects only. Requirements: REQ-RUL-003, REQ-RUL-006."""
 import pytest
 from test_co_state import co_frame
 from test_co_threshold import Eng

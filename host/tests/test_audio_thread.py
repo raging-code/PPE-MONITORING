@@ -1,5 +1,5 @@
 """P23b: AudioThread with a fake sound card and a FakeClock (design 3.12, 3.3, 5; guide P23). Run: python -m pytest host/tests/test_audio_thread.py -q
-Needs host/sounds/ from tools/gen_sounds.py."""
+Needs host/sounds/ from tools/gen_sounds.py. Requirements: REQ-AUD-001, REQ-AUD-002, REQ-AUD-003, REQ-AUD-004, REQ-AUD-005, REQ-UI-004."""
 import importlib.util, sys, threading, time
 from pathlib import Path
 import pytest

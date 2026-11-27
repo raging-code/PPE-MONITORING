@@ -1,5 +1,5 @@
 """P6c: sensor_fault (design 14.1 row; GV-07, GV-15 a to d, GV-19, GV-16b). Condition (ii) needs a heat alert, which P7c builds, so the
-heat cases are seeded here and named GV-16a-seeded and GV-16c-seeded; the real GV-16 a and c run in P7c. Boundary times are test values only."""
+heat cases are seeded here and named GV-16a-seeded and GV-16c-seeded; the real GV-16 a and c run in P7c. Boundary times are test values only. Requirements: REQ-RUL-006."""
 from dataclasses import replace
 import pytest
 from test_co_state import CO_FAULT, SHT_FAULT

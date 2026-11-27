@@ -1,3 +1,4 @@
+/* Requirements: REQ-FW-002 */
 /* P15 gcc test runner: components/rules_fw man-down and MAYDAY machine. FW-01 to FW-06 are replayed from the generated fw_vectors.h (shared/vectors/fw_scenarios.json);
    the expected values are written here, by scenario id. The other tests cover the rules of Technical Summary section 7 that no scenario reaches.
    KNOWN() marks a place where a scenario's expected value disagrees with the Technical Summary rule; it must stay different (docs/adr/0002.md). */

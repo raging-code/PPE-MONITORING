@@ -1,3 +1,4 @@
+// Requirements: REQ-UI-001, REQ-UI-009
 import { describe, it, expect } from 'vitest';
 import { Watchdog, SILENCE_MS } from '../src/worker/watchdog.ts';
 import { createRunner, type RunnerDeps } from '../src/worker/runner.ts';

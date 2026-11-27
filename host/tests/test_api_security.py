@@ -1,4 +1,4 @@
-"""P19b-1: token hashing, server_salt, the failed-login delay, disabled operators and the Origin/Host rule (design 4, 4.1, 8). The database is a real migrated file; the app runs the real routes."""
+"""P19b-1: token hashing, server_salt, the failed-login delay, disabled operators and the Origin/Host rule (design 4, 4.1, 8). The database is a real migrated file; the app runs the real routes. Requirements: REQ-SEC-001, REQ-SEC-002, REQ-SEC-004, REQ-SEC-005."""
 import hashlib, json, pathlib
 import pytest
 from fastapi.testclient import TestClient

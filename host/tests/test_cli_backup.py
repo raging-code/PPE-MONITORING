@@ -1,4 +1,4 @@
-"""P11-2: backup core and cli (design 2.3, 2.5, 2.6; Section 8 migration test)."""
+"""P11-2: backup core and cli (design 2.3, 2.5, 2.6; Section 8 migration test). Requirements: REQ-DB-001."""
 import os, shutil, sqlite3, stat
 from ppe_host import cli
 from ppe_host.io.backup import online_backup, verify_backup, backup_before_migration, backup_name

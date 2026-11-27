@@ -107,3 +107,45 @@ def test_just_lint_and_the_ci_host_job_run_the_check_after_the_import_rule_and_b
     runs = [s['run'] for s in yaml.safe_load((ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8'))['jobs']['host']['steps'] if 'run' in s]
     at = lambda needle: next(i for i, r in enumerate(runs) if needle in r)
     assert at('tools/check_imports.py') < at('tools/check_requirements.py') < at('ruff check') < at('pytest host/tests')
+
+# ---- P27b-3 (ADR 0045): ids in the test files, the Spec check, the firmware tests ----
+# The ids of the requirements that tests name today, without the prefix, so that this file names none of them itself. A tag must not be dropped by accident.
+NAMED_TODAY = (
+    'API-001 API-002 API-003 API-004 API-005 API-006 API-007 API-008 API-009 API-010 '
+    'API-011 API-012 AUD-001 AUD-002 AUD-003 AUD-004 AUD-005 DB-001 DB-002 DB-003 '
+    'DB-004 DB-005 DB-006 FW-001 FW-002 FW-003 FW-004 ING-002 ING-003 ING-004 '
+    'OPS-001 OPS-002 REC-001 REC-002 REC-003 REC-004 REC-005 REC-007 REC-008 RUL-001 '
+    'RUL-002 RUL-003 RUL-004 RUL-005 RUL-006 RUL-007 RUL-008 RUL-009 RUL-010 RUL-011 '
+    'RUL-012 SEC-001 SEC-002 SEC-003 SEC-004 SEC-005 SES-001 SES-002 SES-003 SES-004 '
+    'UI-001 UI-002 UI-003 UI-004 UI-005 UI-006 UI-007 UI-008 UI-009 UI-010'
+).split()
+def with_status(status, rid='API-001'):
+    d = doc()
+    for r in d['requirements']:
+        if r['id'] == P + rid: r['status'] = status
+    return d
+
+def test_a_spec_requirement_that_no_test_names_is_reported_by_its_id(tmp_path):
+    assert problems(tmp_path, with_status('Spec')) == ['requirements/requirements.yaml: %sAPI-001 is Spec and no test names it' % P]
+
+def test_a_spec_requirement_that_a_test_file_names_passes(tmp_path):
+    assert problems(tmp_path, with_status('Spec'), {'host/tests/test_a.py': '"""Requirements: %sAPI-001."""\n' % P}) == []
+
+def test_proposed_and_decided_requirements_need_no_test(tmp_path):
+    assert problems(tmp_path / 'a', with_status('Proposed')) == [] and problems(tmp_path / 'b', with_status('Decided')) == []
+
+def test_only_the_spec_status_is_checked_so_one_missing_test_is_one_line(tmp_path):
+    d = with_status('Spec'); d['requirements'][0]['status'] = 'Spec'
+    assert len(problems(tmp_path, d)) == 2                                                    # the first requirement and API-001, nothing else of the other 72
+
+def test_a_c_test_in_firmware_tests_is_scanned_and_an_unknown_id_in_it_is_reported(tmp_path):
+    assert problems(tmp_path, tests={'firmware/tests/t.c': '/* %sZZZ-999 */\n' % P}) == ['firmware/tests/t.c:1: %sZZZ-999 is not in requirements/requirements.yaml' % P]
+
+def test_every_id_in_a_python_test_file_sits_in_the_module_docstring():
+    import ast
+    for p in sorted((ROOT / 'host' / 'tests').glob('*.py')):
+        text = p.read_text(encoding='utf-8'); ids = set(CR.LOOSE.findall(text))
+        if ids: assert ids <= set(CR.LOOSE.findall(ast.get_docstring(ast.parse(text)) or '')), p.name
+
+def test_the_requirements_that_tests_name_today_stay_named():
+    assert {P + x for x in NAMED_TODAY} <= set(CR.scan(ROOT))

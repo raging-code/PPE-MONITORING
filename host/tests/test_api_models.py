@@ -1,5 +1,5 @@
 """P18a: message contract of api/models.py (design 3.8 and 3.13). The snapshot, auth, hb and tick examples are copied from design 3.8.
-The schema export, openapi.json and the generated TypeScript are P18b."""
+The schema export, openapi.json and the generated TypeScript are P18b. Requirements: REQ-API-004, REQ-API-010, REQ-API-011, REQ-RUL-001."""
 import copy, json, re
 from pathlib import Path
 import pytest

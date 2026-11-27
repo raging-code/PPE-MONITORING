@@ -1,6 +1,6 @@
 """P27-3 (ADR 0042): the Playwright tests of design 8 under e2e/ are wired in: the files exist, the dependencies are pinned and locked, the justfile and CI run them
 after a dashboard build, the specs name the two behaviours design 8 asks for and use no fixed sleeps, and the mock host sends messages the host's own Pydantic models accept.
-The browser run itself is not done here: it needs Chromium (just test-e2e, and the e2e job of CI)."""
+The browser run itself is not done here: it needs Chromium (just test-e2e, and the e2e job of CI). Requirements: REQ-UI-002."""
 import json, re, shutil, subprocess
 from pathlib import Path
 import pytest

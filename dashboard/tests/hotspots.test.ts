@@ -1,3 +1,4 @@
+// Requirements: REQ-UI-005
 import { describe, it, expect } from 'vitest';
 import { HOTSPOTS, LISTED, hotspotStates, type Byte, type HotspotId } from '../src/jacket/hotspots.ts';
 import type { AlertBody, NodeSnap } from '../src/gen/ws.ts';

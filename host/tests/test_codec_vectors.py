@@ -1,6 +1,6 @@
 """P4: host codec (core/crypto_abi.py) against shared/vectors/frames.json (design 14.4, D1).
 Every vector must give the listed result, node_id and decoded fields. The extra tests build frames with their own
-CRC and CMAC code (not the codec's), so a shared bug cannot hide. Needs: pip install cryptography pytest"""
+CRC and CMAC code (not the codec's), so a shared bug cannot hide. Needs: pip install cryptography pytest Requirements: REQ-ING-003."""
 import ast, json
 from pathlib import Path
 import pytest

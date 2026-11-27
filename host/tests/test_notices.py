@@ -1,6 +1,6 @@
 """P7b: notice and badge types of design 14.1b (all level NONE): wrist_open / wrist_close (GV-21), button_stuck (GV-22), missed_event and
 watchdog_recovery (GV-23), latch_restored and watchdog_recovery (GV-26), co_warmup (GV-27), node_reboot; weak_signal and estimate disabled.
-The GV-21 to GV-27 vectors are field-level (no frames.json entry), so they run here, not in the harness table. Frames are built from F-01."""
+The GV-21 to GV-27 vectors are field-level (no frames.json entry), so they run here, not in the harness table. Frames are built from F-01. Requirements: REQ-RUL-007, REQ-RUL-008, REQ-RUL-011, REQ-RUL-012."""
 import pytest
 from test_co_state import co_frame
 from test_co_threshold import Eng

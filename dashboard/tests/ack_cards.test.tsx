@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// Requirements: REQ-API-003, REQ-UI-003, REQ-UI-009
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react';
 import LiveScreen from '../src/components/LiveScreen.tsx';

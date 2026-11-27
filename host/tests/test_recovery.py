@@ -1,4 +1,4 @@
-"""P25-1: services/recovery.py (start-up step 11, ADR 0037): the rebuild of the engine state from the last 30 minutes of stored frames. Real database and writer, FakeClock."""
+"""P25-1: services/recovery.py (start-up step 11, ADR 0037): the rebuild of the engine state from the last 30 minutes of stored frames. Real database and writer, FakeClock. Requirements: REQ-REC-003."""
 import asyncio, json
 from ppe_host.clock import FakeClock
 from ppe_host.core import rule_engine as eng

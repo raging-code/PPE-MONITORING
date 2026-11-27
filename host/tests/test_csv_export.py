@@ -1,6 +1,6 @@
 """P26-1 (ADR 0038): services/csv_export.py and GET /api/export.csv. The export of v_full_log: all six record types in strict event_seq order, decoded telemetry and raw_hex on frame rows,
 no base_health, no keys or tokens, no audit row whose session_id is NULL; formula protection (leading apostrophe for =, +, -, @, tab and CR, raw_hex always); plain numbers (negative RSSI); the per-session filter
-(the cleared row of an alert that outlives its session stays with the session that raised it); 500-row chunks; the route (token and Origin, CSV_EXPORT audit row, text/csv, file name, read-only)."""
+(the cleared row of an alert that outlives its session stays with the session that raised it); 500-row chunks; the route (token and Origin, CSV_EXPORT audit row, text/csv, file name, read-only). Requirements: REQ-API-001, REQ-API-006, REQ-API-009, REQ-SEC-001."""
 import csv, io, time
 import pytest
 from fastapi.testclient import TestClient

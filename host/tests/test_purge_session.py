@@ -1,7 +1,7 @@
 """P26-2 (ADR 0039): purge-session (services/purge.py and the cli command). Real migrated database in a temporary PPE_HOME; session 1 and 2 closed, session 3 open.
 The rows of session 1 go from every table in foreign-key order with secure_delete (a marker in the file bytes is gone, also from the -wal file), the audit row has session_id NULL and the id as reason;
 the refusals (live lockfile, a monitoring session, an open session: exit 1 and no row; an open alert, an unresolved episode, a foreign-key violation: exit 2, an audit row and nothing deleted);
-backup copies (local and USB) are purged with their read-only attribute put back, exports/session_<id>_*.csv are deleted, and a purge that stopped half way can be run again."""
+backup copies (local and USB) are purged with their read-only attribute put back, exports/session_<id>_*.csv are deleted, and a purge that stopped half way can be run again. Requirements: REQ-SES-003."""
 import json, os, sqlite3, stat
 import pytest
 from ppe_host import cli

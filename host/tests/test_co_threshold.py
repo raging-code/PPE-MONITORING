@@ -1,5 +1,5 @@
 """P6b: co_threshold (design 14.1 row, 14.2 (3), GV-01, GV-09, GV-18 a to g). Uses the frame helper of test_co_state.py.
-Frames here carry flags=0 unless a test says otherwise, so NodeState.level comes from the alerts alone."""
+Frames here carry flags=0 unless a test says otherwise, so NodeState.level comes from the alerts alone. Requirements: REQ-RUL-006, REQ-RUL-009, REQ-RUL-011."""
 import json
 from dataclasses import replace
 from pathlib import Path

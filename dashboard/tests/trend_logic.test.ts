@@ -1,3 +1,4 @@
+// Requirements: REQ-UI-008
 import { describe, it, expect } from 'vitest';
 import { appendPoint, limitsFrom, plot, TREND_WINDOW_MS as W, type TrendLimits } from '../src/alerts/trend.ts';
 import { apply, initialState } from '../src/store/reducer.ts';

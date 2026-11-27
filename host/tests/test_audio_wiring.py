@@ -1,5 +1,5 @@
 """P24-3c-3 part 3: the AudioThread inside the host: Runtime.audio_items, start and stop, the Wire.on_change feed, the AUDIO FAULT event and banner flag, the zero-socket inputs and main().
-The AudioThread itself (priority, repeat times, self-check, fallback pulse) is tested in test_audio_thread.py; here the sound card is a FakeBackend."""
+The AudioThread itself (priority, repeat times, self-check, fallback pulse) is tested in test_audio_thread.py; here the sound card is a FakeBackend. Requirements: REQ-AUD-003, REQ-AUD-004, REQ-AUD-005."""
 import asyncio, dataclasses, sqlite3, time
 from collections import deque
 from types import SimpleNamespace as NS

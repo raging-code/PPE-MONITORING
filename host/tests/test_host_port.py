@@ -1,5 +1,5 @@
 """P24-3b-1: HostPort (host_port.py) and Ingest.audit / Ingest.write. Real DBWriter, database, Authenticator and FakeClock; the REST routes themselves are P19 and are not run here.
-Covers design 3.8 (session start, Acknowledge, Resolve, SCBA correction, banner acknowledge), 8 (durable operator rows), 14.1 (an unauth_alert closes with its Acknowledge, GV-10)."""
+Covers design 3.8 (session start, Acknowledge, Resolve, SCBA correction, banner acknowledge), 8 (durable operator rows), 14.1 (an unauth_alert closes with its Acknowledge, GV-10). Requirements: REQ-API-005, REQ-API-008, REQ-RUL-002, REQ-RUL-004."""
 import pytest
 from ppe_host.api import security as sec
 from ppe_host.host_port import HostPort

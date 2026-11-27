@@ -4,7 +4,7 @@ Later Parts add their GV cases at the marker line at the end of the table. A fai
 mismatch; do not edit a vector or a rule to make it pass without an ADR (guide Section 1, last rule).
 Case: id, gv (the design vector it stands for), desc, open (alerts open before the first step: (node, type, level)), steps.
 Step: frame (vector id) + seq_class, or tick=True; dt_ms (clock advance before the step); expect = {effects, open, episodes, seq_delta, levels}.
-effects are ('raise', node, type, level) or ('clear', node, type, None); open is the sorted (node, type, level) rows left open."""
+effects are ('raise', node, type, level) or ('clear', node, type, None); open is the sorted (node, type, level) rows left open. Requirements: REQ-RUL-006."""
 import json
 from pathlib import Path
 import pytest

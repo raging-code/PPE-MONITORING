@@ -1,5 +1,5 @@
 """P7c-3: heat (design 14.1 row, 14.2 (4), Summary D5 test values) and the shadow estimator with shadow_notice (14.1b, 14.2 (5)): GV-16 a to c, GV-25.
-Frames come from co_frame; temperature, motion, flags and status bytes are set per test. Frames are 2 s apart unless a test says otherwise."""
+Frames come from co_frame; temperature, motion, flags and status bytes are set per test. Frames are 2 s apart unless a test says otherwise. Requirements: REQ-RUL-006."""
 from test_co_state import co_frame
 from test_co_threshold import Eng
 from ppe_host.core import rule_engine as re_

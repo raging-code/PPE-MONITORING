@@ -1,4 +1,4 @@
-"""P24b-3: HostHealth (QUEUE_OVERFLOW, HOST_BATTERY, DISK_LOW, the host_power string), the LOGGING_FAULT callback and the HOST BATTERY audio item."""
+"""P24b-3: HostHealth (QUEUE_OVERFLOW, HOST_BATTERY, DISK_LOW, the host_power string), the LOGGING_FAULT callback and the HOST BATTERY audio item. Requirements: REQ-DB-002."""
 import json
 from types import SimpleNamespace as NS
 from ppe_host.clock import FakeClock

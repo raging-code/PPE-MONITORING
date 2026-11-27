@@ -1,5 +1,5 @@
 """P12-1: serial line layer (design 1, Serial layer): bounded lines, frozen JSON parsing, DTR and RTS False before open, reader thread outage handling, fuzz.
-The fuzz tests use a seeded random generator, so a failure repeats exactly."""
+The fuzz tests use a seeded random generator, so a failure repeats exactly. Requirements: REQ-ING-002."""
 import json, random, time
 from pathlib import Path
 from ppe_host.io.serial_reader import LineAssembler, parse_line, open_serial, SerialReader, Frame, Heartbeat, READ_SIZE

@@ -1,5 +1,5 @@
 """P19-2: POST /api/session/start, /api/session/end, /api/alerts/{id}/ack, /api/episodes/{id}/ack and /resolve (design 3.8, 8). The host is a fake Port that keeps
-a little state, so idempotence, conflicts and the audit rows can be checked at the route. What the real port must do is in docs/adr/0007.md (P24 builds it)."""
+a little state, so idempotence, conflicts and the audit rows can be checked at the route. What the real port must do is in docs/adr/0007.md (P24 builds it). Requirements: REQ-API-001, REQ-API-008, REQ-RUL-002, REQ-RUL-004, REQ-SES-004."""
 import threading
 import pytest
 from fastapi.testclient import TestClient

@@ -1,5 +1,5 @@
 """P24-3b-2b-i: the link and system messages of wire.Wire (design 3.8). Real DBWriter, database, HostPort and engine, a fake hub; every body is checked against the WsMessage contract
-(real models when pydantic is installed, else shared/ws.schema.json). The 3b-2a hub fakes have no publish_link or publish_system: Wire sends those messages only to a hub that has them."""
+(real models when pydantic is installed, else shared/ws.schema.json). The 3b-2a hub fakes have no publish_link or publish_system: Wire sends those messages only to a hub that has them. Requirements: REQ-API-007."""
 from ppe_host import constants as K
 from ppe_host.wire import Wire
 from test_effect_rows import wait

@@ -1,3 +1,4 @@
+// Requirements: REQ-API-003, REQ-UI-009
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ackTargets, overlayAcks, pendingIds, pruneAcks, resolvable } from '../src/alerts/ack.ts';
 import type { Card } from '../src/alerts/group.ts';

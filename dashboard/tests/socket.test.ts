@@ -1,3 +1,4 @@
+// Requirements: REQ-API-004
 import { describe, it, expect } from 'vitest';
 import { LiveSocket } from '../src/net/socket.ts';
 import type { ServerMessage } from '../src/gen/ws.ts';

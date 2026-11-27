@@ -1,6 +1,6 @@
 """P19c-3: the table-driven status-code test of design 8 (Rev 3.31), generated from the frozen REST endpoint list of docs/design/s03-8.md. The list gives the endpoints,
 the status codes each one may answer and the keys of its 200 body; the table below gives one request per code. The test fails when the code has an endpoint the list lacks,
-when the list has one the code lacks, when a listed code has no request, or when a 200 body has other keys than the list names."""
+when the list has one the code lacks, when a listed code has no request, or when a 200 body has other keys than the list names. Requirements: REQ-API-002."""
 import pathlib, re
 import pytest
 from fastapi.testclient import TestClient

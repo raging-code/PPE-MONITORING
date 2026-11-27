@@ -1,5 +1,5 @@
 """P19c-1: GET /api/sessions and POST /api/dashboard-outage (design 3.8). The host is a fake Port, the database is a real migrated file.
-Route level only: the liveness-stamp check of the design needs the running host (P24); here the query runs off the event loop and stays under 500 ms on a large frames table."""
+Route level only: the liveness-stamp check of the design needs the running host (P24); here the query runs off the event loop and stays under 500 ms on a large frames table. Requirements: REQ-API-012."""
 import pathlib, threading, time
 import pytest
 from fastapi.testclient import TestClient

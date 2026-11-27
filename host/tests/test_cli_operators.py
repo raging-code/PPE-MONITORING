@@ -1,4 +1,4 @@
-"""P19b-2: create-operator, rotate-token and disable-operator (design 2.8, 4, 4.1, 8). Real migrated database and a real secrets.json in a temporary PPE_HOME."""
+"""P19b-2: create-operator, rotate-token and disable-operator (design 2.8, 4, 4.1, 8). Real migrated database and a real secrets.json in a temporary PPE_HOME. Requirements: REQ-SEC-004, REQ-SEC-005."""
 import json, sqlite3
 import pytest
 from ppe_host import cli

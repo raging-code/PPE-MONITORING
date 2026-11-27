@@ -1,3 +1,4 @@
+// Requirements: REQ-UI-002
 // Design 3.7 and 3.9: the page shows NO LIVE DATA when the host has been quiet for dashboard_stale_s (4 s). No fixed sleeps: every wait is for something to appear.
 import { expect, test } from '@playwright/test';
 import { control, noLiveData, signIn, signInAndWaitLive } from './helpers';

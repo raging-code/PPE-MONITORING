@@ -1,3 +1,4 @@
+// Requirements: REQ-API-004, REQ-UI-001
 import { describe, it, expect } from 'vitest';
 import { apply, initialState } from '../src/store/reducer.ts';
 import type { ServerMessage } from '../src/gen/ws.ts';

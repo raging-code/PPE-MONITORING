@@ -1,3 +1,4 @@
+// Requirements: REQ-RUL-001
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CATALOG, entryFor, loadCatalog, renderText, soundFor } from '../src/alerts/catalog.ts';

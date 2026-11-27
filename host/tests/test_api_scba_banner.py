@@ -1,4 +1,4 @@
-"""P19c-2: POST /api/scba-correction and POST /api/system-banners/{kind}/ack (design 3.8, 8). The host is a fake Port. What the real port must do is in docs/adr/0011.md (P24)."""
+"""P19c-2: POST /api/scba-correction and POST /api/system-banners/{kind}/ack (design 3.8, 8). The host is a fake Port. What the real port must do is in docs/adr/0011.md (P24). Requirements: REQ-API-007, REQ-RUL-005."""
 import json, pathlib
 import pytest
 from fastapi.testclient import TestClient

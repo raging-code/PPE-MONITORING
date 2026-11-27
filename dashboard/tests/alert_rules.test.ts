@@ -1,3 +1,4 @@
+// Requirements: REQ-RUL-004, REQ-UI-001
 import { describe, expect, it } from 'vitest';
 import type { AlertBody } from '../src/gen/ws.ts';
 import { badgesFor, inTray, MAX_BADGES, trayOrder } from '../src/alerts/rules.ts';

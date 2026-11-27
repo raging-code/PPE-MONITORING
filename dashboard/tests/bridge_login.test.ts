@@ -1,3 +1,4 @@
+// Requirements: REQ-SEC-003
 import { describe, it, expect } from 'vitest';
 import { createBridge } from '../src/worker/bridge.ts';
 import { postLogin } from '../src/api/login.ts';

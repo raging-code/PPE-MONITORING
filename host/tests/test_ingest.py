@@ -1,4 +1,4 @@
-"""P12-2: ingest pipeline (design 1 per-frame order, 2.1 overflow rule, 2.3 frames table, Section 5 host share). Real writer and database, fake port, FakeClock."""
+"""P12-2: ingest pipeline (design 1 per-frame order, 2.1 overflow rule, 2.3 frames table, Section 5 host share). Real writer and database, fake port, FakeClock. Requirements: REQ-DB-002, REQ-ING-003."""
 import logging, statistics, time
 from ppe_host.clock import FakeClock
 from ppe_host.io.db_writer import DBWriter

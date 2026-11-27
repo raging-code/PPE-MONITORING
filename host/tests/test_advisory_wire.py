@@ -1,7 +1,7 @@
 """P24-3b-2b-ii: advisory rows in Ingest (adv_cfg off until Wire.enable_advisory turns it on, advisory_step called after every step()) and the advisory message of wire.Wire.
 Real DBWriter, database, HostPort and engine, a fake hub. Every body is checked against the WsMessage contract (real models when pydantic is installed, else shared/ws.schema.json).
 The table itself (design 14.3: which row matches which level and reasons) is tested in test_advisory.py; this file only checks the wiring: the row lands in advisory_summaries in the
-same unit as the frame or tick that produced it, and the hub gets one advisory message per row, with no message and no row while adv_cfg is off."""
+same unit as the frame or tick that produced it, and the hub gets one advisory message per row, with no message and no row while adv_cfg is off. Requirements: REQ-RUL-010."""
 from ppe_host.wire import Wire
 from test_effect_rows import wait
 from test_gv_bytes import pack

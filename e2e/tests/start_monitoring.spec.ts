@@ -1,3 +1,4 @@
+// Requirements: REQ-AUD-001, REQ-UI-002
 // Design 3.7 and 3.12: Test sound first, then Start monitoring unlocks the browser siren and tells the host. Unlocked means this tab owns the siren
 // and the browser's audio clock is really running (AudioBar shows Siren ON only then), so these steps need a real browser.
 import { expect, test } from '@playwright/test';

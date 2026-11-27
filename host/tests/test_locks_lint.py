@@ -1,5 +1,5 @@
 """P27b-1 (ADR 0043): the Python lock files, the version files, and the lint set up for both languages.
-Reads files only; the ruff test runs ruff when it is installed (it is a dev dependency) and is skipped when it is not."""
+Reads files only; the ruff test runs ruff when it is installed (it is a dev dependency) and is skipped when it is not. Requirements: REQ-OPS-001, REQ-OPS-002."""
 import json, re, subprocess, sys
 from pathlib import Path
 import pytest

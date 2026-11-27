@@ -1,5 +1,5 @@
 """P27-1 (ADR 0041): tools/build_manifest.py (design 13, the canonical build_manifest.json contract) and tools/package_release.py (design 1, release folder).
-The real repository gives every key in the contract's order with real hashes where the source exists; a synthetic tree checks each source, the null for a missing one, --strict, and the release folder."""
+The real repository gives every key in the contract's order with real hashes where the source exists; a synthetic tree checks each source, the null for a missing one, --strict, and the release folder. Requirements: REQ-OPS-002."""
 import importlib.util, json, re, shutil, sys, zipfile
 from datetime import datetime, timezone
 from pathlib import Path

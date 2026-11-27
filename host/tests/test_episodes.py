@@ -1,5 +1,5 @@
 """P7c-1: episode lifecycle (design 14.1 man_down / mayday rows, 2.3 episodes, 3.3 cards): GV-02 and GV-03 episode halves, GV-10 Acknowledge, GV-20,
-the MAN_DOWN label rule (5 s and 15 s), Acknowledge and Resolve. Frames are built from F-01; operator actions go through step() as events."""
+the MAN_DOWN label rule (5 s and 15 s), Acknowledge and Resolve. Frames are built from F-01; operator actions go through step() as events. Requirements: REQ-RUL-002, REQ-RUL-003, REQ-RUL-006."""
 import pytest
 from test_co_state import co_frame
 from test_co_threshold import Eng

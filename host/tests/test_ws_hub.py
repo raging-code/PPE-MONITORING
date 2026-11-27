@@ -1,4 +1,4 @@
-"""P20: api/ws_hub.py, the /ws and /ws/tick sockets (design 3.8, 1, 5, 8). Real protocol tests use TestClient; slow-client, coalescing and unauth_alert tests drive Hub.serve with a fake socket."""
+"""P20: api/ws_hub.py, the /ws and /ws/tick sockets (design 3.8, 1, 5, 8). Real protocol tests use TestClient; slow-client, coalescing and unauth_alert tests drive Hub.serve with a fake socket. Requirements: REQ-API-005, REQ-API-010, REQ-API-011, REQ-SEC-001, REQ-SEC-004."""
 import asyncio, json, time
 import pytest
 from fastapi.testclient import TestClient

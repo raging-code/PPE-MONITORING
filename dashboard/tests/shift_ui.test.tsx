@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// Requirements: REQ-SES-001, REQ-SES-002, REQ-SES-004
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, within, waitFor } from '@testing-library/react';
 import Shell from '../src/components/Shell.tsx';

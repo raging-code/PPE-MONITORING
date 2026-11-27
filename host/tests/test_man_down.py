@@ -1,5 +1,5 @@
 """P7-1: man_down and mayday alerts, node_danger (design 14.1; GV-02, GV-03, GV-17 alert halves, GV-20 a). The episode half of GV-02 and GV-03
-(OPEN, EPISODE_ESCALATED, Resolve) is P7c. Frames carry flags and status4 as given; boundary counts here are test values only."""
+(OPEN, EPISODE_ESCALATED, Resolve) is P7c. Frames carry flags and status4 as given; boundary counts here are test values only. Requirements: REQ-RUL-006."""
 from dataclasses import replace
 import pytest
 from test_co_state import co_frame, vector_event

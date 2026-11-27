@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// Requirements: REQ-UI-003, REQ-UI-008, REQ-UI-010
 // P22c-5. jsdom has no layout engine, so these tests check the structure that makes the layout hold (which box is capped, which scrolls, what sits where)
 // and the chart drawing. What the screen looks like at 1366x768 and 150% zoom is a Playwright row (ADR 0023).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

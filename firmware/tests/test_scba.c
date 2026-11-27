@@ -1,3 +1,4 @@
+/* Requirements: REQ-FW-002 */
 /* P16a gcc test runner: SCBA machine (scba.c) and IMU-degraded mode (degraded.c) with the man-down machine as the slot owner.
    FW-07 to FW-10 are replayed from fw_vectors.h through a small rig that follows the call order of scba.h; the expected values are written here by scenario id.
    The other tests cover the SCBA table of Technical Summary section 7 that no scenario reaches. */

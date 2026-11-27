@@ -1,6 +1,6 @@
 """P6a: CO state only (design 14.2 (1) and (2), GV-18 state halves). The rule raises and clears no alert, so these tests assert
 state fields only, never effects: they stay true after P6b and P6c. Later stages import co_frame and Sim from this file.
-Frames are built from the decoded F-01 with the fields a case needs; F-15, F-23 and F-24 come from shared/vectors/frames.json."""
+Frames are built from the decoded F-01 with the fields a case needs; F-15, F-23 and F-24 come from shared/vectors/frames.json. Requirements: REQ-RUL-006."""
 import copy, json
 from pathlib import Path
 import pytest

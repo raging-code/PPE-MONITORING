@@ -1,3 +1,4 @@
+/* Requirements: REQ-FW-001 */
 /* P14 gcc test runner: firmware/components/frame against shared/vectors/frames.json (through the generated frame_vectors.h)
    plus published AES and CMAC test vectors, so the cipher is checked against the standard and not only against our own files. */
 #include <stdio.h>

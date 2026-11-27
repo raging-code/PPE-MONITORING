@@ -1,4 +1,4 @@
-"""P19c-2: the latest SCBA correction of each node is re-applied from audit_events after a restart (design 2.10, 8 "SCBA_CORRECTION replay test"). Real migrated database."""
+"""P19c-2: the latest SCBA correction of each node is re-applied from audit_events after a restart (design 2.10, 8 "SCBA_CORRECTION replay test"). Real migrated database. Requirements: REQ-RUL-005."""
 import pathlib
 import pytest
 from ppe_host.io.db_writer import connect_db, load_scba_corrections, run_migrations

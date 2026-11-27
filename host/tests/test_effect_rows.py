@@ -1,5 +1,5 @@
 """P24-3a: effect-to-row mapping (design 1 commit paragraph, 2.3 alerts, episodes and audit_events, 14.1). Real DBWriter and database, FakeClock, bytes from frames.json style packers.
-The frame row, the alert rows it raises and any episode change commit in one unit; ticks and operator actions go through the same mapping."""
+The frame row, the alert rows it raises and any episode change commit in one unit; ticks and operator actions go through the same mapping. Requirements: REQ-RUL-002, REQ-RUL-008."""
 from ppe_host.core.rule_engine import (AckAlertEvent, AckEpisodeEvent, ChangeAlertLevel, ClearAlert, EpisodeLabelChanged, EpisodeOpened, RaiseAlert, ResolveEpisodeEvent)
 from ppe_host.io.db_writer import Ref
 from ppe_host.io.ingest import effect_stmts

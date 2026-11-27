@@ -1,7 +1,7 @@
 """P10: golden vectors GV-01 to GV-27 (design 14.4), byte level. Every case builds real 23-byte frames (frame packer below, cross-checked against
 shared/vectors/frames.json), sends them through the real pipeline crypto_abi.classify_frame -> seq_classifier.classify -> step() with a FakeClock,
 exactly the order the shell uses (BAD_LEN and REJECT_ROSTER never reach step(); BAD_MAC and BAD_CRC reach it as suspect). GV-21 to GV-27 are field-level
-vectors but run the same way. A failing case is REPORTED (see the REPORT table at the end of the P10 HANDOFF); no rule or vector is edited to make it pass."""
+vectors but run the same way. A failing case is REPORTED (see the REPORT table at the end of the P10 HANDOFF); no rule or vector is edited to make it pass. Requirements: REQ-RUL-006."""
 import json
 from pathlib import Path
 import pytest

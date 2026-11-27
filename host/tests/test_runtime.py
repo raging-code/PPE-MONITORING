@@ -1,4 +1,4 @@
-"""P24-3c-1: start-up step 8 (runtime.py): the writer and serial threads, the pre-replay queue and its drop rule, and the first host_tick with recovering=1."""
+"""P24-3c-1: start-up step 8 (runtime.py): the writer and serial threads, the pre-replay queue and its drop rule, and the first host_tick with recovering=1. Requirements: REQ-REC-005, REQ-REC-008."""
 import json, sqlite3, threading
 from ppe_host import main as M, runtime as R
 from ppe_host.clock import FakeClock

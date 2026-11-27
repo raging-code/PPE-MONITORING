@@ -1,3 +1,4 @@
+// Requirements: REQ-AUD-001, REQ-AUD-002
 import { describe, it, expect, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { createGate, gateStore, sirenView, LOCK_NAME, type GateCtx, type GatePorts, type GateState, type LocksLike } from '../src/audio/gate.ts';

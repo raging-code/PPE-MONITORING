@@ -1,4 +1,4 @@
-"""P19-1: REST shell (design 3.8): error envelope, bearer dependency, POST /api/login, GET /api/events. The host is a fake Port; the database is a real migrated file."""
+"""P19-1: REST shell (design 3.8): error envelope, bearer dependency, POST /api/login, GET /api/events. The host is a fake Port; the database is a real migrated file. Requirements: REQ-API-001, REQ-API-008."""
 import pathlib, threading
 import pytest
 from fastapi.testclient import TestClient

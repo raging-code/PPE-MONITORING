@@ -1,5 +1,5 @@
 # requirements/requirements.yaml (P27b-2, ADR 0044; design 8.1). The traceability list: one REQ-<area>-<nnn> per row of the design 8 test table, and the hazards H1 to H22 of design 7 mapped to REQ ids.
-# A test names a requirement by writing its id in the test name or docstring (P27b-3 adds those). tools/check_requirements.py fails when an id in a test is not in this file, or when this file is malformed.
+# A test file names a requirement with one `Requirements:` line: in the module docstring (Python), a header comment (TypeScript, C). P27b-3, ADR 0045. tools/check_requirements.py fails when an id in a test is not in this file, or when this file is malformed.
 # status: Spec | Proposed | Decided, as the design words the statement. Every row of design 8 is Proposed (the heading of 8 says so); promoting one to Spec or Decided is a design-review decision, never made by code.
 # source: the design 8 table row (docs/design/s08.md); title is the name the design gives the row. dtests: the D-tests the row names (design 7 and 8).
 version: 1

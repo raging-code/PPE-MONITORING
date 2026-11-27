@@ -1,4 +1,4 @@
-"""P7c-2: checkin and scba_expired (design 14.1 rows; GV-05 a to d, GV-24 a to c). Frames are built from co_frame; flags, status2, status3 and CO are set per test."""
+"""P7c-2: checkin and scba_expired (design 14.1 rows; GV-05 a to d, GV-24 a to c). Frames are built from co_frame; flags, status2, status3 and CO are set per test. Requirements: REQ-RUL-006."""
 from test_co_state import co_frame
 from test_co_threshold import Eng
 from ppe_host.core import rule_engine as re_

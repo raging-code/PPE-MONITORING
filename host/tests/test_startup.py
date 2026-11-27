@@ -1,4 +1,4 @@
-"""P24-1: start-up steps 1 to 5 and the start-up failure policy of design 14.5 (a lockfile, b quick_check, c failed migration, d secrets and salt)."""
+"""P24-1: start-up steps 1 to 5 and the start-up failure policy of design 14.5 (a lockfile, b quick_check, c failed migration, d secrets and salt). Requirements: REQ-REC-007."""
 import json, os, shutil, sqlite3
 import pytest
 from ppe_host import main as M

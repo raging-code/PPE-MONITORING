@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// Requirements: REQ-SES-001, REQ-UI-001
 // P22d-1: side panel, last seen on the cards, mode word and chips in the top strip. Layout is structural only (jsdom has no layout engine, ADR 0024).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react';

@@ -1,3 +1,4 @@
+// Requirements: REQ-SES-001, REQ-SES-002, REQ-SES-004
 import { describe, it, expect } from 'vitest';
 import { buildSummary, durationText, manilaStamp, modeWord, nothingOpen, openItems, sessionLine } from '../src/alerts/shift.ts';
 import { downloadCsv, endMessage, getSessions, postSessionEnd, type SessionRow } from '../src/api/shift.ts';

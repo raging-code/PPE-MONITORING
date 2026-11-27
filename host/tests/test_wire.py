@@ -1,6 +1,6 @@
 """P24-3b-2a: wire.Wire (host/ppe_host/wire.py): reading, alert and episode messages built after the commit, held messages, unauth_alert repeats, and the snapshot (design 3.8).
 Real DBWriter, database, HostPort and engine, a fake hub. Every body is checked against the WsMessage contract: with the real models when pydantic is installed, else against shared/ws.schema.json.
-The REST routes and the real Hub are not run here (P24-3c wires them)."""
+The REST routes and the real Hub are not run here (P24-3c wires them). Requirements: REQ-API-007, REQ-API-011."""
 import json, threading, types, uuid
 from pathlib import Path
 import pytest

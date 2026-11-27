@@ -1,3 +1,4 @@
+// Requirements: REQ-UI-007
 // Design 3.6 checks that need no browser: sizes in the source, colour pairs in index.css, levels without colour, flash rate, offline font.
 // Pixel layout at 1366x768 and 150% zoom needs a real browser (Playwright rows of design 8); see docs/adr/0023.md.
 import { describe, it, expect } from 'vitest';

@@ -1,3 +1,4 @@
+// Requirements: REQ-SES-001, REQ-UI-001
 // P22d-1: the pure rules of the side panel (3.2, 3.10). Thresholds in these tests are test values only, never in code.
 import { describe, it, expect } from 'vitest';
 import { advisoryLine, lastSeenText, limitsOf, manilaClock, qualityMark, readingRows, type ReadingLimits } from '../src/alerts/readings.ts';
