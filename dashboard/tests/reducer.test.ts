@@ -75,10 +75,11 @@ describe('reducer (design 3.8)', () => {
   });
   it('a system message sets banners and records a banner acknowledgement', () => {
     const sys = { v: 1, type: 'system', srv_seq: 1, srv_ts: 2000, base: 'offline', recovering: false, session_id: 4, session_mode: 'LIVE', rejected_frames: 3,
-      logging_fault: true, host_gap: null, host_power: 'ac', audio_fault: false, banner: 'logging_fault', acknowledged_ts: 1999 };
+      logging_fault: true, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: true, banner: 'logging_fault', acknowledged_ts: 1999 };
     const s = apply(live(), msg(sys)).state;
     expect(s.banners?.base_offline).toBe(true);
     expect(s.banners?.logging_fault).toBe(true);
+    expect(s.banners?.abi_mismatch).toBe(true);
     expect(s.rejectedFrames).toBe(3);
     expect(s.bannerAck.logging_fault).toBe(1999);
   });

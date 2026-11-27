@@ -108,7 +108,7 @@ export function apply(s: LiveState, m: ServerMessage): { state: LiveState; resyn
       if (s.session) n.session = { ...s.session, session_id: m.session_id, mode: m.session_mode };
       n.banners = {
         base_offline: m.base === 'offline', logging_fault: m.logging_fault, host_gap: m.host_gap,
-        host_power: m.host_power, audio_fault: m.audio_fault,
+        host_power: m.host_power, audio_fault: m.audio_fault, abi_mismatch: m.abi_mismatch,
       };
       if (m.banner !== null && m.acknowledged_ts !== null) n.bannerAck = { ...s.bannerAck, [m.banner]: m.acknowledged_ts };
       break;

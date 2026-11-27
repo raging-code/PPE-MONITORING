@@ -26,10 +26,10 @@ const SHOWS_AS: Record<string, string> = {
 };
 
 describe('catalog loader', () => {
-  it('loads the 32 entries: 25 alert types and 7 banners', () => {
-    expect(CATALOG).toHaveLength(32);
+  it('loads the 33 entries: 25 alert types and 8 banners', () => {
+    expect(CATALOG).toHaveLength(33);
     expect(ALERTS).toHaveLength(25);
-    expect(BANNERS.map((b) => b.type).sort()).toEqual(['audio_fault', 'base_offline', 'host_gap', 'host_power', 'logging_fault', 'no_live_data', 'recovering']);
+    expect(BANNERS.map((b) => b.type).sort()).toEqual(['abi_mismatch', 'audio_fault', 'base_offline', 'host_gap', 'host_power', 'logging_fault', 'no_live_data', 'recovering']);
   });
   it('rejects a bad file instead of showing a blank card', () => {
     const one = (over: Record<string, unknown>) => [{ ...RAW[0], ...over }];
@@ -61,7 +61,7 @@ describe('catalog completeness (P22 catalog test)', () => {
     for (const e of CATALOG) {
       expect(e.class && e.show && Object.values(e.sound_by_level).every(Boolean)).toBeTruthy();
       const row = ROW.get(e.type);
-      if (e.type === 'audio_fault') continue; // gap, see the next test
+      if (e.type === 'audio_fault' || e.type === 'abi_mismatch') continue; // gaps, see the it.fails tests below
       expect(row?.sound, e.type).toBeTruthy();
       expect(row?.shows, e.type).toBeTruthy();
       for (const s of Object.values(e.sound_by_level)) expect(row!.sound.toLowerCase(), e.type).toContain(SOUND_WORD[s!]);
@@ -69,15 +69,19 @@ describe('catalog completeness (P22 catalog test)', () => {
       expect(row!.shows.includes('system_events only'), e.type).toBe(e.owner === 'system_banner');
     }
   });
-  it('badge_order values are unique and run 1 to 32', () => {
-    expect(CATALOG.map((e) => e.badge_order).sort((a, b) => a - b)).toEqual(Array.from({ length: 32 }, (_, i) => i + 1));
+  it('badge_order values are unique and run 1 to 33', () => {
+    expect(CATALOG.map((e) => e.badge_order).sort((a, b) => a - b)).toEqual(Array.from({ length: 33 }, (_, i) => i + 1));
   });
-  it('the 6 banners other than audio_fault each have a 3.4 row', () => {
-    for (const b of BANNERS.filter((x) => x.type !== 'audio_fault')) expect(ROW.has(b.type), b.type).toBe(true);
+  it('the 6 banners other than audio_fault and abi_mismatch each have a 3.4 row', () => {
+    for (const b of BANNERS.filter((x) => x.type !== 'audio_fault' && x.type !== 'abi_mismatch')) expect(ROW.has(b.type), b.type).toBe(true);
   });
   // Expected failure (ADR 0015): Rev 3.45 table 3.4 has no AUDIO FAULT row although its completeness rule and 3.12 require
   // one. When the row is added to the design, this starts passing, Vitest reports it, and ".fails" is removed.
   it.fails('the audio_fault banner has a 3.4 row', () => {
     expect(ROW.has('audio_fault')).toBe(true);
+  });
+  // Expected failure (ADR 0051): the same gap for the abi_mismatch banner. Remove ".fails" when the row is added to the design.
+  it.fails('the abi_mismatch banner has a 3.4 row', () => {
+    expect(ROW.has('abi_mismatch')).toBe(true);
   });
 });

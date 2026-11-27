@@ -481,6 +481,10 @@
         "audio_fault": {
           "title": "Audio Fault",
           "type": "boolean"
+        },
+        "abi_mismatch": {
+          "title": "Abi Mismatch",
+          "type": "boolean"
         }
       },
       "required": [
@@ -488,7 +492,8 @@
         "logging_fault",
         "host_gap",
         "host_power",
-        "audio_fault"
+        "audio_fault",
+        "abi_mismatch"
       ],
       "title": "Banners",
       "type": "object"
@@ -1664,6 +1669,10 @@
           "title": "Audio Fault",
           "type": "boolean"
         },
+        "abi_mismatch": {
+          "title": "Abi Mismatch",
+          "type": "boolean"
+        },
         "banner": {
           "anyOf": [
             {
@@ -1705,6 +1714,7 @@
         "host_gap",
         "host_power",
         "audio_fault",
+        "abi_mismatch",
         "banner",
         "acknowledged_ts"
       ],

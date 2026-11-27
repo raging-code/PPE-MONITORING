@@ -24,7 +24,7 @@ export const snapshotMessage = (now) => ({
     scba: 1, mandown: 0, level: 'NORMAL', link_state: 'ok', status2: 0, flags: 0, id_mode: 73, status3: 0, status4: 0,
     co_validity: 'VALID', co_reason: null, scba_correction: null }],
   open_alerts: [], open_episodes: [], co_history_30m: { '1': [[now, 12]] },
-  banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false },
+  banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: false },
   constants: CONSTANTS,
 });
 export const tickMessage = (seq, now) => ({ v: 1, type: 'tick', srv_seq: seq, srv_ts: now });

@@ -62,6 +62,7 @@ export interface Banners {
   host_gap: HostGap | null;
   host_power: string;
   audio_fault: boolean;
+  abi_mismatch: boolean;
 }
 
 export interface EpisodeBody {
@@ -234,6 +235,7 @@ export interface SystemMsg {
   host_gap: HostGap | null;
   host_power: string;
   audio_fault: boolean;
+  abi_mismatch: boolean;
   banner: "host_gap" | "logging_fault" | null;
   acknowledged_ts: number | null;
 }

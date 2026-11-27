@@ -25,7 +25,7 @@ const load = (over: Record<string, unknown> = {}, nodes = [node(1)]) => act(() =
   liveStore.setState(apply(initialState('CONNECTING'), snapshot({ srv_ts: 2000, roster, nodes, ...over }) as unknown as ServerMessage).state);
 });
 const deps = () => ({ controller: { start: vi.fn(), login: vi.fn() }, bridge: { init: vi.fn() } });
-const ALL = { base_offline: true, logging_fault: true, host_gap: { gap_s: 7, reason: null }, host_power: 'battery 40', audio_fault: true };
+const ALL = { base_offline: true, logging_fault: true, host_gap: { gap_s: 7, reason: null }, host_power: 'battery 40', audio_fault: true, abi_mismatch: false };
 const mkGate = () => createGate({ api: { fetchFn: (async () => ({ status: 200, json: async () => ({}) })) as unknown as typeof fetch, getToken: () => 't' },
   makeCtx: () => ({ state: 'suspended', sampleRate: 8000, destination: 'd', resume: async () => {}, createBuffer: (_c: number, n: number) => { const a = new Float32Array(n); return { getChannelData: () => a }; },
     createBufferSource: () => ({ buffer: null, loop: false, connect() {}, start() {}, stop() {} }) }) as never });

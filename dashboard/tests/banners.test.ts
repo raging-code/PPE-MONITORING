@@ -7,7 +7,7 @@ import { ackBanner, ackMessage } from '../src/store/banners.ts';
 import { initialState, type LiveState } from '../src/store/reducer.ts';
 import type { Banners } from '../src/gen/ws.ts';
 
-const B = (o: Partial<Banners> = {}): Banners => ({ base_offline: false, logging_fault: false, host_gap: null, host_power: 'ok', audio_fault: false, ...o });
+const B = (o: Partial<Banners> = {}): Banners => ({ base_offline: false, logging_fault: false, host_gap: null, host_power: 'ok', audio_fault: false, abi_mismatch: false, ...o });
 const show = (banners: Banners | null, o: { recovering?: boolean; ack?: Record<string, number> } = {}) => bannersFor({ recovering: o.recovering ?? false, banners, bannerAck: o.ack ?? {} });
 
 describe('system banners map to the catalog text (3.4, 3.7)', () => {

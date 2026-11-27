@@ -44,7 +44,7 @@ export const snapshot = (over: Record<string, unknown> = {}) => ({
     scba: 1, mandown: 0, level: 'NORMAL', link_state: 'ok', status2: 0, flags: 0, id_mode: 73, status3: 0, status4: 0,
     co_validity: 'VALID', co_reason: null, scba_correction: null }],
   open_alerts: [], open_episodes: [], co_history_30m: { '1': [[900, 12]] },
-  banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false },
+  banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: false },
   constants: { co_warn_ppm: 35.0 }, ...over,
 });
 export const tick = (seq: number) => ({ v: 1, type: 'tick', srv_seq: seq, srv_ts: 1000 + seq * 1000 });
