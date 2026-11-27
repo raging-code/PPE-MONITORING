@@ -24,6 +24,10 @@ test-fw:
     python tools/gen_fw_vectors.py
     python tools/run_gcc_tests.py
 
+# P27-3: the browser tests of design 8 (Playwright, Chromium) against dashboard/dist, so run just build first. Once: Set-Location e2e; npm ci; npx playwright install chromium
+test-e2e:
+    Set-Location e2e; npx playwright test
+
 # P2, P3 and P14 add the generators here
 gen:
     python tools/gen_abi.py

@@ -2,7 +2,8 @@
 #   host:      regenerate everything and fail if the working tree changed (a stale generated file or a new untracked one), design doc_lint, the core/ import rule, pytest, the frame and beacon vectors.
 #   firmware:  the pure C parts built with gcc on the runner and run against frames.json and fw_scenarios.json (components/frame, rules_fw, nvs_latch).
 #   dashboard: npm ci from package-lock.json, typecheck, Vitest, production build.
-# The browser tests (e2e/, Playwright) are added by P27-3. Actions are pinned to a major tag; pin to a commit SHA before the trial if the repository is ever made public.
+#   e2e:       P27-3 (ADR 0042): Playwright and Chromium against the built dashboard and the mock host of e2e/ (NO LIVE DATA at 4 s, Start monitoring unlocks audio); the report is kept when a test fails.
+# Actions are pinned to a major tag; pin to a commit SHA before the trial if the repository is ever made public.
 name: CI
 
 on:
@@ -87,3 +88,38 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            e2e/package-lock.json
+      - name: Install the dashboard
+        run: npm ci
+        working-directory: dashboard
+      - name: Build the dashboard (the tests run against dashboard/dist)
+        run: npm run build
+        working-directory: dashboard
+      - name: Install the browser tests
+        run: npm ci
+        working-directory: e2e
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+      - name: Browser tests (NO LIVE DATA at 4 s, Start monitoring unlocks audio)
+        run: npx playwright test
+        working-directory: e2e
+      - name: Keep the report when a test fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7

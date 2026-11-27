@@ -16,9 +16,9 @@ def runs(job): return '\n'.join(s.get('run', '') for s in wf()['jobs'][job]['ste
 def just_recipe(name):
     m = re.search(r'^%s:\n((?:    .*\n?)+)' % name, (ROOT / 'justfile').read_text(encoding='utf-8').replace('\r\n', '\n'), re.M); return [l.strip() for l in m.group(1).splitlines() if l.strip()]
 
-def test_the_workflow_parses_and_has_the_three_jobs_on_push_and_pull_request():
+def test_the_workflow_parses_and_has_the_four_jobs_on_push_and_pull_request():
     w = wf(); trig = w.get('on', w.get(True))                       # YAML 1.1 reads the key `on` as True
-    assert set(w['jobs']) == {'host', 'firmware', 'dashboard'} and 'push' in trig and 'pull_request' in trig and w['permissions'] == {'contents': 'read'}
+    assert set(w['jobs']) == {'host', 'firmware', 'dashboard', 'e2e'} and 'push' in trig and 'pull_request' in trig and w['permissions'] == {'contents': 'read'}
     for name, job in w['jobs'].items():
         assert job['runs-on'] == 'ubuntu-latest' and job['timeout-minutes'] and job['steps'][0]['uses'].startswith('actions/checkout@v')
         for s in job['steps']: assert ('run' in s) != ('uses' in s), (name, s)                    # every step does exactly one of the two
