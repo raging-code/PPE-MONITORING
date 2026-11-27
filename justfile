@@ -5,7 +5,7 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 default:
     @just --list
 
-# P1, P27b-1: install the Python dependencies from the hashed lock (runtime plus pytest, Hypothesis, httpx, pyyaml, ruff), then the host package without dependencies. Use Python 3.12 (.python-version)
+# P1, P27b-1: install the Python dependencies from the hashed lock (runtime plus pytest, Hypothesis, httpx2, pyyaml, ruff), then the host package without dependencies. Use Python 3.12 (.python-version)
 setup:
     python -m pip install --require-hashes -r requirements-dev.lock
     python -m pip install --no-deps -e .

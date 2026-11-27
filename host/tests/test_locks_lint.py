@@ -28,7 +28,7 @@ def test_the_dev_lock_has_everything_in_the_runtime_lock_at_the_same_version_and
     rt, dev = pins('requirements.lock'), pins('requirements-dev.lock')
     assert set(rt) < set(dev) and all(dev[k] == v for k, v in rt.items())
     extras = {req_name(s) for s in toml()['project']['optional-dependencies']['dev']}
-    assert {'pytest', 'hypothesis', 'httpx', 'pyyaml', 'ruff'} <= extras and extras <= set(dev)
+    assert {'pytest', 'hypothesis', 'httpx2', 'pyyaml', 'ruff'} <= extras and extras <= set(dev)
     assert not extras & set(rt)                                                                  # the runtime lock carries no test or lint tool
 
 def test_the_runtime_lock_has_every_dependency_pyproject_names_and_pins_tzdata():

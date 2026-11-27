@@ -23,7 +23,7 @@ dependencies = [
 dev = [
     "pytest",
     "hypothesis",
-    "httpx",        # not named in the design: fastapi.testclient needs it (P19)
+    "httpx2",       # not named in the design: fastapi.testclient needs it; replaces httpx, which starlette.testclient now warns is deprecated (P19)
     "ruff",         # lint only, rules E9 and F (P27b-1, ADR 0043); see [tool.ruff] below
     "pyyaml",       # reads .github/workflows/ci.yml in host/tests/test_ci_config.py (P27-2); P27b reads requirements/requirements.yaml with it
 ]
@@ -35,7 +35,6 @@ include = ["ppe_host*"]
 [tool.pytest.ini_options]
 testpaths = ["host/tests"]
 pythonpath = ["host"]
-filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
 
 [tool.ruff]
 # P27b-1 (ADR 0043): lint only, no formatter. E9 = syntax errors, F = pyflakes (unused imports and variables, undefined names, duplicate imports).
