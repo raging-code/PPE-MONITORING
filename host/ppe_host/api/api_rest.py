@@ -2,14 +2,15 @@
 The host process (P24) is behind the Port protocol below, so this file does no engine work and owns no event_seq: audit rows and the open session come through the port.
 Reads open their own read-only connection inside the thread pool, never on the event loop. Token hashing, the failed-login delay and the Origin/Host checks are P19b: the
 port's authenticate() is where P19b plugs in, and until then a failed login answers retry_after_s null. /docs and /openapi.json are not served (frozen endpoint list)."""
-import asyncio, logging
+import asyncio, logging, time
 from typing import NamedTuple, Optional, Protocol
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from ..io.db_writer import connect_db
+from ..services import csv_export
 from . import models as M, security as sec
 
 log = logging.getLogger('ppe.api')
@@ -96,6 +97,14 @@ def query_events(db_path, after_seq, limit):
 @router.get('/events', response_model=M.EventsResp)
 async def events(request: Request, after_seq: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=1000), op: Operator = Depends(current_operator)):
     return await run_in_threadpool(query_events, request.app.state.db_path, after_seq, limit)  # read-only, no audit row
+@router.get('/export.csv')
+async def export_csv(request: Request, session_id: Optional[int] = Query(None, ge=0), op: Operator = Depends(current_operator)):
+    """P26-1 (ADR 0038): v_full_log as text/csv, the whole database or one session; the file is read in 500-row chunks on a read-only connection in a worker thread and streamed. CSV_EXPORT is audited before the first byte
+    (a failed audit write is a 500 and nothing is sent). A session_id that does not exist gives the header row only: the frozen list (3.8) has no 404 for this endpoint."""
+    port = request.app.state.port; port.audit('CSV_EXPORT', operator_id=op.operator_id, reason='all' if session_id is None else str(session_id))
+    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(_now_ms() / 1000)); name = 'export_%s_%s.csv' % ('all' if session_id is None else 'session_%d' % session_id, stamp)
+    return StreamingResponse(iterate_in_threadpool(csv_export.iter_csv(request.app.state.db_path, session_id)), media_type='text/csv', headers={'Content-Disposition': 'attachment; filename="%s"' % name, 'Cache-Control': 'no-store'})
+
 # ---- P19-2: session start and end, Acknowledge and Resolve (design 3.8) ----
 # Start, Acknowledge and Resolve call the port on the event loop (the engine is single-threaded). End shift is awaited in a worker thread because it runs
 # the backup. The port owns every database write and every event_seq; this file only checks the request, maps the answer and writes the audit row

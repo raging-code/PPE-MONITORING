@@ -1,6 +1,6 @@
 """P19c-3: the table-driven status-code test of design 8 (Rev 3.31), generated from the frozen REST endpoint list of docs/design/s03-8.md. The list gives the endpoints,
 the status codes each one may answer and the keys of its 200 body; the table below gives one request per code. The test fails when the code has an endpoint the list lacks,
-when the list has one the code lacks (GET /api/export.csv is pending until P26), when a listed code has no request, or when a 200 body has other keys than the list names."""
+when the list has one the code lacks, when a listed code has no request, or when a 200 body has other keys than the list names."""
 import pathlib, re
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from ppe_host.api import api_rest as R, models as M
 from ppe_host.io.db_writer import connect_db, run_migrations
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 NOW = 5_000_000
-PENDING = {'GET /api/export.csv'}                      # the route is added by P26; remove it here then
+PENDING = set()                                        # P26-1 added GET /api/export.csv; a route listed but not yet built goes here
 GOOD, EVIL = {'Authorization': 'Bearer good-token'}, 'http://evil.example'
 CODE_OF = {400: 'BAD_REQUEST', 401: 'UNAUTHENTICATED', 403: 'ORIGIN_REJECTED', 404: 'NOT_FOUND', 409: 'STATE_CONFLICT', 422: 'VALIDATION_ERROR'}
 
@@ -74,7 +74,7 @@ VALID = {'POST /api/login': ('/api/login', {'token': 'good-token'}, None), 'POST
          'POST /api/episodes/{episode_id}/ack': ('/api/episodes/3/ack', {}, None), 'POST /api/episodes/{episode_id}/resolve': ('/api/episodes/3/resolve', {'reason': 'rescued'}, None),
          'POST /api/system-banners/{kind}/ack': ('/api/system-banners/host_gap/ack', {}, None), 'POST /api/scba-correction': ('/api/scba-correction', {'node_id': 1}, None),
          'POST /api/dashboard-outage': ('/api/dashboard-outage', {'started_ts': NOW - 30000, 'ended_ts': NOW - 10000, 'duration_s': 20.0}, None),
-         'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0})}
+         'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0}), 'GET /api/export.csv': ('/api/export.csv', None, None)}
 # (key, label, path, body, query, status, setup): one request per listed non-200 code beyond the generated 401 and 403 rows
 EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, None, 401, None),
          ('POST /api/session/end', 'wrong confirm_text', '/api/session/end', {'confirm_text': 'x', 'session_id': 4}, None, 400, None),
@@ -116,6 +116,7 @@ def test_no_endpoint_is_missing_and_none_is_extra(rig):
 def test_the_pending_endpoint_is_still_pending():
     code = {'%s %s' % (m, r.path) for r in R.router.routes for m in r.methods}      # R.router holds plain APIRoute objects
     assert PENDING <= set(LIST) and not (PENDING & code), 'a pending route now exists: add its rows to VALID and empty PENDING'
+    assert 'GET /api/export.csv' in code           # P26-1: the last frozen route is built
 def test_every_listed_code_has_a_request_in_the_table():
     covered = {}
     for key, _, _, _, _, status, _ in CASES: covered.setdefault(key, set()).add(status)
@@ -130,6 +131,8 @@ def test_endpoint_table(rig, key, label, path, body, query, status, setup):
     client, port = rig
     if setup: setup(port)
     r = send(client, key, path, body, query, status, label); assert r.status_code == status, r.text
+    if status == 200 and key == 'GET /api/export.csv':      # a streamed body: the list names no JSON keys (P26-1)
+        assert r.headers['content-type'].startswith('text/csv') and r.text.startswith('session_id,event_seq,log_ts,record_type'); return
     if status == 200:
         rows = r.json() if isinstance(r.json(), list) else [r.json()]
         assert rows and all(set(x) == LIST[key]['keys'] for x in rows), '%s: body keys %s differ from the list %s' % (key, sorted(rows[0]), sorted(LIST[key]['keys']))
