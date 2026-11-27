@@ -57,6 +57,15 @@ def test_every_node_version_in_ci_is_22():
             if s.get('uses', '').startswith('actions/setup-node'): assert str(s['with']['node-version']) == '22'
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
+def test_the_mock_host_alert_message_is_one_the_host_models_accept():
+    from ppe_host.api.models import SERVER_ADAPTER
+    out = subprocess.run(['node', str(E2E / 'mock_host.mjs'), '--print-alert'], capture_output=True, text=True, timeout=60, cwd=str(ROOT))
+    assert out.returncode == 0, out.stderr
+    m = json.loads(out.stdout)
+    assert m['type'] == 'alert' and m['alert_type'] == 'man_down' and m['level'] == 'DANGER' and m['cleared_ts'] is None
+    SERVER_ADAPTER.validate_python(m)
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
 def test_the_mock_host_sends_messages_the_host_models_accept():
     from ppe_host.api.models import SERVER_ADAPTER
     out = subprocess.run(['node', str(E2E / 'mock_host.mjs'), '--print-messages'], capture_output=True, text=True, timeout=60, cwd=str(ROOT))

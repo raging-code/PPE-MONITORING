@@ -1,7 +1,8 @@
 // e2e/mock_host.mjs (P27-3, ADR 0042): a stand-in for the host that serves the BUILT dashboard (dashboard/dist) and speaks just enough of the
 // design 3.8 wire protocol for the browser tests: POST /api/login, POST /api/session/start, the /ws data socket (snapshot first, then a tick every second)
 // and the /ws/tick socket of the worker. It is not the host: the real host is covered by pytest. What runs for real here is the dashboard, in Chromium.
-// Test control (not part of any design interface, loopback only): POST /__ctl {"mode":"live"|"muted"|"dead","reset":true,"abi_mismatch":true|false}, GET /__state.
+// Test control (not part of any design interface, loopback only): POST /__ctl {"mode":"live"|"muted"|"dead","reset":true,"abi_mismatch":true|false,"alert":{"alert_id":n,"alert_type":"man_down","level":"DANGER","cleared":true|false}}, GET /__state.
+//   alert  : one alert message to every signed-in data socket (a raise, or with cleared:true the clear plus acknowledge that makes the dashboard drop it). Sent unless the mode is dead.
 //   live   : snapshot and a tick every second on both sockets.
 //   muted  : the sockets stay open but nothing is sent (a host that stalled; this is the NO LIVE DATA case of 3.7).
 //   dead   : the sockets accept and authenticate but send nothing at all, not even the snapshot (a host that never answers).
@@ -30,11 +31,15 @@ export const snapshotMessage = (now, abi = false) => ({
 export const tickMessage = (seq, now) => ({ v: 1, type: 'tick', srv_seq: seq, srv_ts: now });
 export const systemMessage = (seq, now, abi) => ({ v: 1, type: 'system', srv_seq: seq, srv_ts: now, base: 'ok', recovering: false, session_id: 1, session_mode: 'SIMULATOR', rejected_frames: 0,
   logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: abi, banner: null, acknowledged_ts: null });
+export const alertMessage = (seq, now, a) => ({ v: 1, type: 'alert', srv_seq: seq, srv_ts: now, alert_id: a.alert_id, node_id: 1, alert_type: a.alert_type ?? 'man_down', level: a.level ?? 'DANGER',
+  reasons: null, authenticated: 1, episode_id: null, raised_ts: now, cleared_ts: a.cleared ? now : null, acknowledged_ts: a.cleared ? now : null, acknowledged_by: a.cleared ? 1 : null,
+  unauth_count: null, last_seen_ts: null });
 
 if (process.argv.includes('--print-messages')) {
   console.log(JSON.stringify([snapshotMessage(1_700_000_000_000), tickMessage(1, 1_700_000_001_000)]));
   process.exit(0);
 }
+if (process.argv.includes('--print-alert')) { console.log(JSON.stringify(alertMessage(1, 1_700_000_001_000, { alert_id: 1 }))); process.exit(0); }   // for the pytest check against the Pydantic models
 const { WebSocketServer } = await import('ws');                                  // after --print-messages, so that mode needs no npm install
 if (!fs.existsSync(path.join(DIST, 'index.html'))) {
   console.error('dashboard/dist/index.html is missing: build the dashboard first (just build, or: cd dashboard; npm run build).');
@@ -59,6 +64,7 @@ const server = http.createServer(async (req, res) => {
       state.abi_mismatch = b.abi_mismatch;
       if (state.mode === 'live') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(systemMessage(++c.seq, Date.now(), state.abi_mismatch)));
     }
+    if (b.alert && state.mode !== 'dead') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(alertMessage(++c.seq, Date.now(), b.alert)));
     return json(res, 200, state);
   }
   if (url.pathname === '/api/login' && req.method === 'POST') {
