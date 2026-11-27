@@ -229,7 +229,7 @@ def main(argv=None, serve=run_server):
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
     print('start-up steps 1 to 9 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
-    try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port']))                                 # step 10 (P24-3c-3); steps 11 to 13 are P25
+    try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port']))                                 # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
     except ServeError as e: print('step 10 failed: %s' % e, file=sys.stderr); return EXIT_CONFIG
     except Exception: LOG.exception('step 10 failed'); return EXIT_CRASH
     finally: rt.stop(); st.close()

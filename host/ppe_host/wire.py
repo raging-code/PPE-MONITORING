@@ -66,6 +66,7 @@ class Wire:
             self.alias = {r['node_id']: r['alias'] for r in c.execute('SELECT node_id, alias FROM roster')}
             self.mode = c.execute('SELECT mode FROM sessions WHERE session_id = ?', (self.ing.session_id,)).fetchone()['mode']
         self.links, self.sys_key, self.sys_rej = {}, None, 0   # P24-3b-2b-i: last link state per node, last system body (without the counter), counter last sent
+        self.unconfirmed = set()   # P25-2: nodes the restart gap left without a fresh frame; link_state says not_connected for them until their first fresh frame (recovery_run fills it, on_frame empties it)
 
     def enable_advisory(self, heartbeat_s):
         """P24-3b-2b-ii: turn the Tier 1 advisory table on in the Ingest this Wire is attached to. Call before or after attach(); advisory rows reach the hub through the normal _send path
@@ -88,6 +89,7 @@ class Wire:
     # ---- incremental messages ----
     def on_frame(self, out):
         """The Ingest.broadcast hook: one reading for a verified frame, then the alert and episode messages of its effects."""
+        if out.ctx is not None and out.seq_class in ('fresh', 'reboot'): self.unconfirmed.discard(out.ctx['node'])
         if out.ctx is not None: self.hub.publish_reading(reading_body(out.ctx, self.alias.get(out.ctx['node'], '')))
         self.on_effects(out.effects, out.unit, out.committed); self._links()
     def on_effects(self, fx, unit, ok):
@@ -142,6 +144,7 @@ class Wire:
         if ns is None: return 'not_connected'
         if (nid, 'link_lost') in al: return 'link_lost'
         if (nid, 'signal_lost') in al: return 'signal_lost'
+        if nid in self.unconfirmed: return 'not_connected'          # P25-2: grey until the first fresh frame after a restart (the wire has no 'unconfirmed' state; a lost link above still wins)
         if ns.shadow_rebaseline_left > 0: return 'recovered'
         return 'weak_signal' if (nid, 'weak_signal') in al else 'ok'
     def _links(self):

@@ -11,7 +11,7 @@ from fakeport import FakePort
 from test_startup import home, run, no_serve, NOW
 
 def mk(tmp_path, backend, mode='SIMULATOR'):
-    h = home(tmp_path); st = run(h, mode); M.begin_session(st)
+    h = home(tmp_path); st = run(h, mode); M.begin_session(st); st.recovering = False      # P25-2: RECOVERING is a one-beep item while the host recovers; these tests are about the alarms
     return st, R.Runtime(st, FakeClock(NOW, 0), open_port=lambda: FakePort([]), audio_backend=backend)
 
 def alert(t, level, ack=None, nid=1, seq=5): return OpenAlert(nid, t, level, seq, NOW, '', ack)

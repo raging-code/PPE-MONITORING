@@ -1,7 +1,7 @@
 """runtime.py (P24-3c-1): start-up step 8 of design 14.5: the DBWriterThread, the SerialReaderThread with the bounded pre-replay queue, and the SerialWriterThread.
 Runtime(st) wires Ingest, DBWriter, SerialReader, SerialWriter, LinkMonitor and Health from a Startup (main.py, steps 1 to 7) and starts the threads in the design's order.
 P24-3c-3 adds the AudioThread (Runtime.audio, started in step 8 and fed by Runtime.audio_items()). P24b adds the OSWatchdogThread (Runtime.watchdog, started first in step 8) and the liveness stamps. Not here: step 9 is load_open() (P24-3c-2, ADR 0034); step 10 is serve.py (P24-3c-3: Uvicorn and the 1 Hz driver, which calls Runtime.tick()),
-steps 11 to 13 (P25: recovery, then release()). SIMULATOR and REPLAY have no serial port: only the writer and the gate exist there.
+steps 11 to 13 (P25: services/recovery.py and services/recovery_run.py through Runtime.recover(), then release()). SIMULATOR and REPLAY have no serial port: only the writer and the gate exist there.
 Pre-replay queue (design 1, recovery rule a): frames that arrive while recovering wait in a queue of at most pre_replay_queue_max. When it overflows, the oldest frame with node level
 NORMAL and no event bit is dropped first and counted (pre_replay_dropped); a frame with a non-NORMAL node level, mandown, mayday, fault or check-in is never dropped, so the queue may
 then exceed its bound (pre_replay_overflow counts that). No rule runs and no alert is raised from a queued frame: release() feeds them to Ingest.frame in arrival order, then goes live."""
@@ -95,6 +95,7 @@ class Runtime:
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
         self.host_health = HostHealth(self.clock, self.ingest.system_event, self.writer, st.db_path.parent, warn_pct=s['host_bat_warn_pct'], disk_min_gb=s['host_disk_min_gb'])
         self.started, self.wire, self.port, self.ticks = False, None, None, 0   # wire and port are set by serve.build_app (step 10)
+        self.recovery_report, self._recovery_started = None, False             # P25-2: the RunReport of services/recovery_run.run, and a guard so steps 11 to 13 run once
         self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.clock, s.path('log_dir') / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
         self.audio = None if audio_backend is None else AudioThread(audio_backend, self.clock, sounds_dir=SOUNDS_DIR, check_interval_s=s['audio_check_interval_s'],
                                                                     chime_interval_min=s['host_chime_interval_min'], on_event=self._audio_event)   # sockets_fn and monitoring_fn come with the hub (serve.build_app)
@@ -117,7 +118,8 @@ class Runtime:
         self.ticks += 1
     def audio_items(self):
         """What the host may sound now, for AudioThread.set_items(): every open alert of the engine state (type, level, acknowledged) plus the banners that have a host sound:
-        BASE OFFLINE (the Health flag; it cannot be acknowledged), LOGGING FAULT and HOST GAP (acknowledgeable). HOST BATTERY ('host_power': beep at or below host_bat_warn_pct, silent while only on battery). Not here yet: RECOVERING (P25 ends it, so it is added there).
+        BASE OFFLINE (the Health flag; it cannot be acknowledged), LOGGING FAULT and HOST GAP (acknowledgeable). HOST BATTERY ('host_power': beep at or below host_bat_warn_pct, silent while only on battery).
+        RECOVERING (P25-2): one beep while st.recovering is true; it cannot be acknowledged and ends with RECOVERING_EXIT.
         Reads only immutable engine state and flags, so any thread may call it."""
         items = [dict(alert_type=a.type, level=a.level, acknowledged=a.acknowledged_ts is not None) for a in list(self.ingest.st.alerts.values())]
         if getattr(self.health, 'offline', False): items.append(dict(alert_type='base_offline', level='DANGER', acknowledged=False))
@@ -125,6 +127,7 @@ class Runtime:
             for kind, level in (('logging_fault', 'WARNING'), ('host_gap', 'NONE')):
                 on, ack = self.port.banner_state(kind)
                 if on: items.append(dict(alert_type=kind, level=level, acknowledged=ack is not None))
+        if self.st.recovering: items.append(dict(alert_type='recovering', level='NONE', acknowledged=False))       # catalog: recovering, one_beep at level NONE
         lvl = self.host_health.audio_level()
         if lvl is not None: items.append(dict(alert_type='host_power', level=lvl, acknowledged=False))      # not acknowledgeable: it ends when the laptop is plugged in
         return items
@@ -138,8 +141,15 @@ class Runtime:
         self.audio_refresh()                                                       # a restored open alert sounds from the first moment
         log.info('step 9: %d open alert(s) and %d open episode(s) loaded, %d row(s) skipped', rep.alerts, rep.episodes, len(rep.skipped))
         return rep
+    async def recover(self):
+        """Steps 11 to 13 (P25-2, services/recovery_run.py): the chunked rebuild on the event loop, then RECOVERING_EXIT and HOST_GAP, then release(). serve.run_server starts this as a task after the 1 Hz driver.
+        Runs once: a second call (or a Runtime that never entered RECOVERING) returns the report of the first, or None. Returns the RunReport."""
+        if self._recovery_started or not self.st.recovering: return self.recovery_report
+        self._recovery_started = True
+        from .services import recovery_run
+        self.recovery_report = await recovery_run.run(self); return self.recovery_report
     def release(self):
-        """Step 13 (P25 calls this after RECOVERING_EXIT)."""
+        """Step 13 (recovery_run.run calls this in a worker thread after RECOVERING_EXIT)."""
         return self.gate.release()
     def stop(self):
         if self.watchdog is not None: self.watchdog.stop()                          # first: a clean shutdown (draining the writer takes seconds) must never look like a stall

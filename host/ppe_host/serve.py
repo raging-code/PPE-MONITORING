@@ -1,7 +1,7 @@
 """serve.py (P24-3c-3, ADR 0035): start-up step 10 of design 14.5: Uvicorn with the REST app and the WebSocket hub, then the 1 Hz driver of Runtime.tick().
 build_app wires HostPort, Hub and Wire to the Runtime (Wire gets the Hub through LoopHub, because frames arrive on the SerialReader thread). run_server starts Uvicorn, waits until it
 accepts connections, and only then starts the driver, so the first tick never runs before the API is up. The driver keeps a fixed 1 s grid: a slow tick does not shift the next one, and a
-tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. The OS watchdog stamps (P24b, ADR 0036): loop_beat stamps 'loop' on the event loop and Runtime.tick stamps 'tick'; Hub.on_tick is not used."""
+tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. P25-2: after the driver run_server starts Runtime.recover() as a task (steps 11 to 13: the rebuild, RECOVERING_EXIT, the pre-replay queue) and cancels it on shutdown. The OS watchdog stamps (P24b, ADR 0036): loop_beat stamps 'loop' on the event loop and Runtime.tick stamps 'tick'; Hub.on_tick is not used."""
 import asyncio, logging, time
 
 log = logging.getLogger('ppe.serve')
@@ -68,7 +68,8 @@ async def run_server(rt, host, port, app_factory=build_app, make_server=None):
     log.info('step 10: Uvicorn listening on %s:%s, 1 Hz driver started', host, port)
     lv = getattr(rt, 'liveness', None); beat = asyncio.ensure_future(loop_beat(lv)) if lv is not None else None
     driver = asyncio.ensure_future(tick_driver(rt))
+    recover = getattr(rt, 'recover', None); recovery = asyncio.ensure_future(recover()) if callable(recover) else None            # steps 11 to 13, after the driver (P25-2)
     try: await serving
     finally:
-        tasks = [driver] + ([beat] if beat is not None else []); [t.cancel() for t in tasks]; await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = [driver] + ([beat] if beat is not None else []) + ([recovery] if recovery is not None else []); [t.cancel() for t in tasks]; await asyncio.gather(*tasks, return_exceptions=True)
         if lv is not None: lv.retire('loop'); lv.retire('tick')                 # shutdown is not a stall
