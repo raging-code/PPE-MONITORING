@@ -3,7 +3,7 @@
 import type { Banners } from '../gen/ws.ts';
 import { entryFor, LEVEL_RANK, renderText, type Level } from './catalog.ts';
 
-export type BannerKind = 'base_offline' | 'logging_fault' | 'host_gap' | 'recovering' | 'host_power' | 'audio_fault';
+export type BannerKind = 'base_offline' | 'logging_fault' | 'host_gap' | 'recovering' | 'host_power' | 'audio_fault' | 'abi_mismatch';
 export const ACKABLE: readonly BannerKind[] = ['host_gap', 'logging_fault']; // the allowlist of POST /api/system-banners/{kind}/ack (3.8)
 
 export interface BannerView { kind: BannerKind; text: string; level: Level; ackable: boolean; acked: boolean }
@@ -40,6 +40,7 @@ export function bannersFor(s: BannerInput): BannerView[] {
       else add('host_power', notice, 'NONE');
     }
     if (b.audio_fault) add('audio_fault', txt('audio_fault'), 'WARNING');
+    if (b.abi_mismatch) add('abi_mismatch', txt('abi_mismatch'), 'WARNING'); // P24-5g (ADR 0051): not in ACKABLE, so no button; stays while the host reports it
   }
   return out.sort((x, y) => LEVEL_RANK[y.level] - LEVEL_RANK[x.level] || (entryFor(x.kind)?.badge_order ?? 0) - (entryFor(y.kind)?.badge_order ?? 0));
 }

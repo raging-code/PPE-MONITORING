@@ -1,10 +1,10 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 export type Mode = 'live' | 'muted' | 'dead';
-export interface MockState { mode: Mode; lastTickAt: number; startCount: number; logins: number }
+export interface MockState { mode: Mode; lastTickAt: number; startCount: number; logins: number; abi_mismatch: boolean }
 
 // The mock host is shared by all tests, so every test starts from a known state.
-export async function control(request: APIRequestContext, body: { mode?: Mode; reset?: boolean }): Promise<MockState> {
+export async function control(request: APIRequestContext, body: { mode?: Mode; reset?: boolean; abi_mismatch?: boolean }): Promise<MockState> {
   const r = await request.post('/__ctl', { data: body });
   expect(r.ok()).toBeTruthy();
   return (await r.json()) as MockState;

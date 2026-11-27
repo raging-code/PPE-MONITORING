@@ -1,7 +1,7 @@
 // e2e/mock_host.mjs (P27-3, ADR 0042): a stand-in for the host that serves the BUILT dashboard (dashboard/dist) and speaks just enough of the
 // design 3.8 wire protocol for the browser tests: POST /api/login, POST /api/session/start, the /ws data socket (snapshot first, then a tick every second)
 // and the /ws/tick socket of the worker. It is not the host: the real host is covered by pytest. What runs for real here is the dashboard, in Chromium.
-// Test control (not part of any design interface, loopback only): POST /__ctl {"mode":"live"|"muted"|"dead","reset":true}, GET /__state.
+// Test control (not part of any design interface, loopback only): POST /__ctl {"mode":"live"|"muted"|"dead","reset":true,"abi_mismatch":true|false}, GET /__state.
 //   live   : snapshot and a tick every second on both sockets.
 //   muted  : the sockets stay open but nothing is sent (a host that stalled; this is the NO LIVE DATA case of 3.7).
 //   dead   : the sockets accept and authenticate but send nothing at all, not even the snapshot (a host that never answers).
@@ -16,7 +16,7 @@ const DIST = path.resolve(HERE, '..', 'dashboard', 'dist');
 const CONSTANTS = JSON.parse(fs.readFileSync(path.resolve(HERE, '..', 'shared', 'constants.json'), 'utf8'));
 export const PORT = Number(process.env.E2E_PORT ?? 8431), HOST = '127.0.0.1', TOKEN = 'e2e-token';
 
-export const snapshotMessage = (now) => ({
+export const snapshotMessage = (now, abi = false) => ({
   v: 1, type: 'snapshot', srv_seq: 0, srv_ts: now, epoch: '5d1f7c3a-2b64-4e0f-9a51-3c7e8d2b6a10', recovering: false, monitoring_active: false,
   session: { session_id: 1, started_ts: now, mode: 'SIMULATOR', session_label: 'e2e' },
   roster: [{ node_id: 1, alias: 'FF-01', active: 1 }],
@@ -24,10 +24,12 @@ export const snapshotMessage = (now) => ({
     scba: 1, mandown: 0, level: 'NORMAL', link_state: 'ok', status2: 0, flags: 0, id_mode: 73, status3: 0, status4: 0,
     co_validity: 'VALID', co_reason: null, scba_correction: null }],
   open_alerts: [], open_episodes: [], co_history_30m: { '1': [[now, 12]] },
-  banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: false },
+  banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: abi },
   constants: CONSTANTS,
 });
 export const tickMessage = (seq, now) => ({ v: 1, type: 'tick', srv_seq: seq, srv_ts: now });
+export const systemMessage = (seq, now, abi) => ({ v: 1, type: 'system', srv_seq: seq, srv_ts: now, base: 'ok', recovering: false, session_id: 1, session_mode: 'SIMULATOR', rejected_frames: 0,
+  logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: abi, banner: null, acknowledged_ts: null });
 
 if (process.argv.includes('--print-messages')) {
   console.log(JSON.stringify([snapshotMessage(1_700_000_000_000), tickMessage(1, 1_700_000_001_000)]));
@@ -39,7 +41,7 @@ if (!fs.existsSync(path.join(DIST, 'index.html'))) {
   process.exit(1);
 }
 
-const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0 };
+const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.stl': 'model/stl' };
 const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -51,8 +53,12 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/__state') return json(res, 200, state);
   if (url.pathname === '/__ctl' && req.method === 'POST') {
     const b = await readBody(req);
-    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; }
+    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; }
     if (['live', 'muted', 'dead'].includes(b.mode)) state.mode = b.mode;
+    if (typeof b.abi_mismatch === 'boolean' && b.abi_mismatch !== state.abi_mismatch) {   // the base reports a different ABI (or agrees again): one system message, like the host
+      state.abi_mismatch = b.abi_mismatch;
+      if (state.mode === 'live') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(systemMessage(++c.seq, Date.now(), state.abi_mismatch)));
+    }
     return json(res, 200, state);
   }
   if (url.pathname === '/api/login' && req.method === 'POST') {
@@ -92,7 +98,7 @@ server.on('upgrade', (req, socket, head) => {
       if (!c.authed) {
         if (m.type !== 'auth' || m.token !== TOKEN) { ws.close(4401); return; }
         c.authed = true;
-        if (c.kind === 'data' && state.mode !== 'dead') ws.send(JSON.stringify(snapshotMessage(Date.now())));
+        if (c.kind === 'data' && state.mode !== 'dead') ws.send(JSON.stringify(snapshotMessage(Date.now(), state.abi_mismatch)));
       }
     });
   });

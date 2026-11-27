@@ -12,7 +12,7 @@ import { snapshot } from './helpers.ts';
 
 const deps = () => ({ controller: { start: vi.fn(), login: vi.fn() }, bridge: { init: vi.fn() } });
 const live = (over: Record<string, unknown> = {}) => liveStore.setState(apply(initialState('CONNECTING'), snapshot(over) as unknown as ServerMessage).state);
-const banners = (o: Record<string, unknown>) => ({ banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ok', audio_fault: false, ...o } });
+const banners = (o: Record<string, unknown>) => ({ banners: { base_offline: false, logging_fault: false, host_gap: null, host_power: 'ok', audio_fault: false, abi_mismatch: false, ...o } });
 beforeEach(() => { window.sessionStorage.clear(); wdStore.setState({ noData: false, sirenOn: false }); });
 afterEach(cleanup);
 
@@ -41,6 +41,14 @@ describe('banners in the Shell', () => {
   it('base offline has no Acknowledge button', () => {
     live(banners({ base_offline: true, audio_fault: true })); render(<SystemBanners />);
     expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+  });
+  it('abi_mismatch shows as a status banner with the catalog text and no Acknowledge button, and goes when the flag clears', () => {
+    live(banners({ abi_mismatch: true })); const r = render(<SystemBanners />);
+    const el = screen.getByTestId('banner-abi_mismatch');
+    expect(el.getAttribute('role')).toBe('status'); expect(el.textContent).toContain('ABI MISMATCH');
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+    cleanup(); live(banners({ abi_mismatch: false })); r.unmount(); render(<SystemBanners />);
+    expect(screen.queryByTestId('banner-abi_mismatch')).toBeNull();
   });
   it('the TEST bar is dark and neutral, appears for SIMULATOR and not for LIVE, and has no close button', () => {
     live({ session: { session_id: 1, started_ts: 1000, mode: 'SIMULATOR', session_label: null } }); const r = render(<Shell {...deps()} />);

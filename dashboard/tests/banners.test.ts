@@ -19,6 +19,15 @@ describe('system banners map to the catalog text (3.4, 3.7)', () => {
     expect(r.map((b) => b.text)).toEqual([entryFor('base_offline')!.text, entryFor('logging_fault')!.text, entryFor('audio_fault')!.text]);
     expect(r.map((b) => b.level)).toEqual(['DANGER', 'WARNING', 'WARNING']);
   });
+  it('ABI MISMATCH uses the catalog wording, is a WARNING, sorts after AUDIO FAULT and is gone when the flag clears', () => {
+    const r = show(B({ abi_mismatch: true, audio_fault: true }));
+    expect(r.map((b) => b.kind)).toEqual(['audio_fault', 'abi_mismatch']);
+    expect(r[1]).toMatchObject({ text: entryFor('abi_mismatch')!.text, level: 'WARNING', ackable: false });
+    expect(show(B({ abi_mismatch: false }))).toEqual([]);
+  });
+  it('a banner with a higher level stays above ABI MISMATCH', () => {
+    expect(show(B({ abi_mismatch: true, base_offline: true })).map((b) => b.kind)).toEqual(['base_offline', 'abi_mismatch']);
+  });
   it('RECOVERING comes from the recovering flag and has no level colour', () => {
     const r = show(B(), { recovering: true }); expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ kind: 'recovering', text: 'RECOVERING: rebuilding state', level: 'NONE' });
@@ -38,7 +47,7 @@ describe('system banners map to the catalog text (3.4, 3.7)', () => {
   });
   it('only host_gap and logging_fault can be acknowledged', () => {
     expect([...ACKABLE].sort()).toEqual(['host_gap', 'logging_fault']);
-    const r = show(B({ base_offline: true, audio_fault: true, host_power: 'battery 28' }), { recovering: true });
+    const r = show(B({ base_offline: true, audio_fault: true, abi_mismatch: true, host_power: 'battery 28' }), { recovering: true });
     expect(r.filter((b) => b.ackable)).toEqual([]);
   });
   it('HOST POWER: mains shows nothing, on battery is a notice, a percent gives the plug-in warning', () => {

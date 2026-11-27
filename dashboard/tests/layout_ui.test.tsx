@@ -25,7 +25,7 @@ const load = (over: Record<string, unknown> = {}, nodes = [node(1)]) => act(() =
   liveStore.setState(apply(initialState('CONNECTING'), snapshot({ srv_ts: 2000, roster, nodes, ...over }) as unknown as ServerMessage).state);
 });
 const deps = () => ({ controller: { start: vi.fn(), login: vi.fn() }, bridge: { init: vi.fn() } });
-const ALL = { base_offline: true, logging_fault: true, host_gap: { gap_s: 7, reason: null }, host_power: 'battery 40', audio_fault: true, abi_mismatch: false };
+const ALL = { base_offline: true, logging_fault: true, host_gap: { gap_s: 7, reason: null }, host_power: 'battery 40', audio_fault: true, abi_mismatch: true };
 const mkGate = () => createGate({ api: { fetchFn: (async () => ({ status: 200, json: async () => ({}) })) as unknown as typeof fetch, getToken: () => 't' },
   makeCtx: () => ({ state: 'suspended', sampleRate: 8000, destination: 'd', resume: async () => {}, createBuffer: (_c: number, n: number) => { const a = new Float32Array(n); return { getChannelData: () => a }; },
     createBufferSource: () => ({ buffer: null, loop: false, connect() {}, start() {}, stop() {} }) }) as never });
@@ -77,7 +77,7 @@ describe('layout (3.7): banners cannot push the readings off the screen', () => 
     const frame = screen.getByTestId('frame'), top = screen.getByTestId('top');
     expect(frame.className).toMatch(/\bh-dvh\b/); expect(frame.className).toContain('flex-col');
     expect(top.className).toContain('max-h-[35dvh]'); expect(top.className).toContain('overflow-y-auto'); expect(top.className).toContain('shrink-0');
-    for (const id of ['banner-base_offline', 'banner-logging_fault', 'banner-host_gap', 'banner-audio_fault', 'banner-host_power', 'banner-recovering', 'mode-bar', 'audio-bar']) expect(top.contains(screen.getByTestId(id)), id).toBe(true);
+    for (const id of ['banner-base_offline', 'banner-logging_fault', 'banner-host_gap', 'banner-audio_fault', 'banner-abi_mismatch', 'banner-host_power', 'banner-recovering', 'mode-bar', 'audio-bar']) expect(top.contains(screen.getByTestId(id)), id).toBe(true);
     expect(top.contains(screen.getByTestId('live'))).toBe(false); expect(top.contains(screen.getByTestId('tray'))).toBe(false);
     expect(screen.getByRole('button', { name: 'End shift' }).closest('header')).toBe(top); // End shift is in the header, above the banners
   });
