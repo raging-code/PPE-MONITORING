@@ -111,6 +111,56 @@ def cmd_test_alarm(a):
     ok, msg = aw.run_test_alarm(aw.WinsoundBackend(), a.seconds)
     print('test-alarm: ' + msg, file=sys.stdout if ok else sys.stderr); return 0 if ok else 1
 COMMANDS['test-alarm'] = (cmd_test_alarm, [('--seconds', {'type': int, 'default': 3, 'help': 'how long the siren plays'})])
+# ---- P26-2: purge-session (design 2.8, 2.11; ADR 0039). Offline only. Exit codes: 0 purged, 1 refused or not found (nothing recorded), 2 refused with an audit row (open alert or episode, foreign key) or a copy that could not be purged ----
+def cmd_purge_session(a):
+    from .services import purge as P
+    from .main import LOCK_NAME, Lockfile                       # imported here: main imports this module
+    cmd, sid = 'purge-session', a.session_id
+    try: s = load_settings(a.home); db = Path(a.db) if a.db else s.path('db_path')
+    except SettingsError as e: return _fail(cmd, str(e))
+    lock = s.home / LOCK_NAME
+    if Lockfile.holder_alive(lock): return _fail(cmd, 'the host is running (lockfile %s): stop it first' % lock)
+    if not db.exists(): return _fail(cmd, 'database file not found: %s' % db)
+    export_dir = Path(a.export_dir) if a.export_dir else s.home / 'exports'; backup_dir = Path(a.backup_dir) if a.backup_dir else s.path('backup_dir')
+    try:
+        conn = connect_db(db)
+        try: present = P.session_row(conn, sid) is not None
+        finally: conn.close()
+    except sqlite3.Error as e: return _fail(cmd, 'cannot read %s: %s' % (db, e))
+    done, failed, removed = [], [], 0
+    if present:
+        try: counts = P.purge_live(db, sid)
+        except P.Refused as e:
+            if e.audit:
+                try: P.write_refusal(db, sid, e.message)
+                except sqlite3.Error as w: print('%s: the refusal could not be recorded: %s' % (cmd, w), file=sys.stderr)
+            return _fail(cmd, 'refused: ' + e.message) if e.code == 1 else (print('%s: refused: %s' % (cmd, e.message), file=sys.stderr) or 2)
+        except sqlite3.Error as e: return _fail(cmd, 'the purge failed and was rolled back: %s: %s' % (type(e).__name__, e))
+        removed += 1; done.append('live database %s: %d frame(s), %d alert(s), %d episode(s), %d audit row(s) deleted, compacted' % (db, counts['frames'], counts['alerts'], counts['episodes'], counts['audit_events']))
+    else: print('%s: session %d is not in %s (already purged?); sweeping the copies and exports' % (cmd, sid, db))
+    explicit = [Path(d) for d in (a.usb_dir or [])]
+    for d, files in P.copies([backup_dir] + explicit, db):
+        if files is None:
+            if d in explicit: failed.append('%s does not exist (drive not connected?)' % d)
+            continue
+        for f in files:
+            st, detail = P.purge_copy(f, sid)
+            if st == 'purged': removed += 1; done.append('copy %s: purged (%s)' % (f, detail))
+            elif st == 'failed': failed.append('copy %s: %s' % (f, detail))
+            elif st == 'skipped': done.append('copy %s: skipped (%s)' % (f, detail))
+    try: gone, whole = P.sweep_exports(export_dir, sid)
+    except OSError as e: gone, whole = [], []; failed.append('exports: %s' % e)
+    if gone: removed += 1; done.append('exports: deleted %s' % ', '.join(gone))
+    if whole: print('%s: warning: whole-database exports in %s may still hold session %d: %s' % (cmd, export_dir, sid, ', '.join(whole)), file=sys.stderr)
+    if not removed and not failed: return _fail(cmd, 'session %d was found in no database, backup or export' % sid)
+    if not present and removed:
+        try: P.audit_row(db, str(sid))
+        except sqlite3.Error as w: failed.append('the audit row could not be written: %s' % w)
+    for line in done: print('%s: %s' % (cmd, line))
+    for line in failed: print('%s: FAILED %s' % (cmd, line), file=sys.stderr)
+    print('%s: session %d %s' % (cmd, sid, 'purged, but not everywhere: run it again after fixing the above' if failed else 'purged')); return 2 if failed else 0
+COMMANDS['purge-session'] = (cmd_purge_session, [('--session-id', {'type': int, 'required': True, 'help': 'the closed session to delete'}), ('--export-dir', {'help': 'folder with session_<id>_*.csv (default: exports/ in PPE_HOME)'}),
+    ('--backup-dir', {'help': 'local backups (default: backup_dir of the settings)'}), ('--usb-dir', {'action': 'append', 'help': 'a backup folder on an external drive; repeat for more'})] + OPERATOR_FLAGS)
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.cli'); sub = p.add_subparsers(dest='command', required=True)
     for name, (_, flags) in COMMANDS.items():
