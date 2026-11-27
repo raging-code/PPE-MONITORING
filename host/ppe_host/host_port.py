@@ -1,12 +1,15 @@
 """host_port.py (P24-3b-1): the host's side of the REST Port (api/api_rest.py) and of the audit and drop hooks of the WebSocket Source (api/ws_hub.py).
 Not in the 14.5 file list: ADR 0031 (Proposed) explains why it is a new top-level module next to main.py. It owns no thread and no socket; every method runs on the event loop
-(end_session, which the route awaits in a worker thread, is P25). Every database write goes through Ingest (one ordered writer queue, one event_seq counter); the reads are
+(end_session, which the route awaits in a worker thread, is P25-3: close_session('ENDED'), then the backup). Every database write goes through Ingest (one ordered writer queue, one event_seq counter); the reads are
 short indexed look-ups on a read-only connection. Acknowledge and Resolve go through step() (Ingest.operator), so the engine and the rows never disagree.
-The snapshot and the WebSocket messages are wire.py (P24-3b-2a), which plugs into publish. Not here, end_session and close_session (P25), loading open alerts and episodes into the engine (P24-3c)."""
+The snapshot and the WebSocket messages are wire.py (P24-3b-2a), which plugs into publish. Loading open alerts and episodes into the engine is Runtime.load_open (P24-3c); close_session is services/sessions.py (P25-3)."""
+import threading
+from pathlib import Path
 from .api import security as sec
 from .core.rule_engine import AckAlertEvent, AckEpisodeEvent, AlertAcknowledged, EpisodeAcknowledged, EpisodeResolved, ResolveEpisodeEvent
 from .io.db_writer import Stmt, connect_db, load_scba_corrections
 
+END_COMMIT_WAIT_MS = 10_000   # P25-3: how long End shift waits for the ENDED unit to commit (a worker thread waits, not the event loop)
 BANNERS = ('host_gap', 'logging_fault')   # the two banners an operator may acknowledge (design 3.8)
 
 class HostPort:
@@ -16,6 +19,7 @@ class HostPort:
         host_gap is None or {'gap_s': float, 'reason': str or None}; P25 sets the real gap with set_host_gap."""
         self.ing, self.writer, self.db_path, self.settings, self.auth, self.publish = ingest, ingest.writer, db_path, settings, auth, publish
         self.recovering, self.host_gap, self.banner_ack = recovering, host_gap, {}
+        self._end_lock = threading.Lock()   # P25-3: two End shift calls (two tabs) run one after the other; the second finds a different open session and gets STATE_CONFLICT
         c = connect_db(db_path, readonly=True)
         try:
             self.monitoring_active = bool(c.execute('SELECT monitoring_active FROM sessions WHERE session_id = ?', (ingest.session_id,)).fetchone()[0])
@@ -67,7 +71,30 @@ class HostPort:
         self._done((), self.ing.write([Stmt('UPDATE sessions SET monitoring_active = 1, operator_id = COALESCE(operator_id, ?), session_label = COALESCE(session_label, ?) WHERE session_id = ?',
                                             (operator_id, session_label, sid))], durable=True))
         return row, True
-    def end_session(self, session_id, operator_id): raise NotImplementedError('close_session(ENDED) and the backup are P25 (design 2.11)')
+    def end_session(self, session_id, operator_id):
+        """POST /api/session/end (design 3.8, 2.3, 2.11), run in a worker thread by the route. close_session('ENDED') is one atomic unit: the END_SHIFT audit row in the old session (its reason lists the open alerts, open episodes
+        and latched nodes), then ended_ts and end_kind='ENDED', then the new session with monitoring_active carried. Open alerts and episodes are not touched: same ids, no clone, no new chime.
+        Then the online backup (io/backup.py) and a BACKUP_OK or BACKUP_FAIL system row in the new session; backup_ok is False when the backup or its verification failed, and the shift is closed anyway.
+        STATE_CONFLICT when session_id is not the open session (a second tab) changes nothing and makes no backup. 500 INTERNAL_ERROR when the unit was rolled back (the old session stays open) or did not commit in time."""
+        from .api.api_rest import ApiError, EndResult
+        from .io import backup as bk
+        from .services import sessions as ses
+        with self._end_lock:
+            old = self.ing.session_id
+            if session_id != old: raise self._conflict('session_id is not the open session')
+            new = ses.next_session_id(self._q)
+            latched = [n for n, s in sorted(self.ing.st.nodes.items()) if getattr(s, 'mandown_prev', False)]
+            unit = self.ing.close_session('ENDED', operator_id, ses.end_shift_detail(self._q, latched), new)
+            committed = self.writer.wait(unit, END_COMMIT_WAIT_MS)
+            if unit.failed: self.ing.undo_end(old, new)
+        if unit.failed: raise ApiError(500, 'INTERNAL_ERROR', 'End shift was rolled back; the shift is still open')
+        if not committed: raise ApiError(500, 'INTERNAL_ERROR', 'End shift is queued but has not committed yet; reload the page')   # the unit stays queued and commits when the disk answers
+        now = self.ing.clock.wall_ms()
+        try:
+            dest = bk.online_backup(self.db_path, Path(self.settings.path('backup_dir')) / bk.backup_name('end-shift', now)); good, why = bk.verify_backup(dest)
+        except Exception as e: dest, good, why = None, False, '%s: %s' % (type(e).__name__, e)
+        self.ing.system_event('BACKUP_OK' if good else 'BACKUP_FAIL', dest.name if good else why, droppable=False)
+        return EndResult(old, new, good)
 
     # ---- Acknowledge and Resolve ----
     def ack_alert(self, alert_id, operator_id):

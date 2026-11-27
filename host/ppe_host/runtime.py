@@ -151,8 +151,13 @@ class Runtime:
     def release(self):
         """Step 13 (recovery_run.run calls this in a worker thread after RECOVERING_EXIT)."""
         return self.gate.release()
-    def stop(self):
+    def stop(self, clean=False):
+        """clean=True (P25-3, only main() after a server that stopped by itself): close_session('CLEAN_SHUTDOWN') is queued after the last live row and drained with the writer.
+        A stop that is not clean leaves the session open, so the next start resumes it (design 2.3)."""
         if self.watchdog is not None: self.watchdog.stop()                          # first: a clean shutdown (draining the writer takes seconds) must never look like a stall
         if self.audio is not None and self.audio.is_alive(): self.audio.stop(); self.audio.join(2)
         if self.serial: self.reader.stop(); self.serial_writer.stop()
+        if clean:
+            try: self.ingest.close_session('CLEAN_SHUTDOWN')
+            except Exception: log.exception('CLEAN_SHUTDOWN could not be queued')
         self.writer.stop(drain=True)

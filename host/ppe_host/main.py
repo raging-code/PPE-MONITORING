@@ -12,6 +12,7 @@ from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, ini
 from .cli import MIGRATIONS_DIR, seed_roster
 from .io.audio_watchdog import WinsoundBackend
 from .io.os_watchdog import consume_marker
+from .services import sessions as ses
 from .runtime import Runtime
 from .serve import ServeError, run_server
 
@@ -184,7 +185,7 @@ def begin_session(st, clock=None):
     otherwise close it ABANDONED (SESSION_ABANDONED with detail mode_changed, config_hash_changed or stale_30min, in that order of precedence) and open a new one.
     Then log HOST_START (host_boot_id, mono_base_ms), RECOVERING_ENTER, then (P24b) LIVENESS_RESTART when the previous process left a crash marker (TICK_STALL too when the 1 Hz tick was among
     the stale parts) and, after a quick_check failure, INTEGRITY_FAIL and in LIVE the DB_RESTORED audit row (session_id NULL).
-    Alerts and episodes are never touched (2.11). The general close_session(kind) and the rebase of old monotonic stamps are P25."""
+    Alerts and episodes are never touched (2.11). The close itself is services/sessions.close_session (P25-3), the one place that orders its rows; the rebase of old monotonic stamps is services/recovery.py (P25-1)."""
     clock = clock or RealClock(); now = clock.wall_ms(); conn = st.conn; ch, sh = constants_hash(), settings_hash(st.settings); limit = st.settings['session_resume_max_min'] * 60_000
     conn.execute('BEGIN IMMEDIATE')
     try:
@@ -193,7 +194,7 @@ def begin_session(st, clock=None):
             why = 'mode_changed' if row[1] != st.mode else 'config_hash_changed' if (row[2], row[3]) != (ch, sh) else 'stale_30min' if now - last_row_ts(conn, row[0]) >= limit else None
             if why is None: sid, st.resumed = row[0], True
             else:
-                _sys(conn, st, row[0], now, 'SESSION_ABANDONED', why); conn.execute("UPDATE sessions SET ended_ts = ?, end_kind = 'ABANDONED' WHERE session_id = ?", (now, row[0])); changed = why == 'config_hash_changed'
+                ses.run_stmts(conn, ses.close_stmts('ABANDONED', row[0], now, st.event_seq, detail=why)); st.event_seq += 1; changed = why == 'config_hash_changed'      # P25-3: the same rows in the same order as before, from the one close_session
         if sid is None:
             sid = conn.execute('INSERT INTO sessions(started_ts, mode, host_build, constants_hash, settings_hash) VALUES (?, ?, ?, ?, ?)', (now, st.mode, host_build(), ch, sh)).lastrowid
         st.host_boot_id = uuid.uuid4().hex
@@ -229,10 +230,11 @@ def main(argv=None, serve=run_server):
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
     print('start-up steps 1 to 9 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
-    try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port']))                                 # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
+    clean = False                                                                                              # P25-3: only a server that stopped by itself (SIGINT, SIGTERM) is a clean shutdown
+    try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port'])); clean = True                                 # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
     except ServeError as e: print('step 10 failed: %s' % e, file=sys.stderr); return EXIT_CONFIG
     except Exception: LOG.exception('step 10 failed'); return EXIT_CRASH
-    finally: rt.stop(); st.close()
+    finally: rt.stop(clean=clean); st.close()
     return EXIT_OK
 
 if __name__ == '__main__': sys.exit(main())

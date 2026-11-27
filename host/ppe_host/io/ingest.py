@@ -208,6 +208,21 @@ class Ingest:
             self.st, seq = next_seq(self.st)
             return self.writer.submit(Unit(seq, [Stmt(AUDIT_SQL, (self.session_id, seq, self.clock.wall_ms(), operator_id, action, node_id, episode_id, reason))], durable=durable))
 
+    def close_session(self, kind, operator_id=None, detail=None, new_sid=None):
+        """P25-3 (ADR 0037): queue close_session(kind) as one atomic unit (services/sessions.py gives the rows and their order). The unit takes the next event_seq and is durable. Returns the Unit.
+        For 'ENDED' the Ingest writes into new_sid from this call on (everything queued before the unit belongs to the old session and commits before it); the caller waits for the unit and calls undo_end if it failed.
+        For 'CLEAN_SHUTDOWN' nothing changes in the Ingest: the host is stopping."""
+        from ..services import sessions
+        with self._lock:
+            old = self.session_id; self.st, seq = next_seq(self.st)
+            unit = self.writer.submit(Unit(seq, sessions.close_stmts(kind, old, self.clock.wall_ms(), seq, operator_id, detail, new_sid), durable=True, atomic=True))
+            if kind == 'ENDED': self.session_id = new_sid
+            return unit
+    def undo_end(self, old_sid, new_sid):
+        """P25-3: the ENDED unit was rolled back, so the old session is still the open one. Rows queued in the short window in between carried new_sid and are rejected by the writer (counted, LOGGING_FAULT)."""
+        with self._lock:
+            if self.session_id == new_sid: self.session_id = old_sid
+
     def write(self, stmts, durable=False):
         """P24-3b-1: rows the host itself writes (a session update, the acknowledgement of a cleared alert) as one ordered unit with its own event_seq. Returns the Unit."""
         with self._lock:

@@ -71,6 +71,8 @@ class Unit:
     durable: bool = False          # operator action: committed with synchronous=FULL whatever the default
     rejected: int = 0              # rows skipped by the deterministic-failure rule; the caller keeps its alert live with unpersisted=1
     fallback: bool = False         # set once the unit is committed row by row; a later retry resumes there
+    atomic: bool = False           # P25-3: all or nothing (close_session). A deterministic failure rolls the whole unit back, is never committed row by row and sets failed
+    failed: bool = False           # P25-3: an atomic unit that was rolled back and dropped; the caller must not assume its rows exist
     _ids: dict = field(default_factory=dict, repr=False)
     _next: int = 0
     done: threading.Event = field(default_factory=threading.Event)
@@ -130,6 +132,8 @@ class DBWriter:
             else: self._commit(unit)
             return True
         except sqlite3.Error as e:
+            if unit.atomic and (isinstance(e, DETERMINISTIC) or not self._transient(e)):      # P25-3: close_session is one transaction or nothing (design 2.3): no row-by-row fallback, no retry, the queue moves on
+                unit.failed, unit.rejected = True, unit.rejected + 1; self.counters['write_rejected'] += 1; self.logging_fault, self.last_error = True, str(e); self._note_fault(unit.stmts[0], e); return True
             if not unit.fallback and (isinstance(e, DETERMINISTIC) or not self._transient(e)):
                 unit.fallback = True; return self._handle(unit)
             self.logging_fault, self.last_error = True, str(e); return False

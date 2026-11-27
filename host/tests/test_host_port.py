@@ -119,7 +119,4 @@ def test_banners_ack_only_while_active_once_and_the_ack_ends_with_the_condition(
     w.logging_fault = True; assert p.ack_banner('logging_fault', 1).kind == 'logging_fault'
     w.logging_fault = False; assert p.banner_state('logging_fault') == (False, None); w.logging_fault = True; assert p.banner_state('logging_fault') == (True, None); w.stop()
 
-def test_end_session_is_not_built_yet_and_says_so(tmp_path):                                      # close_session is P25
-    c, w, clock, ing, p = port(tmp_path)
-    with pytest.raises(NotImplementedError): p.end_session(1, 1)
-    w.stop()
+# end_session (close_session('ENDED') and the backup) is P25-3 and is tested in test_sessions.py
