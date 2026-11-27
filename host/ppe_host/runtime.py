@@ -5,14 +5,14 @@ steps 11 to 13 (P25: recovery, then release()). SIMULATOR and REPLAY have no ser
 Pre-replay queue (design 1, recovery rule a): frames that arrive while recovering wait in a queue of at most pre_replay_queue_max. When it overflows, the oldest frame with node level
 NORMAL and no event bit is dropped first and counted (pre_replay_dropped); a frame with a non-NORMAL node level, mandown, mayday, fault or check-in is never dropped, so the queue may
 then exceed its bound (pre_replay_overflow counts that). No rule runs and no alert is raised from a queued frame: release() feeds them to Ingest.frame in arrival order, then goes live."""
-import logging, threading
+import json, logging, threading
 from pathlib import Path
 from collections import deque
 from . import abi
 from .clock import RealClock
 from .io.audio_watchdog import SOUNDS_DIR, AudioThread
 from .io.db_writer import DBWriter
-from .io.health import Counters, Health
+from .io.health import Counters, Health, HostHealth
 from .io.os_watchdog import MARKER_NAME, Liveness, OSWatchdogThread
 from .io.ingest import Ingest
 from .io.serial_reader import SerialReader, open_serial
@@ -81,7 +81,7 @@ class Runtime:
         watchdog_exit: the function the OSWatchdogThread calls on a stall (main passes os._exit); None means no watchdog thread, as in most tests. The stamps are always kept."""
         s, self.st, self.clock = st.settings, st, clock or RealClock()
         self.serial = st.mode == 'LIVE'
-        self.writer = DBWriter(st.db_path, self.clock)
+        self.writer = DBWriter(st.db_path, self.clock, on_logging_fault=lambda table, msg: self.ingest.system_event('LOGGING_FAULT', json.dumps({'table': table, 'error': msg}, sort_keys=True, separators=(',', ':'))))   # the lambda reads self.ingest only when a fault happens, after __init__
         roster = [r[0] for r in st.conn.execute('SELECT node_id FROM roster WHERE active = 1 ORDER BY node_id')]
         self.ingest = Ingest.from_settings(s, roster, self.writer, self.clock, st.session_id, event_seq_start=st.event_seq - 1)    # st.event_seq is the next free value
         self.gate = PreReplayGate(self.ingest, s['pre_replay_queue_max'])
@@ -93,6 +93,7 @@ class Runtime:
         counters = Counters.for_host(self.ingest, self.writer, self.reader, self.serial_writer,
                                      extra={'pre_replay_dropped': lambda: self.gate.dropped, 'pre_replay_overflow': lambda: self.gate.overflow})
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
+        self.host_health = HostHealth(self.clock, self.ingest.system_event, self.writer, st.db_path.parent, warn_pct=s['host_bat_warn_pct'], disk_min_gb=s['host_disk_min_gb'])
         self.started, self.wire, self.port, self.ticks = False, None, None, 0   # wire and port are set by serve.build_app (step 10)
         self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.clock, s.path('log_dir') / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
         self.audio = None if audio_backend is None else AudioThread(audio_backend, self.clock, sounds_dir=SOUNDS_DIR, check_interval_s=s['audio_check_interval_s'],
@@ -110,13 +111,13 @@ class Runtime:
     def tick(self):
         """The 1 Hz body (step 10): host_tick to the base first, then Health.tick (BASE_OFFLINE, COUNTERS), then the audio feed (a once-a-second safety net next to Wire.on_change), then Wire.tick (engine tick, held messages, unauth repeats, links, system), and last the 'tick' liveness stamp of the OS watchdog (stamped even when a part failed: it says the timer is alive).
         Wire.tick waits for the commit (commit_wait_ms), so the driver runs this in a worker thread, never on the event loop. Each part is guarded: one failure is logged and the others still run."""
-        for name, fn in (('host_tick', self.offer_tick), ('health', self.health.tick), ('audio', self.audio_refresh), ('wire', lambda: self.wire.tick() if self.wire is not None else None), ('stamp', lambda: self.liveness.stamp('tick'))):
+        for name, fn in (('host_tick', self.offer_tick), ('health', self.health.tick), ('host_health', self.host_health.tick), ('audio', self.audio_refresh), ('wire', lambda: self.wire.tick() if self.wire is not None else None), ('stamp', lambda: self.liveness.stamp('tick'))):
             try: fn()
             except Exception: log.exception('1 Hz tick: %s failed', name)
         self.ticks += 1
     def audio_items(self):
         """What the host may sound now, for AudioThread.set_items(): every open alert of the engine state (type, level, acknowledged) plus the banners that have a host sound:
-        BASE OFFLINE (the Health flag; it cannot be acknowledged), LOGGING FAULT and HOST GAP (acknowledgeable). Not here yet: RECOVERING (P25 ends it, so it is added there), HOST BATTERY (P24b).
+        BASE OFFLINE (the Health flag; it cannot be acknowledged), LOGGING FAULT and HOST GAP (acknowledgeable). HOST BATTERY ('host_power': beep at or below host_bat_warn_pct, silent while only on battery). Not here yet: RECOVERING (P25 ends it, so it is added there).
         Reads only immutable engine state and flags, so any thread may call it."""
         items = [dict(alert_type=a.type, level=a.level, acknowledged=a.acknowledged_ts is not None) for a in list(self.ingest.st.alerts.values())]
         if getattr(self.health, 'offline', False): items.append(dict(alert_type='base_offline', level='DANGER', acknowledged=False))
@@ -124,6 +125,8 @@ class Runtime:
             for kind, level in (('logging_fault', 'WARNING'), ('host_gap', 'NONE')):
                 on, ack = self.port.banner_state(kind)
                 if on: items.append(dict(alert_type=kind, level=level, acknowledged=ack is not None))
+        lvl = self.host_health.audio_level()
+        if lvl is not None: items.append(dict(alert_type='host_power', level=lvl, acknowledged=False))      # not acknowledgeable: it ends when the laptop is plugged in
         return items
     def audio_refresh(self):
         if self.audio is not None: self.audio.set_items(self.audio_items())

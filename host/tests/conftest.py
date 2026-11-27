@@ -22,3 +22,9 @@ def _no_real_watchdog_exit(monkeypatch):
     from ppe_host import main as M
     M.WATCHDOG_EXITS = []
     monkeypatch.setattr(M, 'watchdog_exit', lambda code: M.WATCHDOG_EXITS.append(code))
+
+@pytest.fixture(autouse=True)
+def _no_real_battery(monkeypatch):
+    """HostHealth reads the laptop battery by default (P24b); a test must never depend on the machine it runs on."""
+    from ppe_host.io import health
+    monkeypatch.setattr(health, 'default_battery', lambda: (False, None))

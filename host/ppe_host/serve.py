@@ -31,7 +31,7 @@ def build_app(rt, loop):
     hub = Hub(port, bind_port=s['bind_port'], queue_max=s['ws_send_queue_max'], send_timeout_s=s['ws_send_timeout_s'], auth_timeout_s=s['ws_auth_timeout_s'])
     app = create_app(port, str(rt.st.db_path), s['bind_port']); install(app, hub)
     rt.port = port
-    wire = Wire(port, LoopHub(hub, loop), audio_fault=lambda: bool(rt.audio is not None and rt.audio.audio_fault)).attach(); wire.enable_advisory(s['advisory_heartbeat_s'])
+    wire = Wire(port, LoopHub(hub, loop), audio_fault=lambda: bool(rt.audio is not None and rt.audio.audio_fault), host_power=rt.host_health.host_power).attach(); wire.enable_advisory(s['advisory_heartbeat_s'])
     rt.wire, wire.on_change = wire, rt.audio_refresh                           # a new alarm reaches the AudioThread as soon as the engine has decided it
     if rt.audio is not None:
         rt.audio.sockets_fn, rt.audio.monitoring_fn = tab_counter(hub), lambda: bool(port.monitoring_active)     # the zero-socket warning (ADR 0026) is armed only now that the hub exists
