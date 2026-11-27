@@ -1,0 +1,141 @@
+"""P24-5b: cli doctor (ADR 0047): the pre-shift check of design 1 (Release bundle and doctor). One PASS, FAIL or SKIP line per check, exit 1 on any FAIL, and it changes nothing.
+The serial list, the port, the sound card and the platform are fakes, so no device is needed."""
+import hashlib, json, shutil, sqlite3
+from pathlib import Path
+from fakeaudio import FakeBackend
+from ppe_host import cli
+from ppe_host.io.audio_watchdog import SOUNDS_DIR
+from ppe_host.main import LOCK_NAME, Lockfile
+from ppe_host.services import doctor as D
+from ppe_host.settings import CONSTANTS_PATH, constants_hash
+
+CMAC, SALT = 'ab' * 16, 'cd' * 32
+
+def make(tmp_path, secrets=True, salt=True, dashboard=True, manifest=True):
+    """A home folder with secrets and a release root with a matching manifest, the constants and the dashboard."""
+    home, root = tmp_path / 'home', tmp_path / 'root'
+    (home / 'config').mkdir(parents=True); (root / 'shared').mkdir(parents=True)
+    if secrets: (home / 'config' / 'secrets.json').write_text(json.dumps({'cmac_key': CMAC, **({'server_salt': SALT} if salt else {})}))
+    shutil.copy(CONSTANTS_PATH, root / 'shared' / 'constants.json')
+    if manifest: (root / 'build_manifest.json').write_text(json.dumps({'rev_tag': 'Rev 3.45', 'git_commit': 'abcdef1234567890', 'constants_sha256': constants_hash(root / 'shared' / 'constants.json')}))
+    if dashboard: (root / 'dashboard' / 'dist').mkdir(parents=True); (root / 'dashboard' / 'dist' / 'index.html').write_text('<html></html>')
+    return home, root
+
+def run(tmp_path, home, root, **kw):
+    args = dict(comports=lambda: ['COM3', 'COM4'], listening=lambda h, p: False, backend=FakeBackend(), platform='win32'); args.update(kw)
+    return D.run_checks(str(home), None, root, **args)
+
+def by(rows, name): return [r for r in rows if r[1] == name][0]
+def status(rows, name): return by(rows, name)[0]
+
+def test_a_good_machine_passes_every_check_and_exits_0(tmp_path):
+    home, root = make(tmp_path); rows = run(tmp_path, home, root)
+    assert [r[0] for r in rows] == ['PASS'] * 11 and [r[1] for r in rows] == ['release version', 'settings', 'base serial device', 'sound files', 'audio device', 'free disk', 'port 8420', 'prebuilt dashboard', 'secrets.json', 'database quick_check', 'lockfile']
+    lines, ok = D.format_rows(rows); assert ok and lines[-1] == 'doctor: 11 passed, 0 failed, 0 skipped'
+
+def test_the_release_check_needs_a_manifest_with_a_rev_tag_and_the_constants_of_this_folder(tmp_path):
+    home, root = make(tmp_path, manifest=False); assert status(run(tmp_path, home, root), 'release version') == 'FAIL'
+    (root / 'build_manifest.json').write_text(json.dumps({'rev_tag': None, 'constants_sha256': 'x'})); assert 'no rev_tag' in by(run(tmp_path, home, root), 'release version')[2]
+    (root / 'build_manifest.json').write_text(json.dumps({'rev_tag': 'Rev 3.45', 'constants_sha256': '0' * 64})); assert 'does not match' in by(run(tmp_path, home, root), 'release version')[2]
+    (root / 'build_manifest.json').write_text('{broken'); assert 'not readable' in by(run(tmp_path, home, root), 'release version')[2]
+
+def test_the_manifest_is_also_found_in_dist_for_a_repository_checkout(tmp_path):
+    home, root = make(tmp_path); (root / 'dist').mkdir(); shutil.move(str(root / 'build_manifest.json'), str(root / 'dist' / 'build_manifest.json'))
+    r = by(run(tmp_path, home, root), 'release version'); assert r[0] == 'PASS' and 'Rev 3.45' in r[2] and 'abcdef123456' in r[2]
+
+def test_the_serial_check_looks_the_port_up_and_never_opens_it(tmp_path):
+    home, root = make(tmp_path)
+    assert status(run(tmp_path, home, root, comports=lambda: ['com4']), 'base serial device') == 'PASS'                     # the name is compared without case, as Windows does
+    r = by(run(tmp_path, home, root, comports=lambda: ['COM7']), 'base serial device'); assert r[0] == 'FAIL' and 'COM4 not found' in r[2] and 'COM7' in r[2]
+    assert 'none' in by(run(tmp_path, home, root, comports=lambda: []), 'base serial device')[2]
+    def no_pyserial(): raise ImportError('serial')
+    assert 'pyserial is not installed' in by(run(tmp_path, home, root, comports=no_pyserial), 'base serial device')[2]
+
+def test_serial_port_auto_is_a_fail_with_the_way_out(tmp_path):
+    home, root = make(tmp_path); (home / 'config' / 'settings.local.json').write_text(json.dumps({'serial_port': 'auto'}))
+    r = by(run(tmp_path, home, root), 'base serial device'); assert r[0] == 'FAIL' and 'settings.local.json' in r[2]
+
+def test_an_altered_sound_file_is_a_fail_that_names_the_file(tmp_path):
+    home, root = make(tmp_path); snd = tmp_path / 'sounds'; shutil.copytree(SOUNDS_DIR, snd); (snd / 'siren.wav').write_bytes(b'not a wav')
+    r = by(run(tmp_path, home, root, sounds_dir=snd), 'sound files'); assert r[0] == 'FAIL' and 'siren.wav altered' in r[2]
+    (snd / 'siren.wav').unlink(); assert 'siren.wav missing' in by(run(tmp_path, home, root, sounds_dir=snd), 'sound files')[2]
+
+def test_the_audio_device_plays_the_silent_probe_on_windows(tmp_path):
+    home, root = make(tmp_path); b = FakeBackend(); rows = run(tmp_path, home, root, backend=b)
+    assert status(rows, 'audio device') == 'PASS' and b.played() == ['probe.wav'] and b.calls[0][3] is True      # synchronous
+
+def test_a_probe_that_fails_is_a_fail_and_off_windows_the_check_is_skipped_without_playing(tmp_path):
+    home, root = make(tmp_path); r = by(run(tmp_path, home, root, backend=FakeBackend(fail=RuntimeError('no device'))), 'audio device'); assert r[0] == 'FAIL' and 'no device' in r[2]
+    b = FakeBackend(); r = by(run(tmp_path, home, root, backend=b, platform='linux'), 'audio device'); assert r[0] == 'SKIP' and b.calls == []
+    lines, ok = D.format_rows([r]); assert ok                                                                      # a SKIP never fails the command
+
+def test_too_little_free_disk_is_a_fail(tmp_path):
+    home, root = make(tmp_path); (home / 'config' / 'settings.local.json').write_text(json.dumps({'host_disk_min_gb': 1e12}))
+    r = by(run(tmp_path, home, root), 'free disk'); assert r[0] == 'FAIL' and 'minimum' in r[2]
+
+def test_the_port_is_free_or_held_by_the_running_host_and_nothing_else(tmp_path):
+    home, root = make(tmp_path)
+    assert status(run(tmp_path, home, root), 'port 8420') == 'PASS'
+    r = by(run(tmp_path, home, root, listening=lambda h, p: True), 'port 8420'); assert r[0] == 'FAIL' and 'another program' in r[2]
+    Lockfile.acquire(home / LOCK_NAME)                                                                             # this very process holds the lock: the host is "running"
+    assert status(run(tmp_path, home, root, listening=lambda h, p: True), 'port 8420') == 'PASS'
+    r = by(run(tmp_path, home, root, listening=lambda h, p: False), 'port 8420'); assert r[0] == 'FAIL' and 'nothing listens' in r[2]
+
+def test_the_real_listening_probe_sees_an_open_port_and_a_closed_one():
+    import socket
+    s = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(1); port = s.getsockname()[1]
+    try: assert D.default_listening('127.0.0.1', port) is True
+    finally: s.close()
+    assert D.default_listening('127.0.0.1', port) is False
+
+def test_a_missing_prebuilt_dashboard_is_a_fail(tmp_path):
+    home, root = make(tmp_path, dashboard=False); r = by(run(tmp_path, home, root), 'prebuilt dashboard'); assert r[0] == 'FAIL' and 'index.html' in r[2]
+
+def test_secrets_missing_or_bad_is_a_fail_and_the_key_is_never_printed(tmp_path):
+    home, root = make(tmp_path, secrets=False); assert status(run(tmp_path, home, root), 'secrets.json') == 'FAIL'
+    (home / 'config' / 'secrets.json').write_text(json.dumps({'cmac_key': 'ab' * 15})); r = by(run(tmp_path, home, root), 'secrets.json'); assert r[0] == 'FAIL' and 'cmac_key' in r[2] and 'ab' * 15 not in r[2]
+    home, root = make(tmp_path / 'ok'); out = '\n'.join(D.format_rows(run(tmp_path, home, root))[0]); assert CMAC not in out and SALT not in out
+
+def test_a_missing_server_salt_is_a_fail_only_when_operators_exist(tmp_path):
+    home, root = make(tmp_path, salt=False); r = by(run(tmp_path, home, root), 'secrets.json'); assert r[0] == 'PASS' and 'no server_salt yet' in r[2]
+    db = home / 'data' / 'ppe.db'; db.parent.mkdir(); c = sqlite3.connect(str(db)); c.execute('CREATE TABLE operators(operator_id INTEGER)'); c.execute('INSERT INTO operators VALUES (1)'); c.commit(); c.close()
+    r = by(run(tmp_path, home, root), 'secrets.json'); assert r[0] == 'FAIL' and 'server_salt' in r[2]
+
+def test_the_database_check_passes_a_good_file_and_fails_a_damaged_one(tmp_path):
+    home, root = make(tmp_path); db = home / 'data' / 'ppe.db'; db.parent.mkdir(); c = sqlite3.connect(str(db)); c.execute('CREATE TABLE t(x)'); c.commit(); c.close()
+    assert by(run(tmp_path, home, root), 'database quick_check')[2] == 'ok'
+    db.write_bytes(b'this is not a database file' * 200); r = by(run(tmp_path, home, root), 'database quick_check'); assert r[0] == 'FAIL'
+
+def tree(folder): return {str(p.relative_to(folder)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path(folder).rglob('*')) if p.is_file()}
+
+def test_doctor_changes_nothing_not_even_on_a_wal_database(tmp_path):
+    home, root = make(tmp_path); db = home / 'data' / 'ppe.db'; db.parent.mkdir(); c = sqlite3.connect(str(db)); c.execute('PRAGMA journal_mode=WAL'); c.execute('CREATE TABLE t(x)'); c.execute('INSERT INTO t VALUES (1)'); c.commit(); c.close()
+    before = tree(tmp_path); rows = run(tmp_path, home, root); after = tree(tmp_path)
+    assert status(rows, 'database quick_check') == 'PASS' and before == after
+
+def test_a_database_that_a_running_host_holds_open_is_read_without_new_files_or_a_changed_main_file(tmp_path):
+    home, root = make(tmp_path); db = home / 'data' / 'ppe.db'; db.parent.mkdir()
+    host = sqlite3.connect(str(db)); host.execute('PRAGMA journal_mode=WAL'); host.execute('CREATE TABLE t(x)'); host.execute('INSERT INTO t VALUES (1)'); host.commit()      # stays open, as the host's writer does
+    try:
+        names = sorted(p.name for p in db.parent.iterdir()); main_bytes = db.read_bytes(); assert 'ppe.db-wal' in names
+        assert status(run(tmp_path, home, root), 'database quick_check') == 'PASS' and sorted(p.name for p in db.parent.iterdir()) == names and db.read_bytes() == main_bytes
+    finally: host.close()
+
+def test_the_lockfile_line_says_none_running_or_stale(tmp_path):
+    home, root = make(tmp_path); assert 'none' in by(run(tmp_path, home, root), 'lockfile')[2]
+    (home / LOCK_NAME).write_text(json.dumps({'pid': 2 ** 30, 'start': 'x'})); r = by(run(tmp_path, home, root), 'lockfile'); assert r[0] == 'PASS' and 'stale' in r[2] and 'replaces' in r[2]
+    (home / LOCK_NAME).write_text('garbage'); assert 'unreadable' in by(run(tmp_path, home, root), 'lockfile')[2]
+    (home / LOCK_NAME).unlink(); Lockfile.acquire(home / LOCK_NAME); assert 'is running' in by(run(tmp_path, home, root), 'lockfile')[2]
+
+def test_unreadable_settings_are_one_fail_and_the_checks_that_need_them_are_skipped(tmp_path):
+    home, root = make(tmp_path); (home / 'config' / 'settings.local.json').write_text(json.dumps({'no_such_key': 1}))
+    rows = run(tmp_path, home, root); assert status(rows, 'settings') == 'FAIL' and 'no_such_key' in by(rows, 'settings')[2]
+    assert [r[0] for r in rows if r[1] in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'lockfile')] == ['SKIP'] * 6
+    assert status(rows, 'release version') == 'PASS' and status(rows, 'sound files') == 'PASS' and status(rows, 'prebuilt dashboard') == 'PASS'
+
+def test_the_command_is_registered_with_home_and_db_and_its_exit_code_follows_the_checks(tmp_path, monkeypatch, capsys):
+    assert 'doctor' in cli.COMMANDS and {f for f, _ in cli.COMMANDS['doctor'][1]} == {'--home', '--db'}
+    monkeypatch.setattr(D, 'run_checks', lambda home, db: [('PASS', 'a', 'fine'), ('SKIP', 'b', 'not here')])
+    assert cli.main(['doctor']) == 0; out = capsys.readouterr().out; assert 'doctor: PASS a: fine' in out and out.rstrip().endswith('doctor: 1 passed, 0 failed, 1 skipped')
+    monkeypatch.setattr(D, 'run_checks', lambda home, db: [('PASS', 'a', 'fine'), ('FAIL', 'b', 'broken')])
+    assert cli.main(['doctor']) == 1; assert 'doctor: FAIL b: broken' in capsys.readouterr().out

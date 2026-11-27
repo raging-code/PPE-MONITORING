@@ -164,6 +164,12 @@ def cmd_purge_session(a):
     print('%s: session %d %s' % (cmd, sid, 'purged, but not everywhere: run it again after fixing the above' if failed else 'purged')); return 2 if failed else 0
 COMMANDS['purge-session'] = (cmd_purge_session, [('--session-id', {'type': int, 'required': True, 'help': 'the closed session to delete'}), ('--export-dir', {'help': 'folder with session_<id>_*.csv (default: exports/ in PPE_HOME)'}),
     ('--backup-dir', {'help': 'local backups (default: backup_dir of the settings)'}), ('--usb-dir', {'action': 'append', 'help': 'a backup folder on an external drive; repeat for more'})] + OPERATOR_FLAGS)
+# ---- P24-5b: doctor, the pre-shift check of design 1 (ADR 0047). Changes nothing. Exit 0 when no check failed, 1 when one did ----
+def cmd_doctor(a):
+    from .services import doctor as D
+    lines, ok = D.format_rows(D.run_checks(a.home, a.db))
+    print('\n'.join(lines)); return 0 if ok else 1
+COMMANDS['doctor'] = (cmd_doctor, list(OPERATOR_FLAGS))
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.cli'); sub = p.add_subparsers(dest='command', required=True)
     for name, (_, flags) in COMMANDS.items():
