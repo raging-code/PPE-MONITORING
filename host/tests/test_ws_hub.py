@@ -8,11 +8,11 @@ AUTH = json.dumps({'v': 1, 'type': 'auth', 'token': 'good-token'})
 NODE = dict(node_id=1, alias='FF-01', last_rx_ts=None, co_ppm=None, temp_c=None, hum_pct=None, motion_g=None, bat_pct=None, scba=None, mandown=None, level=None, link_state='not_connected',
             status2=None, flags=None, id_mode=None, status3=None, status4=None, co_validity='VALID', co_reason=None, scba_correction=None)
 SNAP = dict(recovering=False, monitoring_active=True, session=dict(session_id=4, started_ts=1, mode='LIVE', session_label=None), roster=[dict(node_id=1, alias='FF-01', active=1)],
-            nodes=[NODE], open_alerts=[], open_episodes=[], co_history_30m={'1': [[1, 12.0]]}, banners=dict(base_offline=False, logging_fault=False, host_gap=None, host_power='ac', audio_fault=False), constants={'co_warn_ppm': 35.0})
+            nodes=[NODE], open_alerts=[], open_episodes=[], co_history_30m={'1': [[1, 12.0]]}, banners=dict(base_offline=False, logging_fault=False, host_gap=None, host_power='ac', audio_fault=False, abi_mismatch=False), constants={'co_warn_ppm': 35.0})
 def reading(n=1, co=12.0): return dict(node_id=n, alias='FF-0%d' % n, rx_ts=5, co_ppm=co, co_over_range=0, co_validity='VALID', co_reason=None, temp_c=25.0, hum_pct=50, motion_g=0.0, posture='UPRIGHT', stillness_s=0.0, bat_pct=80,
                        scba=0, mandown=0, level='NORMAL', reasons=[], seq_class='fresh', rssi=-90.0, snr=7.0, status2=0, flags=0, id_mode=65, status3=0, status4=0)
 def alert(aid=1, t='man_down', **kw): return dict(dict(alert_id=aid, node_id=1, alert_type=t, level='DANGER', reasons=None, authenticated=1, episode_id=None, raised_ts=5, cleared_ts=None, acknowledged_ts=None, acknowledged_by=None, unauth_count=None, last_seen_ts=None), **kw)
-SYSTEM = dict(base='ok', recovering=False, session_id=4, session_mode='LIVE', rejected_frames=0, logging_fault=False, host_gap=None, host_power='ac', audio_fault=False, banner=None, acknowledged_ts=None)
+SYSTEM = dict(base='ok', recovering=False, session_id=4, session_mode='LIVE', rejected_frames=0, logging_fault=False, host_gap=None, host_power='ac', audio_fault=False, abi_mismatch=False, banner=None, acknowledged_ts=None)
 class Src:
     def __init__(self): self.audits, self.dropped, self.ok = [], [], {'good-token'}
     def authenticate(self, t): return R.Operator(1, 'Ana') if t in self.ok else None

@@ -115,7 +115,7 @@ def test_the_snapshot_of_a_host_that_has_heard_nothing_is_valid_and_every_node_i
     c, w, clock, ing, p, h, wire = wired(tmp_path); s = wire.snapshot(); check('snapshot', s)
     assert [n['node_id'] for n in s['nodes']] == [1, 2, 3] and all(n['level'] is None and n['link_state'] == 'not_connected' and n['co_ppm'] is None and n['last_rx_ts'] is None for n in s['nodes'])
     assert (s['recovering'], s['monitoring_active'], s['open_alerts'], s['open_episodes'], s['co_history_30m']) == (True, False, [], [], {'1': [], '2': [], '3': []})
-    assert s['banners'] == {'base_offline': False, 'logging_fault': False, 'host_gap': None, 'host_power': 'ac', 'audio_fault': False} and s['constants'] == K.CONSTANTS
+    assert s['banners'] == {'base_offline': False, 'logging_fault': False, 'host_gap': None, 'host_power': 'ac', 'audio_fault': False, 'abi_mismatch': False} and s['constants'] == K.CONSTANTS
     assert s['session']['session_id'] == 1 and s['session']['mode'] == 'LIVE' and [r['active'] for r in s['roster']] == [1, 1, 1]; w.stop()
 
 def test_the_snapshot_after_traffic_has_values_open_items_chart_points_and_banners(tmp_path):                    # 3.8 snapshot, GV-02, GV-18

@@ -55,7 +55,7 @@ def test_banner_ack_on_the_two_allowed_kinds_is_200_and_logs_banner_ack(rig, kin
 def test_banner_ack_accepts_no_body_and_a_second_ack_of_the_same_banner_is_409_state_conflict_with_no_second_audit_row(rig):
     client, port = rig; a = post(client, '/api/system-banners/host_gap/ack'); b = post(client, '/api/system-banners/host_gap/ack', {})
     assert a.status_code == 200 and b.status_code == 409 and envelope(b)['error_code'] == 'STATE_CONFLICT' and [x[0] for x in port.audits] == ['BANNER_ACK']
-@pytest.mark.parametrize('kind', ['no_live_data', 'base_offline', 'recovering', 'host_power', 'audio_fault'])
+@pytest.mark.parametrize('kind', ['no_live_data', 'base_offline', 'recovering', 'host_power', 'audio_fault', 'abi_mismatch'])
 def test_a_known_banner_that_cannot_be_acknowledged_is_400_and_reaches_nothing(rig, kind):
     client, port = rig; r = post(client, '/api/system-banners/%s/ack' % kind, {}); assert r.status_code == 400 and envelope(r)['error_code'] == 'BAD_REQUEST' and port.calls == [] and port.audits == []
 @pytest.mark.parametrize('kind', ['nope', 'HOST_GAP', 'host-gap', 'co_threshold'])
@@ -67,5 +67,5 @@ def test_banner_ack_of_a_banner_that_is_not_active_is_409_state_conflict_and_log
 def test_banner_ack_with_a_body_that_is_not_empty_is_422(rig):
     client, port = rig; r = post(client, '/api/system-banners/host_gap/ack', {'x': 1}); assert r.status_code == 422 and port.calls == []
 def test_banner_kinds_match_alert_catalog_and_the_allowlist_is_host_gap_and_logging_fault():
-    assert set(R.BANNER_KINDS) == {e['type'] for e in CATALOG if e['owner'] == 'system_banner'} and len(R.BANNER_KINDS) == 7
+    assert set(R.BANNER_KINDS) == {e['type'] for e in CATALOG if e['owner'] == 'system_banner'} and len(R.BANNER_KINDS) == 8
     assert set(R._get_args(M.BannerKind)) == {'host_gap', 'logging_fault'}

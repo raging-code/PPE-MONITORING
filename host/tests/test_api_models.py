@@ -14,11 +14,11 @@ EPISODE = {'episode_id': 2, 'node_id': 1, 'kind': 'MAN_DOWN', 'state': 'OPEN', '
 NODE = {'node_id': 1, 'alias': 'FF-01', 'last_rx_ts': 1795481199200, 'co_ppm': 12.0, 'temp_c': 31.2, 'hum_pct': 44, 'motion_g': 0.08, 'bat_pct': 86, 'scba': 1, 'mandown': 0,
         'level': 'NORMAL', 'link_state': 'ok', 'status2': 0, 'flags': 0, 'id_mode': 73, 'status3': 0, 'status4': 0, 'co_validity': 'VALID', 'co_reason': None, 'scba_correction': None}
 SYSTEM = {'base': 'ok', 'recovering': False, 'session_id': 4, 'session_mode': 'LIVE', 'rejected_frames': 0, 'logging_fault': False, 'host_gap': None, 'host_power': 'ac',
-          'audio_fault': False, 'banner': None, 'acknowledged_ts': None}
+          'audio_fault': False, 'abi_mismatch': False, 'banner': None, 'acknowledged_ts': None}
 BODY = {
     'snapshot': {'epoch': '8f14e45f-ea9b-4d12-9a21-0c8b9e12a001', 'recovering': False, 'monitoring_active': True, 'session': {'session_id': 4, 'started_ts': 1795470000000, 'mode': 'LIVE', 'session_label': 'shift-1'},
                  'roster': [{'node_id': 1, 'alias': 'FF-01', 'active': 1}], 'nodes': [NODE], 'open_alerts': [ALERT], 'open_episodes': [EPISODE], 'co_history_30m': {'1': [[1795481198000, 12.0]]},
-                 'banners': {'base_offline': False, 'logging_fault': False, 'host_gap': {'gap_s': 42.5, 'reason': 'db_restored'}, 'host_power': 'ac', 'audio_fault': False}, 'constants': CONSTANTS},
+                 'banners': {'base_offline': False, 'logging_fault': False, 'host_gap': {'gap_s': 42.5, 'reason': 'db_restored'}, 'host_power': 'ac', 'audio_fault': False, 'abi_mismatch': False}, 'constants': CONSTANTS},
     'reading': {'node_id': 1, 'alias': 'FF-01', 'rx_ts': 1795481199200, 'co_ppm': 12.0, 'co_over_range': 0, 'co_validity': 'VALID', 'co_reason': None, 'temp_c': 31.2, 'hum_pct': 44, 'motion_g': 0.08,
                 'posture': 'UPRIGHT', 'stillness_s': 0.0, 'bat_pct': 86, 'scba': 1, 'mandown': 0, 'level': 'NORMAL', 'reasons': [], 'seq_class': 'fresh', 'rssi': -71.5, 'snr': 8.0,
                 'status2': 0, 'flags': 0, 'id_mode': 73, 'status3': 0, 'status4': 0},
@@ -34,7 +34,7 @@ DESIGN_SNAPSHOT = ('{"v":1,"type":"snapshot","epoch":"8f14e45f-ea9b-4d12-9a21-0c
     '"session":{"session_id":4,"started_ts":1795470000000,"mode":"LIVE","session_label":"shift-1"},"roster":[{"node_id":1,"alias":"FF-01","active":1}],'
     '"nodes":[{"node_id":1,"alias":"FF-01","last_rx_ts":1795481199200,"co_ppm":12.0,"temp_c":31.2,"hum_pct":44,"motion_g":0.08,"bat_pct":86,"scba":1,"mandown":0,"level":"NORMAL",'
     '"link_state":"ok","status2":0,"flags":0,"id_mode":73,"status3":0,"status4":0,"co_validity":"VALID","co_reason":null,"scba_correction":null}],"open_alerts":[],"open_episodes":[],'
-    '"co_history_30m":{"1":[[1795481198000,12.0]]},"banners":{"base_offline":false,"logging_fault":false,"host_gap":null,"host_power":"ac","audio_fault":false},'
+    '"co_history_30m":{"1":[[1795481198000,12.0]]},"banners":{"base_offline":false,"logging_fault":false,"host_gap":null,"host_power":"ac","audio_fault":false,"abi_mismatch":false},'
     '"constants":{"co_warn_ppm":35.0,"co_danger_ppm":200.0,"co_clamp_max_ppm":500.0}}')
 
 def test_design_3_8_examples_parse():

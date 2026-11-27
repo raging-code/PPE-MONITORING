@@ -113,6 +113,7 @@ class Banners(_Strict):
     host_gap: Optional[HostGap]
     host_power: str
     audio_fault: bool
+    abi_mismatch: bool       # P24-5f (ADR 0051): the base reports a beacon ABI that differs from the host's
 
 # ---- host to dashboard ----
 class SnapshotMsg(_Server):
@@ -177,6 +178,7 @@ class SystemMsg(_Server):
     host_gap: Optional[HostGap]
     host_power: str
     audio_fault: bool
+    abi_mismatch: bool
     banner: Optional[BannerKind]        # set only on a banner acknowledgement (BANNER_ACK)
     acknowledged_ts: Optional[int]
 class AdvisoryMsg(_Server):

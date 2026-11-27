@@ -221,7 +221,7 @@ class ScbaRecord(NamedTuple):
 class BannerAck(NamedTuple):
     kind: str
     acknowledged_ts: int
-BANNER_KINDS = ('no_live_data', 'base_offline', 'logging_fault', 'host_gap', 'recovering', 'host_power', 'audio_fault')  # the banners of alert_catalog.json (a test compares)
+BANNER_KINDS = ('no_live_data', 'base_offline', 'logging_fault', 'host_gap', 'recovering', 'host_power', 'audio_fault', 'abi_mismatch')  # the banners of alert_catalog.json (a test compares)
 
 @router.post('/scba-correction', response_model=M.ScbaCorrection)
 async def scba_correction(body: M.ScbaCorrectionReq, request: Request, op: Operator = Depends(current_operator)):
