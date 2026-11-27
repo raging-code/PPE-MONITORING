@@ -1,6 +1,6 @@
 """P24-5a: scripts/run_supervisor.py (ADR 0046): respawn within 500 ms on a non-zero exit, no respawn on exit code 0, the crash-loop guard (5 non-zero exits within 60 s, then 5 s between respawns, the error window with the last crash marker, the local alarm), exit code 2 counts.
 Requirements: REQ-REC-007"""
-import importlib.util, json, os, subprocess, sys, time
+import importlib.util, json, os, subprocess, sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'scripts' / 'run_supervisor.py'
