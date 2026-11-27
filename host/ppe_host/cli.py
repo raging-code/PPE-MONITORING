@@ -33,7 +33,7 @@ COMMANDS = {
 }
 
 # ---- P19b-2: operator commands (design 2.8 and 4). Offline: their audit rows have session_id NULL and event_seq 0, as 2.3 says for CLI actions.
-# The token is printed once, never stored (only its HMAC) and never logged. cli ack --node needs the running host and is not here (docs/adr/0009.md). ----
+# The token is printed once, never stored (only its HMAC) and never logged. cli ack --node needs the running host and is at the end of this file (P24-5c, ADR 0048; ADR 0009 explains why it is not an offline command). ----
 import sqlite3, time
 from .settings import SettingsError, load_settings
 OPERATOR_FLAGS = [('--home', {'help': 'PPE_HOME (default: the PPE_HOME variable, else the repository folder)'}), ('--db', {'help': 'database file (default: db_path of the settings)'})]
@@ -170,6 +170,18 @@ def cmd_doctor(a):
     lines, ok = D.format_rows(D.run_checks(a.home, a.db))
     print('\n'.join(lines)); return 0 if ok else 1
 COMMANDS['doctor'] = (cmd_doctor, list(OPERATOR_FLAGS))
+# ---- P24-5c: ack --node N, the CLI stop test of design 8 (ADR 0048). Needs the running host: it calls POST /api/alerts/{id}/ack for each open alert of the node, with the token in PPE_TOKEN ----
+def cmd_ack(a):
+    import os
+    from .services import ack_node as K
+    try: s = load_settings(a.home); db = Path(a.db) if a.db else s.path('db_path' if a.mode == 'LIVE' else 'test_db_path')       # the database of the running host: the host uses test_db_path in every mode but LIVE
+    except SettingsError as e: return _fail('ack', str(e))
+    code, out, err = K.run_ack(db, a.node, os.environ.get(K.TOKEN_VAR, '').strip(), K.base_url(s))
+    for line in out: print(line)
+    for line in err: print(line, file=sys.stderr)
+    return code
+COMMANDS['ack'] = (cmd_ack, [('--node', {'type': int, 'required': True, 'help': 'node id whose open alerts are acknowledged (the operator token is read from the PPE_TOKEN variable)'}),
+    ('--mode', {'choices': ['LIVE', 'SIMULATOR', 'REPLAY'], 'default': 'LIVE', 'help': 'the mode the host was started with (python -m ppe_host.main --mode); it decides which database the host writes'})] + OPERATOR_FLAGS)
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.cli'); sub = p.add_subparsers(dest='command', required=True)
     for name, (_, flags) in COMMANDS.items():
