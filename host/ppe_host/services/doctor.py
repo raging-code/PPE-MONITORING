@@ -90,7 +90,7 @@ def check_secrets(s, db):
     try: s.cmac_key()
     except SettingsError as e: return FAIL, 'secrets.json', str(e)
     try: s.server_salt()
-    except SettingsError as e:
+    except SettingsError:
         if operators_exist(db): return FAIL, 'secrets.json', 'operators exist but server_salt is missing or invalid (the host exits with code 2)'
         return PASS, 'secrets.json', 'cmac_key is valid; no server_salt yet (create-operator makes it)'
     return PASS, 'secrets.json', 'cmac_key and server_salt are valid'
