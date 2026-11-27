@@ -12,7 +12,7 @@ from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, ini
 from .cli import MIGRATIONS_DIR, seed_roster
 from .io.audio_watchdog import WinsoundBackend
 from .io.os_watchdog import consume_marker
-from .services import sessions as ses
+from .services import abi_check, sessions as ses
 from .runtime import Runtime
 from .serve import ServeError, run_server
 
@@ -135,6 +135,9 @@ def startup(home=None, mode='LIVE', now_ms=lambda: int(time.time() * 1000), proc
     try:                                                                                              # step 1
         s = load_settings(home); s.cmac_key()                                                         # (d) the host never runs without the CMAC key
     except SettingsError as e: raise StartupExit(EXIT_CONFIG, 'configuration error: %s' % e) from None
+    try: bad = abi_check.mismatches()                                                                 # step 1 (P24-5d, ADR 0049): the frame layout the host parses with is the one in shared/abi.json
+    except abi_check.AbiError as e: raise StartupExit(EXIT_CONFIG, 'ABI check failed: %s' % e) from None
+    if bad: raise StartupExit(EXIT_CONFIG, 'ABI mismatch: host/ppe_host/abi.py differs from shared/abi.json in %s; run python tools/gen_abi.py or use the files of one build' % ', '.join(bad))
     lock = Lockfile.acquire(s.home / LOCK_NAME, pid, proc_start)                                      # step 2
     try:
         db = s.path('db_path' if mode == 'LIVE' else 'test_db_path'); db.parent.mkdir(parents=True, exist_ok=True); backup_dir = s.path('backup_dir'); recovery = None
