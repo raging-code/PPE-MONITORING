@@ -50,7 +50,7 @@ def test_validate_rejects_a_deleted_key_in_settings():
 def test_generated_files_match_the_generator():  # the CI "regenerate, git diff is empty" check
     for rel, text in gen.render_all(C, S).items(): assert (ROOT / rel).read_text(encoding='utf8') == text, rel + ' is stale: run python tools/gen_constants.py'
 def test_generated_key_counts_equal_the_files():
-    assert (len(C), len(S)) == (78, 35)
+    assert (len(C), len(S)) == (78, 36)        # settings.json 35 keys + second_drive_dir (P26-3, ADR 0040; the design line for it is still to be written)
     assert len(K.CONSTANTS) == len(C) and K.CONSTANTS == C
     assert all(getattr(K, k.upper()) == v for k, v in C.items())
     c_src, ts_src = (ROOT / gen.OUT['c']).read_text(encoding='utf8'), (ROOT / gen.OUT['ts']).read_text(encoding='utf8')

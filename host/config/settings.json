@@ -3,6 +3,7 @@
   "db_path": "data/ppe.db",
   "test_db_path": "data/ppe_test.db",
   "backup_dir": "backups/",
+  "second_drive_dir": "",
   "bind_host": "127.0.0.1",
   "bind_port": 8420,
   "sys_id": 1,

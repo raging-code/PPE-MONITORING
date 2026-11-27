@@ -114,6 +114,7 @@ COMMANDS['test-alarm'] = (cmd_test_alarm, [('--seconds', {'type': int, 'default'
 # ---- P26-2: purge-session (design 2.8, 2.11; ADR 0039). Offline only. Exit codes: 0 purged, 1 refused or not found (nothing recorded), 2 refused with an audit row (open alert or episode, foreign key) or a copy that could not be purged ----
 def cmd_purge_session(a):
     from .services import purge as P
+    from .io import backup as B
     from .main import LOCK_NAME, Lockfile                       # imported here: main imports this module
     cmd, sid = 'purge-session', a.session_id
     try: s = load_settings(a.home); db = Path(a.db) if a.db else s.path('db_path')
@@ -139,6 +140,8 @@ def cmd_purge_session(a):
         removed += 1; done.append('live database %s: %d frame(s), %d alert(s), %d episode(s), %d audit row(s) deleted, compacted' % (db, counts['frames'], counts['alerts'], counts['episodes'], counts['audit_events']))
     else: print('%s: session %d is not in %s (already purged?); sweeping the copies and exports' % (cmd, sid, db))
     explicit = [Path(d) for d in (a.usb_dir or [])]
+    drive = B.second_drive_dir(s)                                                         # the second drive of the settings is always swept (ADR 0040); a missing drive is exit 2
+    if drive is not None and drive not in explicit: explicit.append(drive)
     for d, files in P.copies([backup_dir] + explicit, db):
         if files is None:
             if d in explicit: failed.append('%s does not exist (drive not connected?)' % d)

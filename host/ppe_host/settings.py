@@ -8,8 +8,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS_PATH = REPO_ROOT / 'host' / 'config' / 'settings.json'
 CONSTANTS_PATH = REPO_ROOT / 'shared' / 'constants.json'
-PATH_KEYS = ('db_path', 'test_db_path', 'backup_dir', 'log_dir')            # resolved against PPE_HOME
-HASH_EXCLUDED = ('serial_port', 'db_path', 'test_db_path', 'backup_dir', 'log_dir', 'bind_host', 'bind_port',                         # connection and path keys (Rev 3.41)
+PATH_KEYS = ('db_path', 'test_db_path', 'backup_dir', 'second_drive_dir', 'log_dir')   # resolved against PPE_HOME; second_drive_dir is '' (off) unless the operator names the USB folder (P26-3)
+HASH_EXCLUDED = ('serial_port', 'db_path', 'test_db_path', 'backup_dir', 'second_drive_dir', 'log_dir', 'bind_host', 'bind_port',                         # connection and path keys (Rev 3.41)
                  'host_alarm_budget_ms', 'checkpoint_interval_s', 'checkpoint_max_bytes', 'host_budget_ms', 'dashboard_budget_ms',     # the nine rows marked
                  'recovering_target_s', 'host_bat_warn_pct', 'host_disk_min_gb', 'supervisor_restart_target_s')                        # 'Not in settings_hash' (Rev 3.42)
 

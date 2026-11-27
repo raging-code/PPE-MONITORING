@@ -74,7 +74,9 @@ class HostPort:
     def end_session(self, session_id, operator_id):
         """POST /api/session/end (design 3.8, 2.3, 2.11), run in a worker thread by the route. close_session('ENDED') is one atomic unit: the END_SHIFT audit row in the old session (its reason lists the open alerts, open episodes
         and latched nodes), then ended_ts and end_kind='ENDED', then the new session with monitoring_active carried. Open alerts and episodes are not touched: same ids, no clone, no new chime.
-        Then the online backup (io/backup.py) and a BACKUP_OK or BACKUP_FAIL system row in the new session; backup_ok is False when the backup or its verification failed, and the shift is closed anyway.
+        Then the online backup (io/backup.py) and a BACKUP_OK or BACKUP_FAIL system row in the new session; with second_drive_dir set, the verified backup is copied there (P26-3, ADR 0040) with a second row whose detail starts
+        'second drive: '; the full integrity_check of the live database follows (INTEGRITY_OK or INTEGRITY_FAIL, detail 'integrity_check at session end: ...'). backup_ok is False when the backup, its verification or the second copy
+        failed (an integrity failure has its own row); the shift is closed anyway.
         STATE_CONFLICT when session_id is not the open session (a second tab) changes nothing and makes no backup. 500 INTERNAL_ERROR when the unit was rolled back (the old session stays open) or did not commit in time."""
         from .api.api_rest import ApiError, EndResult
         from .io import backup as bk
@@ -94,7 +96,16 @@ class HostPort:
             dest = bk.online_backup(self.db_path, Path(self.settings.path('backup_dir')) / bk.backup_name('end-shift', now)); good, why = bk.verify_backup(dest)
         except Exception as e: dest, good, why = None, False, '%s: %s' % (type(e).__name__, e)
         self.ing.system_event('BACKUP_OK' if good else 'BACKUP_FAIL', dest.name if good else why, droppable=False)
-        return EndResult(old, new, good)
+        drive = bk.second_drive_dir(self.settings); both = good
+        if drive is not None:
+            try:
+                if not good: raise OSError('no verified local backup to copy')
+                copy = bk.copy_to_second_drive(dest, drive, Path(self.settings.path('backup_dir'))); self.ing.system_event('BACKUP_OK', 'second drive: %s' % copy, droppable=False)
+            except Exception as e: both = False; self.ing.system_event('BACKUP_FAIL', 'second drive: %s: %s' % (type(e).__name__, e), droppable=False)
+        try: ok, detail = bk.integrity_check(self.db_path)
+        except Exception as e: ok, detail = False, '%s: %s' % (type(e).__name__, e)
+        self.ing.system_event('INTEGRITY_OK' if ok else 'INTEGRITY_FAIL', 'integrity_check at session end: ' + detail, droppable=False)
+        return EndResult(old, new, both)
 
     # ---- Acknowledge and Resolve ----
     def ack_alert(self, alert_id, operator_id):
