@@ -30,6 +30,8 @@ class Heartbeat(NamedTuple):
     rx_bad_crc: int
     rx_bad_mac: int
     beacon_tx: int
+    fw: Optional[str] = None      # P24-5e (ADR 0050): optional, old firmware sends neither
+    abi: Optional[int] = None
 
 class LineAssembler:
     """Turns the chunks that readline(513) returns into lines, never holding 512 bytes or more. feed() returns a list of ('line', bytes) and
@@ -72,7 +74,10 @@ def parse_line(line):
             return 'frame', Frame(bytes.fromhex(h), bv, None if rssi is None else float(rssi), None if snr is None else float(snr), d['base_id'], d['uptime_ms'])
         if t == 'hb':
             if not all(_int(d.get(k)) for k in HB_FIELDS): return 'bad', 'bad_hb'
-            return 'hb', Heartbeat(*(d[k] for k in HB_FIELDS))
+            fw, abi = d.get('fw'), d.get('abi')      # optional (ADR 0050); a malformed value reads as absent so it can never cost a base liveness heartbeat
+            if not (isinstance(fw, str) and 0 < len(fw) <= 32 and all('!' <= ch <= '~' for ch in fw)): fw = None
+            if not _int(abi): abi = None
+            return 'hb', Heartbeat(*(d[k] for k in HB_FIELDS), fw, abi)
         return 'bad', 'unknown_type'
     except Exception: return 'bad', 'bad_line'        # defensive: the parser must never kill the reader thread
 

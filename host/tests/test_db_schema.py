@@ -21,7 +21,7 @@ def rejects(fn):
 
 def test_schema_dump_equals_0001_sql(tmp_path):
     ref = sqlite3.connect(':memory:'); ref.executescript((MIG / '0001.sql').read_text(encoding='utf8'))
-    c = new_db(tmp_path); assert master(c) == master(ref) and applied_versions(c) == [1]
+    c = new_db(tmp_path); assert master(c) == master(ref) and applied_versions(c) == [1, 2]
     assert c.execute('SELECT description FROM schema_version').fetchone()[0].startswith('Migration 0001')
 
 def test_roster_trigger_rejects_ok_frame_with_unknown_node_but_not_bad_mac(tmp_path):
@@ -31,7 +31,7 @@ def test_roster_trigger_rejects_ok_frame_with_unknown_node_but_not_bad_mac(tmp_p
 
 def test_seed_counts_and_alert_types_equal_the_catalog(tmp_path):
     c = new_db(tmp_path); n = lambda t: c.execute('SELECT COUNT(*) FROM %s' % t).fetchone()[0]
-    assert (n('alert_types'), n('audit_actions'), n('system_event_types')) == (25, 18, 29)
+    assert (n('alert_types'), n('audit_actions'), n('system_event_types')) == (25, 18, 32)
     assert {r[0] for r in c.execute('SELECT type FROM alert_types')} == {a['type'] for a in json.loads(CATALOG.read_text(encoding='utf8')) if a['owner'] == 'alerts'}   # banners (owner system_banner) are not alert rows
 
 def test_fresh_and_upgraded_databases_have_the_same_schema_and_a_backup_hook_runs_once(tmp_path):

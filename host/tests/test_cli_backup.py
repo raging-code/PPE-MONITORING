@@ -10,7 +10,7 @@ def seeded(tmp_path, name='live.db'):
 
 def test_seed_roster_creates_the_schema_fills_nodes_1_to_3_and_is_safe_to_repeat(tmp_path, capsys):
     p = seeded(tmp_path); c = connect_db(p); assert c.execute('SELECT node_id, alias, active FROM roster ORDER BY node_id').fetchall() == [(1, 'FF-01', 1), (2, 'FF-02', 1), (3, 'FF-03', 1)]
-    assert applied_versions(c) == [1] and cli.seed_roster(c) == 0 and c.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 3
+    assert applied_versions(c) == [1, 2] and cli.seed_roster(c) == 0 and c.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 3
     c.execute('UPDATE roster SET active=0 WHERE node_id=2'); c.close(); cli.main(['seed-roster', '--db', str(p)])
     assert connect_db(p).execute('SELECT active FROM roster WHERE node_id=2').fetchone()[0] == 0                       # a second run never overwrites a roster row
     assert 'roster nodes 1 to 3 present' in capsys.readouterr().out

@@ -21,6 +21,7 @@ from ..core.rule_engine import (AlertAcknowledged, ChangeAlertLevel, ClearAlert,
 from dataclasses import replace as _replace
 from ..core import rule_engine as eng
 from ..core.seq_classifier import SeqState, classify
+from ..services.fw_check import FwState
 from .db_writer import Ref, Stmt, Unit
 
 log = logging.getLogger('ppe.ingest')
@@ -135,6 +136,7 @@ class Ingest:
         self.bad_window, self.disagree_window, self.last_hb = RateWindow(BAD_FRAMES_KEPT_PER_MIN), RateWindow(BAD_FRAMES_KEPT_PER_MIN), None
         self.counters = {'rejected_frames': 0, 'rejected_BAD_LEN': 0, 'rejected_BAD_CRC': 0, 'rejected_BAD_MAC': 0, 'rejected_REJECT_ROSTER': 0,
                          'bad_frames_not_stored': 0, 'mac_disagree': 0, 'suspect_logged': 0, 'frames_stored': 0}
+        self.fw_state, self._fw_sid = FwState(), session_id      # P24-5e (ADR 0050)
         self._lock = threading.Lock()
 
     @classmethod
@@ -174,6 +176,12 @@ class Ingest:
         """One base_health row per heartbeat (design 2.3). The row has no event_seq column, but its unit takes one so the single ordered queue stays ordered; it is routine and droppable."""
         self.last_hb = hb
         with self._lock:
+            if self._fw_sid != self.session_id: self.fw_state, self._fw_sid = FwState(), self.session_id      # a new session reports again
+            for kind, detail in self.fw_state.update(hb.fw, hb.abi):
+                self._sys(kind, detail, False)
+                if kind == 'FW_REPORTED':
+                    self.st, seq = next_seq(self.st)
+                    self.writer.submit(Unit(seq, [Stmt('UPDATE sessions SET fw_version = ? WHERE session_id = ?', (detail, self.session_id))]))
             self.st, seq = next_seq(self.st)
             self.writer.submit(Unit(seq, [Stmt('INSERT INTO base_health(session_id, ts, uptime_ms, bat_pct, rx_ok, rx_bad_len, rx_bad_crc, rx_bad_mac) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 (self.session_id, self.clock.wall_ms(), hb.uptime_ms, hb.bat_pct, hb.rx_ok, hb.rx_bad_len, hb.rx_bad_crc, hb.rx_bad_mac))], droppable=True))
