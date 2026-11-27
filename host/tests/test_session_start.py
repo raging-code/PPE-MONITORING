@@ -47,6 +47,49 @@ def test_a_changed_hash_closes_the_session_logs_config_changed_and_leaves_open_a
 def test_a_resumed_session_with_the_same_hashes_logs_no_config_changed(tmp_path):
     h = home(tmp_path); start(h).close(); b = start(h, dt=MIN); assert 'CONFIG_CHANGED' not in [r[1] for r in sysrows(b)]; b.close()
 
+# ---- P24b: the crash marker, read at the next start (ADR 0036) ----
+
+def marker_body(**over):
+    body = dict(v=1, kind='stall', ts=NOW, pid=1234, limit_ms=3000, stalled='tick', age_ms=3100, stale={'tick': 3100}, ages={'serial': 10, 'tick': 3100})
+    body.update(over); return body
+
+def test_no_marker_means_no_liveness_restart_row(tmp_path):
+    h = home(tmp_path); st = start(h); assert 'LIVENESS_RESTART' not in [r[1] for r in sysrows(st)]; st.close()
+
+def test_a_crash_marker_from_a_stalled_tick_logs_liveness_restart_and_tick_stall(tmp_path):
+    from ppe_host.io.os_watchdog import write_marker, MARKER_NAME
+    h = home(tmp_path); (h / 'logs').mkdir(parents=True, exist_ok=True)
+    body = marker_body(); write_marker(h / 'logs' / MARKER_NAME, body)
+    st = start(h); rows = [(r[1], r[2]) for r in sysrows(st)]
+    kinds = [k for k, _ in rows]; assert kinds == ['HOST_START', 'RECOVERING_ENTER', 'LIVENESS_RESTART', 'TICK_STALL']
+    restart_detail = json.loads(dict(rows)['LIVENESS_RESTART']); assert restart_detail == body
+    stall_detail = json.loads(dict(rows)['TICK_STALL']); assert stall_detail == {'age_ms': 3100}
+    assert not (h / 'logs' / MARKER_NAME).exists()
+    assert json.loads((h / 'logs' / 'crash_marker.last.json').read_text()) == body
+    st.close()
+
+def test_a_marker_whose_stale_part_was_not_tick_logs_liveness_restart_but_not_tick_stall(tmp_path):
+    from ppe_host.io.os_watchdog import write_marker, MARKER_NAME
+    h = home(tmp_path); (h / 'logs').mkdir(parents=True, exist_ok=True)
+    body = marker_body(stalled='serial', stale={'serial': 5000}, ages={'serial': 5000})
+    write_marker(h / 'logs' / MARKER_NAME, body)
+    st = start(h); kinds = [r[1] for r in sysrows(st)]
+    assert kinds == ['HOST_START', 'RECOVERING_ENTER', 'LIVENESS_RESTART'] and 'TICK_STALL' not in kinds; st.close()
+
+def test_an_unreadable_marker_still_logs_liveness_restart(tmp_path):
+    h = home(tmp_path); (h / 'logs').mkdir(parents=True, exist_ok=True); (h / 'logs' / 'crash_marker.json').write_text('{bad')
+    st = start(h); rows = [(r[1], r[2]) for r in sysrows(st)]
+    assert [k for k, _ in rows] == ['HOST_START', 'RECOVERING_ENTER', 'LIVENESS_RESTART']
+    assert json.loads(dict(rows)['LIVENESS_RESTART']) == {'kind': 'unreadable'}; st.close()
+
+def test_the_marker_is_consumed_once_a_second_start_in_a_row_logs_no_more_liveness_restart(tmp_path):
+    from ppe_host.io.os_watchdog import write_marker, MARKER_NAME
+    h = home(tmp_path); (h / 'logs').mkdir(parents=True, exist_ok=True); write_marker(h / 'logs' / MARKER_NAME, marker_body())
+    a = start(h); before = len(sysrows(a)); assert 'LIVENESS_RESTART' in [r[1] for r in sysrows(a)]; a.close()
+    b = start(h, dt=MIN); new_rows = sysrows(b)[before:]                  # only the rows the second start itself added
+    assert b.session_id == a.session_id and b.resumed                    # same session: the marker was moved to .last.json on the first read, so the second finds none
+    assert 'LIVENESS_RESTART' not in [r[1] for r in new_rows]; b.close()
+
 # ---- quick_check failure rows ----
 def test_live_restore_writes_integrity_fail_and_db_restored_with_session_id_null(tmp_path):
     h = home(tmp_path, salt=True); good_backup(h, 'g.db', 100); corrupt(h / 'data' / 'ppe.db'); st = start(h)

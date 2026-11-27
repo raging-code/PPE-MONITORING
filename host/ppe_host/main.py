@@ -11,6 +11,7 @@ from .io.backup import backup_before_migration, verify_backup
 from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, init_event_seq, run_migrations
 from .cli import MIGRATIONS_DIR, seed_roster
 from .io.audio_watchdog import WinsoundBackend
+from .io.os_watchdog import consume_marker
 from .runtime import Runtime
 from .serve import ServeError, run_server
 
@@ -181,7 +182,8 @@ def last_row_ts(conn, sid):
 def begin_session(st, clock=None):
     """Steps 6 and 7 in one transaction. Resume the open session only if its mode and both hashes match and its last row is younger than session_resume_max_min;
     otherwise close it ABANDONED (SESSION_ABANDONED with detail mode_changed, config_hash_changed or stale_30min, in that order of precedence) and open a new one.
-    Then log HOST_START (host_boot_id, mono_base_ms), RECOVERING_ENTER and, after a quick_check failure, INTEGRITY_FAIL and in LIVE the DB_RESTORED audit row (session_id NULL).
+    Then log HOST_START (host_boot_id, mono_base_ms), RECOVERING_ENTER, then (P24b) LIVENESS_RESTART when the previous process left a crash marker (TICK_STALL too when the 1 Hz tick was among
+    the stale parts) and, after a quick_check failure, INTEGRITY_FAIL and in LIVE the DB_RESTORED audit row (session_id NULL).
     Alerts and episodes are never touched (2.11). The general close_session(kind) and the rebase of old monotonic stamps are P25."""
     clock = clock or RealClock(); now = clock.wall_ms(); conn = st.conn; ch, sh = constants_hash(), settings_hash(st.settings); limit = st.settings['session_resume_max_min'] * 60_000
     conn.execute('BEGIN IMMEDIATE')
@@ -197,6 +199,11 @@ def begin_session(st, clock=None):
         st.host_boot_id = uuid.uuid4().hex
         _sys(conn, st, sid, now, 'HOST_START', json.dumps({'host_boot_id': st.host_boot_id, 'mono_base_ms': clock.mono_ms(), 'wall_base_ms': now, 'mode': st.mode}))
         _sys(conn, st, sid, now, 'RECOVERING_ENTER')
+        marker = consume_marker(st.settings.path('log_dir'))
+        if marker is not None:
+            _sys(conn, st, sid, now, 'LIVENESS_RESTART', json.dumps(marker))
+            if marker.get('kind') == 'stall' and 'tick' in (marker.get('stale') or {}):
+                _sys(conn, st, sid, now, 'TICK_STALL', json.dumps({'age_ms': marker['stale']['tick']}))
         if st.recovery:
             _sys(conn, st, sid, now, 'INTEGRITY_FAIL', 'quarantined %s; backup used: %s' % (st.recovery['quarantined'], st.recovery['backup'] or 'none (fresh database)'))
             if st.mode == 'LIVE':

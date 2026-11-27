@@ -94,7 +94,7 @@ class Runtime:
                                      extra={'pre_replay_dropped': lambda: self.gate.dropped, 'pre_replay_overflow': lambda: self.gate.overflow})
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
         self.started, self.wire, self.port, self.ticks = False, None, None, 0   # wire and port are set by serve.build_app (step 10)
-        self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.clock, Path(s['log_dir']) / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
+        self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.clock, s.path('log_dir') / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
         self.audio = None if audio_backend is None else AudioThread(audio_backend, self.clock, sounds_dir=SOUNDS_DIR, check_interval_s=s['audio_check_interval_s'],
                                                                     chime_interval_min=s['host_chime_interval_min'], on_event=self._audio_event)   # sockets_fn and monitoring_fn come with the hub (serve.build_app)
     def start(self):
