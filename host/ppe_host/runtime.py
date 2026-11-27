@@ -1,17 +1,19 @@
 """runtime.py (P24-3c-1): start-up step 8 of design 14.5: the DBWriterThread, the SerialReaderThread with the bounded pre-replay queue, and the SerialWriterThread.
 Runtime(st) wires Ingest, DBWriter, SerialReader, SerialWriter, LinkMonitor and Health from a Startup (main.py, steps 1 to 7) and starts the threads in the design's order.
-P24-3c-3 adds the AudioThread (Runtime.audio, started in step 8 and fed by Runtime.audio_items()). Not here: the OS watchdog (P24b), step 9 is load_open() (P24-3c-2, ADR 0034); step 10 is serve.py (P24-3c-3: Uvicorn and the 1 Hz driver, which calls Runtime.tick()),
+P24-3c-3 adds the AudioThread (Runtime.audio, started in step 8 and fed by Runtime.audio_items()). P24b adds the OSWatchdogThread (Runtime.watchdog, started first in step 8) and the liveness stamps. Not here: step 9 is load_open() (P24-3c-2, ADR 0034); step 10 is serve.py (P24-3c-3: Uvicorn and the 1 Hz driver, which calls Runtime.tick()),
 steps 11 to 13 (P25: recovery, then release()). SIMULATOR and REPLAY have no serial port: only the writer and the gate exist there.
 Pre-replay queue (design 1, recovery rule a): frames that arrive while recovering wait in a queue of at most pre_replay_queue_max. When it overflows, the oldest frame with node level
 NORMAL and no event bit is dropped first and counted (pre_replay_dropped); a frame with a non-NORMAL node level, mandown, mayday, fault or check-in is never dropped, so the queue may
 then exceed its bound (pre_replay_overflow counts that). No rule runs and no alert is raised from a queued frame: release() feeds them to Ingest.frame in arrival order, then goes live."""
 import logging, threading
+from pathlib import Path
 from collections import deque
 from . import abi
 from .clock import RealClock
 from .io.audio_watchdog import SOUNDS_DIR, AudioThread
 from .io.db_writer import DBWriter
 from .io.health import Counters, Health
+from .io.os_watchdog import MARKER_NAME, Liveness, OSWatchdogThread
 from .io.ingest import Ingest
 from .io.serial_reader import SerialReader, open_serial
 from .io.serial_writer import LinkMonitor, SerialWriter, host_tick_line
@@ -74,8 +76,9 @@ class LoopHub:
         return call
 
 class Runtime:
-    def __init__(self, st, clock=None, open_port=None, audio_backend=None):
-        """audio_backend: the sound card object for the AudioThread (io/audio_watchdog.WinsoundBackend, or a fake). None means no AudioThread, as in the tests that do not care about sound."""
+    def __init__(self, st, clock=None, open_port=None, audio_backend=None, watchdog_exit=None):
+        """audio_backend: the sound card object for the AudioThread (io/audio_watchdog.WinsoundBackend, or a fake). None means no AudioThread, as in the tests that do not care about sound.
+        watchdog_exit: the function the OSWatchdogThread calls on a stall (main passes os._exit); None means no watchdog thread, as in most tests. The stamps are always kept."""
         s, self.st, self.clock = st.settings, st, clock or RealClock()
         self.serial = st.mode == 'LIVE'
         self.writer = DBWriter(st.db_path, self.clock)
@@ -84,16 +87,19 @@ class Runtime:
         self.gate = PreReplayGate(self.ingest, s['pre_replay_queue_max'])
         self.link = LinkMonitor(self.ingest.system_event)                         # one SERIAL_LOST or SERIAL_BACK per outage, whichever thread notices first
         port = open_port or (lambda: open_serial(s['serial_port'], write_timeout_s=s['serial_write_timeout_ms'] / 1000.0))
-        self.reader = SerialReader(port, self.gate.on_item, self.link.on_link)
+        self.liveness = Liveness(self.clock)
+        self.reader = SerialReader(port, self.gate.on_item, self.link.on_link, on_alive=self.liveness.stamper('serial'))
         self.serial_writer = SerialWriter(lambda: None if self.reader.lost else self.reader.port, self.link)
         counters = Counters.for_host(self.ingest, self.writer, self.reader, self.serial_writer,
                                      extra={'pre_replay_dropped': lambda: self.gate.dropped, 'pre_replay_overflow': lambda: self.gate.overflow})
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
         self.started, self.wire, self.port, self.ticks = False, None, None, 0   # wire and port are set by serve.build_app (step 10)
+        self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.clock, Path(s['log_dir']) / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
         self.audio = None if audio_backend is None else AudioThread(audio_backend, self.clock, sounds_dir=SOUNDS_DIR, check_interval_s=s['audio_check_interval_s'],
                                                                     chime_interval_min=s['host_chime_interval_min'], on_event=self._audio_event)   # sockets_fn and monitoring_fn come with the hub (serve.build_app)
     def start(self):
         """Step 8, in the design's order: DBWriterThread, SerialReaderThread, SerialWriterThread, then the first host_tick (recovering=1, the Base OLED shows HOST RECOVERING)."""
+        if self.watchdog is not None: self.watchdog.start()                        # design 14.5 step 8: the OS watchdog first
         self.writer.start()
         if self.serial: self.reader.start(); self.serial_writer.start()
         if self.audio is not None: self.audio.start(); self.audio_refresh()
@@ -102,9 +108,9 @@ class Runtime:
         """One host_tick line to the SerialWriter (never blocks). Runtime.tick() calls this at 1 Hz."""
         if self.serial: self.serial_writer.offer(host_tick_line(self.clock.wall_ms(), self.st.recovering, self.st.mode))
     def tick(self):
-        """The 1 Hz body (step 10): host_tick to the base first, then Health.tick (BASE_OFFLINE, COUNTERS), then the audio feed (a once-a-second safety net next to Wire.on_change), then Wire.tick (engine tick, held messages, unauth repeats, links, system).
+        """The 1 Hz body (step 10): host_tick to the base first, then Health.tick (BASE_OFFLINE, COUNTERS), then the audio feed (a once-a-second safety net next to Wire.on_change), then Wire.tick (engine tick, held messages, unauth repeats, links, system), and last the 'tick' liveness stamp of the OS watchdog (stamped even when a part failed: it says the timer is alive).
         Wire.tick waits for the commit (commit_wait_ms), so the driver runs this in a worker thread, never on the event loop. Each part is guarded: one failure is logged and the others still run."""
-        for name, fn in (('host_tick', self.offer_tick), ('health', self.health.tick), ('audio', self.audio_refresh), ('wire', lambda: self.wire.tick() if self.wire is not None else None)):
+        for name, fn in (('host_tick', self.offer_tick), ('health', self.health.tick), ('audio', self.audio_refresh), ('wire', lambda: self.wire.tick() if self.wire is not None else None), ('stamp', lambda: self.liveness.stamp('tick'))):
             try: fn()
             except Exception: log.exception('1 Hz tick: %s failed', name)
         self.ticks += 1
@@ -133,6 +139,7 @@ class Runtime:
         """Step 13 (P25 calls this after RECOVERING_EXIT)."""
         return self.gate.release()
     def stop(self):
+        if self.watchdog is not None: self.watchdog.stop()                          # first: a clean shutdown (draining the writer takes seconds) must never look like a stall
         if self.audio is not None and self.audio.is_alive(): self.audio.stop(); self.audio.join(2)
         if self.serial: self.reader.stop(); self.serial_writer.stop()
         self.writer.stop(drain=True)

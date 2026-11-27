@@ -15,3 +15,10 @@ def _silent_host_audio(monkeypatch):
     from ppe_host import main as M
     from fakeaudio import FakeBackend
     monkeypatch.setattr(M, 'make_audio_backend', lambda: FakeBackend())
+
+@pytest.fixture(autouse=True)
+def _no_real_watchdog_exit(monkeypatch):
+    """main() hands the OS watchdog os._exit (P24b); a test that stalls on purpose must never kill the pytest process, so main.watchdog_exit becomes a recorder."""
+    from ppe_host import main as M
+    M.WATCHDOG_EXITS = []
+    monkeypatch.setattr(M, 'watchdog_exit', lambda code: M.WATCHDOG_EXITS.append(code))

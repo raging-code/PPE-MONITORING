@@ -92,8 +92,9 @@ class SerialReader:
     """The dedicated reader thread. open_port() returns an object with readline(size) -> bytes (b'' on timeout) and close().
     on_item(kind, payload) gets 'frame' and 'hb' items on this thread; on_link(event, detail) gets 'SERIAL_LOST' (detail 'open' or 'read') once per outage
     and 'SERIAL_BACK' when reading resumes after one. The first successful open is not a SERIAL_BACK."""
-    def __init__(self, open_port, on_item, on_link=None, retry_s=K.SERIAL_RETRY_S):
+    def __init__(self, open_port, on_item, on_link=None, retry_s=K.SERIAL_RETRY_S, on_alive=None):
         self.open_port, self.on_item, self.on_link, self.retry_s = open_port, on_item, on_link or (lambda e, d: None), retry_s
+        self.on_alive = on_alive or (lambda: None)             # P24b: the liveness stamp of the OS watchdog, called on every pass of the loops below (a read times out after 0.5 s, a retry waits 1 s)
         self.counters = {'serial_framing_errors': 0, 'serial_bad_lines': 0, 'serial_lines_ok': 0, 'serial_handler_errors': 0}
         self.lost, self.port, self.last_error = False, None, None
         self._stop = threading.Event()
@@ -112,6 +113,7 @@ class SerialReader:
     def _run(self):
         asm = LineAssembler()
         while not self._stop.is_set():
+            self.on_alive()
             try: self.port = self.open_port()
             except Exception as e:
                 self.last_error = repr(e); self._lose('open'); self._stop.wait(self.retry_s); continue
@@ -119,7 +121,7 @@ class SerialReader:
             asm = LineAssembler()                                   # a reopened port starts on a clean line boundary
             try:
                 while not self._stop.is_set():
-                    chunk = self.port.readline(READ_SIZE)
+                    chunk = self.port.readline(READ_SIZE); self.on_alive()
                     if chunk: self._items(asm.feed(chunk))
             except Exception as e:
                 self.last_error = repr(e); self._lose('read')

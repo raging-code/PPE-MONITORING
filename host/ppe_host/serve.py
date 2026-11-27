@@ -47,6 +47,11 @@ async def tick_driver(rt, period_s=1.0, mono=time.monotonic):
         if nxt < now: nxt = now                                                   # overran: no burst of catch-up ticks
         await asyncio.sleep(nxt - now)
 
+async def loop_beat(liveness, period_s=0.25):
+    """The 'loop' liveness stamp: a coroutine on the event loop. It stops being stamped when the loop is blocked, which the OS watchdog then notices."""
+    while True:
+        liveness.stamp('loop'); await asyncio.sleep(period_s)
+
 async def run_server(rt, host, port, app_factory=build_app, make_server=None):
     """Step 10. Returns when Uvicorn has stopped (SIGINT or SIGTERM). Raises ServeError when Uvicorn could not start (for example the port is taken)."""
     loop = asyncio.get_running_loop(); app, _hub = app_factory(rt, loop)
@@ -61,7 +66,9 @@ async def run_server(rt, host, port, app_factory=build_app, make_server=None):
     while not server.started and not serving.done(): await asyncio.sleep(0.02)
     if serving.done(): await serving; raise ServeError('Uvicorn stopped before it started')
     log.info('step 10: Uvicorn listening on %s:%s, 1 Hz driver started', host, port)
+    lv = getattr(rt, 'liveness', None); beat = asyncio.ensure_future(loop_beat(lv)) if lv is not None else None
     driver = asyncio.ensure_future(tick_driver(rt))
     try: await serving
     finally:
-        driver.cancel(); await asyncio.gather(driver, return_exceptions=True)
+        tasks = [driver] + ([beat] if beat is not None else []); [t.cancel() for t in tasks]; await asyncio.gather(*tasks, return_exceptions=True)
+        if lv is not None: lv.retire('loop'); lv.retire('tick')                 # shutdown is not a stall

@@ -208,6 +208,7 @@ def begin_session(st, clock=None):
     st.session_id, st.recovering = sid, True
     return st
 
+def watchdog_exit(code): os._exit(code)                      # the OSWatchdogThread's exit (tests replace it with a recorder, tests/conftest.py)
 def make_audio_backend(): return WinsoundBackend()          # tests replace this with a silent fake (tests/conftest.py)
 
 def main(argv=None, serve=run_server):
@@ -216,7 +217,7 @@ def main(argv=None, serve=run_server):
     a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
         st = startup(a.home, a.mode)
-        try: begin_session(st); rt = Runtime(st, audio_backend=make_audio_backend()).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
+        try: begin_session(st); rt = Runtime(st, audio_backend=make_audio_backend(), watchdog_exit=lambda c: watchdog_exit(c)).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
         except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
