@@ -5,7 +5,7 @@ committed row, so the alert_id is always the database id the REST Acknowledge us
 a row the writer rejected has no id, so no message is sent and its event_seq goes into unpersisted (ADR 0032 and ADR 0033: the wire has no unpersisted field yet, which needs a decision).
 P24-3b-2b-i: link and system messages (Wire.link_state, _links, _system, on_banner_ack). P24-3b-2b-ii: the advisory message (Wire.enable_advisory, _advisory), sent straight from the
 AdvisoryRow effect (it has a passage_ids field but no database id of its own to read back, unlike an alert or episode). No thread, no socket; every method runs on the event loop."""
-import sqlite3
+import logging, sqlite3
 from collections import deque
 from . import abi, constants as K
 from .core.advisory import AdvisoryRow
@@ -13,6 +13,7 @@ from .core.rule_engine import (AlertAcknowledged, ChangeAlertLevel, ClearAlert, 
                                NodeState, RaiseAlert)
 from .io.db_writer import connect_db
 
+log = logging.getLogger('ppe.wire')
 CO_HISTORY_S = 1800   # co_history_30m of the snapshot (design 3.8): the last 30 minutes
 POSTURES = {v: k for k, v in abi.ENUMS['posture'].items()}
 ALERT_FX = (RaiseAlert, ChangeAlertLevel, ClearAlert, AlertAcknowledged)
@@ -60,6 +61,7 @@ class Wire:
         self.base_offline = base_offline or (lambda: bool(getattr(self.ing.health, 'offline', False)))
         self.audio_fault, self.host_power = audio_fault or (lambda: False), host_power or (lambda: 'ac')
         self.pending, self.unpersisted, self.unauth_sent = deque(), set(), {}
+        self.on_change = None   # P24-3c-3: called with no argument as soon as the engine state or a banner changed (the AudioThread feed); a failure is logged and never reaches the caller
         with self._conn() as c:
             self.alias = {r['node_id']: r['alias'] for r in c.execute('SELECT node_id, alias FROM roster')}
             self.mode = c.execute('SELECT mode FROM sessions WHERE session_id = ?', (self.ing.session_id,)).fetchone()['mode']
@@ -78,6 +80,11 @@ class Wire:
     def _conn(self):
         c = connect_db(self.port.db_path, readonly=True); c.row_factory = sqlite3.Row; return _Conn(c)
 
+    def _changed(self):
+        if self.on_change is not None:
+            try: self.on_change()
+            except Exception: log.exception('on_change failed')
+
     # ---- incremental messages ----
     def on_frame(self, out):
         """The Ingest.broadcast hook: one reading for a verified frame, then the alert and episode messages of its effects."""
@@ -86,6 +93,7 @@ class Wire:
     def on_effects(self, fx, unit, ok):
         """The HostPort.publish hook. ok is True (committed), False (not within commit_wait_ms: held in pending) or None (nothing was written)."""
         if not fx: return
+        self._changed()                                     # first: the host alarm must not wait for the database reads of _send
         if ok is False: self.pending.append((tuple(fx), unit))
         else: self._send(fx)
     def flush(self):
@@ -101,7 +109,7 @@ class Wire:
         self.unauth_sent = {k: v for k, v in self.unauth_sent.items() if k in open_}
         due = [k for k, nid in open_.items() if self.unauth_sent.get(k) != getattr(self.ing.st.nodes.get(nid), 'unauth_count', 0)]
         if due: self._send([RaiseAlert(k, open_[k], 'unauth_alert', 'NONE', '', 0) for k in due])
-        self._links(); self._system(tick=True)
+        self._links(); self._system(tick=True); self._changed()
 
     def _send(self, fx):
         with self._conn() as c:
@@ -155,7 +163,7 @@ class Wire:
         b = self._sys_body(banner, ack)
         if banner is None and self._key(b) == self.sys_key and not (tick and b['rejected_frames'] != self.sys_rej): return
         self.sys_key, self.sys_rej = self._key(b), b['rejected_frames']; self._pub('publish_system', b)
-    def on_banner_acknowledged(self, kind, ts): self._system(banner=kind, ack=ts)
+    def on_banner_acknowledged(self, kind, ts): self._changed(); self._system(banner=kind, ack=ts)
 
     # ---- snapshot ----
     def snapshot(self):

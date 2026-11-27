@@ -46,20 +46,20 @@ def stub(order, fail=(), wire=True):
             order.append(name)
             if name in fail: raise RuntimeError(name)
         return f
-    return NS(offer_tick=part('host_tick'), health=NS(tick=part('health')), wire=NS(tick=part('wire')) if wire else None, ticks=0)
+    return NS(offer_tick=part('host_tick'), health=NS(tick=part('health')), audio_refresh=part('audio'), wire=NS(tick=part('wire')) if wire else None, ticks=0)
 
-def test_tick_runs_host_tick_then_health_then_wire():
+def test_tick_runs_host_tick_then_health_then_audio_then_wire():
     order = []; s = stub(order); R.Runtime.tick(s); R.Runtime.tick(s)
-    assert order == ['host_tick', 'health', 'wire'] * 2 and s.ticks == 2
+    assert order == ['host_tick', 'health', 'audio', 'wire'] * 2 and s.ticks == 2
 
 def test_one_failing_part_is_logged_and_the_others_still_run(caplog):
-    for bad in ('host_tick', 'health', 'wire'):
+    for bad in ('host_tick', 'health', 'audio', 'wire'):
         order = []; s = stub(order, fail=(bad,)); R.Runtime.tick(s)
-        assert order == ['host_tick', 'health', 'wire'] and s.ticks == 1
+        assert order == ['host_tick', 'health', 'audio', 'wire'] and s.ticks == 1
     assert 'failed' in caplog.text
 
 def test_tick_without_a_wire_still_sends_the_host_tick_and_runs_health():
-    order = []; s = stub(order, wire=False); R.Runtime.tick(s); assert order == ['host_tick', 'health']
+    order = []; s = stub(order, wire=False); R.Runtime.tick(s); assert order == ['host_tick', 'health', 'audio']
 
 def test_tick_of_a_real_runtime_sends_one_host_tick_line_and_one_engine_tick(tmp_path):
     sent = []

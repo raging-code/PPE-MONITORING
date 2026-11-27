@@ -8,3 +8,10 @@ from ppe_host.core import rule_engine as re_
 def _suspect_notice_off(request, monkeypatch):
     if not getattr(request.module, 'SUSPECT_NOTICE_ON', False):
         monkeypatch.setattr(re_, 'RULES', tuple(r for r in re_.RULES if r is not re_.suspect_frame_rule))
+
+@pytest.fixture(autouse=True)
+def _silent_host_audio(monkeypatch):
+    """main() builds a WinsoundBackend (P24-3c-3); a test of main() must never touch the sound card."""
+    from ppe_host import main as M
+    from fakeaudio import FakeBackend
+    monkeypatch.setattr(M, 'make_audio_backend', lambda: FakeBackend())

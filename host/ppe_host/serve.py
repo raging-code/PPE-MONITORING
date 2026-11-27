@@ -1,7 +1,7 @@
-"""serve.py (P24-3c-3): start-up step 10 of design 14.5: Uvicorn with the REST app and the WebSocket hub, then the 1 Hz driver of Runtime.tick().
+"""serve.py (P24-3c-3, ADR 0035): start-up step 10 of design 14.5: Uvicorn with the REST app and the WebSocket hub, then the 1 Hz driver of Runtime.tick().
 build_app wires HostPort, Hub and Wire to the Runtime (Wire gets the Hub through LoopHub, because frames arrive on the SerialReader thread). run_server starts Uvicorn, waits until it
 accepts connections, and only then starts the driver, so the first tick never runs before the API is up. The driver keeps a fixed 1 s grid: a slow tick does not shift the next one, and a
-tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. Not here: the OS watchdog liveness stamp (Hub.on_tick, P24b) and the AudioThread."""
+tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. Not here: the OS watchdog liveness stamp (Hub.on_tick, P24b)."""
 import asyncio, logging, time
 
 log = logging.getLogger('ppe.serve')
@@ -9,8 +9,18 @@ log = logging.getLogger('ppe.serve')
 class ServeError(RuntimeError):
     """Uvicorn could not start (the port is taken or cannot be bound). main.py exits with code 2 for it: retrying at once cannot help, so it counts toward the crash-loop guard."""
 
+def tab_counter(hub):
+    """Hub.connected_tabs for another thread. The loop adds and removes sockets while the AudioThread counts them, and iterating a set that changes raises RuntimeError: try again, and if it
+    keeps failing assume a tab is connected, because a wrong count must not raise a false zero-socket warning."""
+    def count():
+        for _ in range(3):
+            try: return hub.connected_tabs()
+            except RuntimeError: continue
+        return 1
+    return count
+
 def build_app(rt, loop):
-    """The FastAPI app of a started Runtime. Sets rt.port and rt.wire and turns the Tier 1 advisory on (advisory_heartbeat_s). Returns (app, hub)."""
+    """The FastAPI app of a started Runtime. Sets rt.port and rt.wire, turns the Tier 1 advisory on (advisory_heartbeat_s) and connects the AudioThread (alarm feed, AUDIO FAULT banner flag, socket count, monitoring flag). Returns (app, hub)."""
     from .api.api_rest import create_app
     from .api.ws_hub import Hub, install
     from .host_port import HostPort
@@ -20,8 +30,12 @@ def build_app(rt, loop):
     port = HostPort.from_startup(rt.st, rt.ingest)
     hub = Hub(port, bind_port=s['bind_port'], queue_max=s['ws_send_queue_max'], send_timeout_s=s['ws_send_timeout_s'], auth_timeout_s=s['ws_auth_timeout_s'])
     app = create_app(port, str(rt.st.db_path), s['bind_port']); install(app, hub)
-    wire = Wire(port, LoopHub(hub, loop)).attach(); wire.enable_advisory(s['advisory_heartbeat_s'])
-    rt.port, rt.wire = port, wire
+    rt.port = port
+    wire = Wire(port, LoopHub(hub, loop), audio_fault=lambda: bool(rt.audio is not None and rt.audio.audio_fault)).attach(); wire.enable_advisory(s['advisory_heartbeat_s'])
+    rt.wire, wire.on_change = wire, rt.audio_refresh                           # a new alarm reaches the AudioThread as soon as the engine has decided it
+    if rt.audio is not None:
+        rt.audio.sockets_fn, rt.audio.monitoring_fn = tab_counter(hub), lambda: bool(port.monitoring_active)     # the zero-socket warning (ADR 0026) is armed only now that the hub exists
+    rt.audio_refresh()
     return app, hub
 
 async def tick_driver(rt, period_s=1.0, mono=time.monotonic):

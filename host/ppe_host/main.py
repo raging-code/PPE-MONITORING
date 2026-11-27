@@ -10,6 +10,7 @@ from .settings import SettingsError, constants_hash, load_settings, settings_has
 from .io.backup import backup_before_migration, verify_backup
 from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, init_event_seq, run_migrations
 from .cli import MIGRATIONS_DIR, seed_roster
+from .io.audio_watchdog import WinsoundBackend
 from .runtime import Runtime
 from .serve import ServeError, run_server
 
@@ -207,13 +208,15 @@ def begin_session(st, clock=None):
     st.session_id, st.recovering = sid, True
     return st
 
+def make_audio_backend(): return WinsoundBackend()          # tests replace this with a silent fake (tests/conftest.py)
+
 def main(argv=None, serve=run_server):
     """serve(rt, host, port) is the coroutine function of step 10; tests pass a fake that returns at once."""
     p = argparse.ArgumentParser(prog='ppe_host.main'); p.add_argument('--mode', choices=MODES, default='LIVE'); p.add_argument('--home')
     a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
         st = startup(a.home, a.mode)
-        try: begin_session(st); rt = Runtime(st).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
+        try: begin_session(st); rt = Runtime(st, audio_backend=make_audio_backend()).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
         except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
