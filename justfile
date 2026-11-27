@@ -43,10 +43,11 @@ gen:
     python tools/gen_ws_schema.py
     python tools/gen_sounds.py
 
-# P1: design document consistency; P27-2 adds the core/ import rule and the dashboard type check; P27b-1 adds one lint tool per language (ruff rules E9 and F for Python, Biome for the dashboard; neither formats)
+# P1: design document consistency; P27-2 adds the core/ import rule and the dashboard type check; P27b-1 adds one lint tool per language (ruff rules E9 and F for Python, Biome for the dashboard; neither formats); P27b-2 adds the requirement ids check (requirements/requirements.yaml, design 8.1)
 lint:
     python tools/doc_lint.py
     python tools/check_imports.py
+    python tools/check_requirements.py
     python -m ruff check host tools
     Set-Location dashboard; npm run typecheck
     Set-Location dashboard; npm run lint

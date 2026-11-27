@@ -1,5 +1,5 @@
 # P27-2 (ADR 0041): the CI of design 12.1 and 14.5. Every job runs on a clean checkout; nothing here needs a secret or a serial port.
-#   host:      install from requirements-dev.lock (hashes), regenerate everything and fail if the working tree changed (a stale generated file or a new untracked one), design doc_lint, the core/ import rule, ruff, pytest, the frame and beacon vectors.
+#   host:      install from requirements-dev.lock (hashes), regenerate everything and fail if the working tree changed (a stale generated file or a new untracked one), design doc_lint, the core/ import rule, the requirement ids check (P27b-2), ruff, pytest, the frame and beacon vectors.
 #   firmware:  the pure C parts built with gcc on the runner and run against frames.json and fw_scenarios.json (components/frame, rules_fw, nvs_latch).
 #   dashboard: npm ci from package-lock.json, typecheck, Biome lint, Vitest, production build.
 #   e2e:       P27-3 (ADR 0042): Playwright and Chromium against the built dashboard and the mock host of e2e/ (NO LIVE DATA at 4 s, Start monitoring unlocks audio); the report is kept when a test fails.
@@ -53,6 +53,8 @@ jobs:
         run: python tools/doc_lint.py
       - name: Import rule (core/ imports nothing from io/, services/ or api/)
         run: python tools/check_imports.py
+      - name: Requirement ids (every id a test names is in requirements/requirements.yaml; hazards H1 to H22 are mapped)
+        run: python tools/check_requirements.py
       - name: Lint (ruff, rules E9 and F)
         run: python -m ruff check host tools
       - name: pytest

@@ -1,0 +1,459 @@
+# requirements/requirements.yaml (P27b-2, ADR 0044; design 8.1). The traceability list: one REQ-<area>-<nnn> per row of the design 8 test table, and the hazards H1 to H22 of design 7 mapped to REQ ids.
+# A test names a requirement by writing its id in the test name or docstring (P27b-3 adds those). tools/check_requirements.py fails when an id in a test is not in this file, or when this file is malformed.
+# status: Spec | Proposed | Decided, as the design words the statement. Every row of design 8 is Proposed (the heading of 8 says so); promoting one to Spec or Decided is a design-review decision, never made by code.
+# source: the design 8 table row (docs/design/s08.md); title is the name the design gives the row. dtests: the D-tests the row names (design 7 and 8).
+version: 1
+
+areas:
+  API: "REST, WebSocket and CSV interfaces"
+  AUD: "Host and browser audio"
+  DB: "Database, writer queue and migrations"
+  FW: "Node firmware (pure C parts) and radio"
+  ING: "Serial ingest, codec and sequence classes"
+  ML: "Tier 2 model file"
+  OPS: "Build, lock files and lint"
+  REC: "Restart, recovery and start-up"
+  RUL: "Rule engine, alerts and episodes"
+  SEC: "Tokens, origins and operators"
+  SES: "Sessions and End shift"
+  UI: "Dashboard screens and browser tests"
+
+requirements:
+  - id: REQ-UI-001
+    title: "Dashboard unit tests"
+    status: Proposed
+    source: "8, test table row 1"
+    dtests: []
+  - id: REQ-UI-002
+    title: "Browser end-to-end test"
+    status: Proposed
+    source: "8, test table row 2"
+    dtests: [D8]
+  - id: REQ-API-001
+    title: "API tests"
+    status: Proposed
+    source: "8, test table row 3"
+    dtests: []
+  - id: REQ-API-002
+    title: "API endpoint status-code test (Rev 3.31)"
+    status: Proposed
+    source: "8, test table row 4"
+    dtests: [D8]
+  - id: REQ-DB-001
+    title: "Migration test"
+    status: Proposed
+    source: "8, test table row 5"
+    dtests: []
+  - id: REQ-OPS-001
+    title: "Lint and format"
+    status: Proposed
+    source: "8, test table row 6"
+    dtests: []
+  - id: REQ-FW-001
+    title: "Firmware codec test (D-FW, Rev 3.30)"
+    status: Proposed
+    source: "8, test table row 7"
+    dtests: []
+  - id: REQ-FW-002
+    title: "Firmware state machine test (D-FW, Rev 3.31)"
+    status: Proposed
+    source: "8, test table row 8"
+    dtests: [D2, D4]
+  - id: REQ-FW-003
+    title: "Firmware NVS latch test (D-FW, Rev 3.31)"
+    status: Proposed
+    source: "8, test table row 9"
+    dtests: [D1, D2]
+  - id: REQ-FW-004
+    title: "Firmware reset test (D-FW, Rev 3.30)"
+    status: Proposed
+    source: "8, test table row 10"
+    dtests: []
+  - id: REQ-OPS-002
+    title: "Lock files"
+    status: Proposed
+    source: "8, test table row 11"
+    dtests: []
+  - id: REQ-UI-003
+    title: "Alert tray test"
+    status: Proposed
+    source: "8, test table row 12"
+    dtests: [D8]
+  - id: REQ-API-003
+    title: "Acknowledge persistence test"
+    status: Proposed
+    source: "8, test table row 13"
+    dtests: [D8]
+  - id: REQ-AUD-001
+    title: "Sound and audio-state test"
+    status: Proposed
+    source: "8, test table row 14"
+    dtests: [D8]
+  - id: REQ-UI-004
+    title: "Dashboard latency test"
+    status: Proposed
+    source: "8, test table row 15"
+    dtests: [D8]
+  - id: REQ-RUL-001
+    title: "Alert catalog test"
+    status: Proposed
+    source: "8, test table row 16"
+    dtests: [D8]
+  - id: REQ-UI-005
+    title: "Hotspot and fault-map test"
+    status: Proposed
+    source: "8, test table row 17"
+    dtests: [D10, D5]
+  - id: REQ-UI-006
+    title: "3D fallback test"
+    status: Proposed
+    source: "8, test table row 18"
+    dtests: [D8]
+  - id: REQ-UI-007
+    title: "Look and access test"
+    status: Proposed
+    source: "8, test table row 19"
+    dtests: []
+  - id: REQ-SEC-001
+    title: "Origin and token test"
+    status: Proposed
+    source: "8, test table row 20"
+    dtests: [D8]
+  - id: REQ-API-004
+    title: "Message contract test"
+    status: Proposed
+    source: "8, test table row 21"
+    dtests: []
+  - id: REQ-SES-001
+    title: "Time and sessions test"
+    status: Proposed
+    source: "8, test table row 22"
+    dtests: []
+  - id: REQ-UI-008
+    title: "Empty-state and trend tests"
+    status: Proposed
+    source: "8, test table row 23"
+    dtests: []
+  - id: REQ-RUL-002
+    title: "Episode rules test"
+    status: Proposed
+    source: "8, test table row 24"
+    dtests: [D2, D8]
+  - id: REQ-SES-002
+    title: "End shift test"
+    status: Proposed
+    source: "8, test table row 25"
+    dtests: [D8]
+  - id: REQ-UI-009
+    title: "Offline acknowledge test"
+    status: Proposed
+    source: "8, test table row 26"
+    dtests: [D8]
+  - id: REQ-AUD-002
+    title: "Hidden-tab audio test"
+    status: Proposed
+    source: "8, test table row 27"
+    dtests: [D8]
+  - id: REQ-API-005
+    title: "Slow client test"
+    status: Proposed
+    source: "8, test table row 28"
+    dtests: [D8]
+  - id: REQ-REC-001
+    title: "Host restart and gap test"
+    status: Proposed
+    source: "8, test table row 29"
+    dtests: [D8]
+  - id: REQ-DB-002
+    title: "Logging fault and flood test"
+    status: Proposed
+    source: "8, test table row 30"
+    dtests: [D1, D8]
+  - id: REQ-SEC-002
+    title: "Token expiry test"
+    status: Proposed
+    source: "8, test table row 31"
+    dtests: [D8]
+  - id: REQ-UI-010
+    title: "Display test"
+    status: Proposed
+    source: "8, test table row 32"
+    dtests: [D8]
+  - id: REQ-API-006
+    title: "CSV safety test"
+    status: Proposed
+    source: "8, test table row 33"
+    dtests: [D8]
+  - id: REQ-REC-002
+    title: "Restart state-order & commit-first test"
+    status: Proposed
+    source: "8, test table row 34"
+    dtests: [D8]
+  - id: REQ-REC-003
+    title: "Recovery without checkpoint test (Rev 3.32)"
+    status: Proposed
+    source: "8, test table row 35"
+    dtests: [D8]
+  - id: REQ-RUL-003
+    title: "Battery latch & man-down label test"
+    status: Proposed
+    source: "8, test table row 36"
+    dtests: [D2, D5, D8]
+  - id: REQ-AUD-003
+    title: "Browser freeze & headless alarm test"
+    status: Proposed
+    source: "8, test table row 37"
+    dtests: [D8]
+  - id: REQ-ING-001
+    title: "Mode isolation test"
+    status: Proposed
+    source: "8, test table row 38"
+    dtests: [D8]
+  - id: REQ-SEC-003
+    title: "Token persistence & 24 h reconnect test"
+    status: Proposed
+    source: "8, test table row 39"
+    dtests: [D8]
+  - id: REQ-API-007
+    title: "Banner vs. alerts ownership test (Rev 3.4)"
+    status: Proposed
+    source: "8, test table row 40"
+    dtests: [D8]
+  - id: REQ-API-008
+    title: "REST schema & HTTP 409 lock test (Rev 3.4)"
+    status: Proposed
+    source: "8, test table row 41"
+    dtests: [D8]
+  - id: REQ-DB-003
+    title: "RAM retry-buffer FK ordering test (Rev 3.4)"
+    status: Proposed
+    source: "8, test table row 42"
+    dtests: [D8]
+  - id: REQ-API-009
+    title: "Full CSV telemetry & advisory export test (Rev 3.5)"
+    status: Proposed
+    source: "8, test table row 43"
+    dtests: []
+  - id: REQ-SES-003
+    title: "Session transition & purge-guard test (Rev 3.27)"
+    status: Proposed
+    source: "8, test table row 44"
+    dtests: [D8]
+  - id: REQ-AUD-004
+    title: "Host sound files and CLI stop test (Rev 3.28)"
+    status: Proposed
+    source: "8, test table row 45"
+    dtests: [D8]
+  - id: REQ-AUD-005
+    title: "Alarm before Start monitoring test (Rev 3.29)"
+    status: Proposed
+    source: "8, test table row 46"
+    dtests: [D8]
+  - id: REQ-DB-004
+    title: "event_seq gap test (Rev 3.28)"
+    status: Proposed
+    source: "8, test table row 47"
+    dtests: [D8]
+  - id: REQ-REC-004
+    title: "Recovery across sessions test (Rev 3.28)"
+    status: Proposed
+    source: "8, test table row 48"
+    dtests: [D8]
+  - id: REQ-SEC-004
+    title: "Disabled-operator test (Rev 3.28)"
+    status: Proposed
+    source: "8, test table row 49"
+    dtests: [D8]
+  - id: REQ-RUL-004
+    title: "Auto-cleared alert acknowledge & severity-first badge test (Rev 3.5)"
+    status: Proposed
+    source: "8, test table row 50"
+    dtests: []
+  - id: REQ-ING-002
+    title: "Bounded serial framing, host alarm & WebGL fallback test (Rev 3.5, updated Rev 3.27)"
+    status: Proposed
+    source: "8, test table row 51"
+    dtests: []
+  - id: REQ-RUL-005
+    title: "Causal alert_cleared ordering & SCBA_CORRECTION replay test (Rev 3.6)"
+    status: Proposed
+    source: "8, test table row 52"
+    dtests: []
+  - id: REQ-API-010
+    title: "Client WS auth/heartbeat schema test (the 16 KB checkpoint cap applies only if checkpoints are enabled, 2.10)"
+    status: Proposed
+    source: "8, test table row 53"
+    dtests: []
+  - id: REQ-DB-005
+    title: "Open-alert index and CHECK test (Rev 3.20)"
+    status: Proposed
+    source: "8, test table row 54"
+    dtests: [D1, D8]
+  - id: REQ-RUL-006
+    title: "Golden vector test (Rev 3.20)"
+    status: Proposed
+    source: "8, test table row 55"
+    dtests: [D2, D8]
+  - id: REQ-RUL-007
+    title: "Notice raise-once test (Rev 3.32)"
+    status: Proposed
+    source: "8, test table row 56"
+    dtests: [D2, D8]
+  - id: REQ-RUL-008
+    title: "One-shot notice test (Rev 3.33)"
+    status: Proposed
+    source: "8, test table row 57"
+    dtests: [D2, D8]
+  - id: REQ-ING-003
+    title: "Frame vector codec test (Rev 3.22)"
+    status: Proposed
+    source: "8, test table row 58"
+    dtests: [D1]
+  - id: REQ-REC-005
+    title: "Startup order test (Rev 3.22)"
+    status: Proposed
+    source: "8, test table row 59"
+    dtests: [D8]
+  - id: REQ-RUL-009
+    title: "CO hold label test (Rev 3.23)"
+    status: Proposed
+    source: "8, test table row 60"
+    dtests: [D5, D6, D8]
+  - id: REQ-REC-006
+    title: "Motion-state restart test (Rev 3.20)"
+    status: Proposed
+    source: "8, test table row 61"
+    dtests: [D2, D8]
+  - id: REQ-ING-004
+    title: "Sequence classifier test (Rev 3.21)"
+    status: Proposed
+    source: "8, test table row 62"
+    dtests: [D1, D2, D8]
+  - id: REQ-API-011
+    title: "Rev 3.21 contract test"
+    status: Proposed
+    source: "8, test table row 63"
+    dtests: [D8]
+  - id: REQ-DB-006
+    title: "Open-session index test (Rev 3.24)"
+    status: Proposed
+    source: "8, test table row 64"
+    dtests: [D8]
+  - id: REQ-RUL-010
+    title: "Advisory table test (Rev 3.24)"
+    status: Proposed
+    source: "8, test table row 65"
+    dtests: [D8]
+  - id: REQ-RUL-011
+    title: "Feature flag test (Rev 3.24)"
+    status: Proposed
+    source: "8, test table row 66"
+    dtests: [D8]
+  - id: REQ-RUL-012
+    title: "Latch-restored trigger test (Rev 3.24)"
+    status: Proposed
+    source: "8, test table row 67"
+    dtests: [D2, D8]
+  - id: REQ-FW-005
+    title: "Cross-chip PHY test (Rev 3.24)"
+    status: Proposed
+    source: "8, test table row 68"
+    dtests: [D9]
+  - id: REQ-SEC-005
+    title: "Incident login test (Rev 3.25)"
+    status: Proposed
+    source: "8, test table row 69"
+    dtests: [D8]
+  - id: REQ-REC-007
+    title: "Start-up failure test (Rev 3.25)"
+    status: Proposed
+    source: "8, test table row 70"
+    dtests: [D8]
+  - id: REQ-SES-004
+    title: "End shift conflict test (Rev 3.25)"
+    status: Proposed
+    source: "8, test table row 71"
+    dtests: [D8]
+  - id: REQ-REC-008
+    title: "Pre-replay queue test (Rev 3.25)"
+    status: Proposed
+    source: "8, test table row 72"
+    dtests: [D2, D8]
+  - id: REQ-API-012
+    title: "REST read and validation test (Rev 3.25)"
+    status: Proposed
+    source: "8, test table row 73"
+    dtests: [D8]
+  - id: REQ-ML-001
+    title: "Model file check test (Rev 3.25, Tier 2)"
+    status: Proposed
+    source: "8, test table row 74"
+    dtests: [D12]
+
+hazards:
+  H1:
+    title: "Silent node power loss"
+    requirements: [REQ-RUL-006, REQ-RUL-003]
+  H2:
+    title: "Conscious-but-trapped wearer"
+    requirements: [REQ-FW-002, REQ-RUL-002, REQ-RUL-006]
+  H3:
+    title: "False \"mated\" wrist sense"
+    requirements: [REQ-RUL-007, REQ-UI-005]
+  H4:
+    title: "Stale SCBA-ON declaration"
+    requirements: [REQ-FW-002, REQ-RUL-005, REQ-RUL-006]
+  H5:
+    title: "CO sensor out of range"
+    requirements: [REQ-RUL-009, REQ-UI-005, REQ-RUL-006]
+  H6:
+    title: "Lost man-down latch"
+    requirements: [REQ-FW-003, REQ-FW-004, REQ-RUL-012, REQ-REC-006]
+  H7:
+    title: "False ACK"
+    requirements: [REQ-ING-003, REQ-ING-004, REQ-DB-002]
+  H8:
+    title: "Wrist-cable or sensor-head short"
+    requirements: [REQ-UI-005, REQ-RUL-006]
+  H9:
+    title: "Battery thermal event"
+    requirements: [REQ-RUL-003]
+  H10:
+    title: "Single-host failure"
+    requirements: [REQ-UI-002, REQ-REC-001, REQ-REC-002, REQ-REC-005]
+  H11:
+    title: "Missed or silently acknowledged alert"
+    requirements: [REQ-UI-003, REQ-API-003, REQ-AUD-001, REQ-RUL-002]
+  H12:
+    title: "Audio muted or suspended"
+    requirements: [REQ-AUD-001, REQ-UI-002, REQ-AUD-005]
+  H13:
+    title: "Acknowledge mistaken for Resolve"
+    requirements: [REQ-API-001, REQ-API-003, REQ-RUL-002, REQ-UI-003]
+  H14:
+    title: "3D view failure"
+    requirements: [REQ-UI-006, REQ-ING-002]
+  H15:
+    title: "Cross-site call to the local API"
+    requirements: [REQ-SEC-001]
+  H16:
+    title: "End shift pressed during an incident"
+    requirements: [REQ-SES-002, REQ-SES-003, REQ-SES-004]
+  H17:
+    title: "Unsilenceable NO LIVE DATA siren leads to a muted laptop"
+    requirements: [REQ-UI-009, REQ-AUD-002, REQ-AUD-001]
+  H18:
+    title: "False or hidden alerts after a host restart"
+    requirements: [REQ-REC-001, REQ-REC-003, REQ-REC-004, REQ-REC-005, REQ-REC-008, REQ-REC-002]
+  H19:
+    title: "Logging fails without notice"
+    requirements: [REQ-DB-002, REQ-DB-003, REQ-DB-004]
+  H20:
+    title: "Login failure or a disabled token blinds the commander"
+    requirements: [REQ-SEC-005, REQ-SEC-004, REQ-SEC-003, REQ-SEC-002]
+  H21:
+    title: "Host machine sleeps, suspends or does not restart"
+    requirements: [REQ-REC-007, REQ-AUD-003]
+  H22:
+    title: "Database corrupt or unreadable at start-up"
+    requirements: [REQ-REC-007, REQ-DB-001]
