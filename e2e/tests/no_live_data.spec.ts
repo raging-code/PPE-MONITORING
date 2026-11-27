@@ -10,6 +10,7 @@ test.beforeEach(async ({ request }) => { await control(request, { mode: 'live', 
 test('NO LIVE DATA appears 4 s after the last tick, not before', async ({ page, request }) => {
   await signInAndWaitLive(page);
   await expect(noLiveData(page)).toHaveCount(0);
+  await expect.poll(async () => (await control(request, {})).lastTickAt).toBeGreaterThan(0);   // the mock has sent its first tick
 
   const { lastTickAt } = await control(request, { mode: 'muted' });                 // the host stalls: sockets open, nothing arrives
   await expect(noLiveData(page)).toBeVisible({ timeout: 8000 });
