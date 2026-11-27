@@ -64,3 +64,5 @@ Where this split needed a choice the Coding Guide did not spell out:
 | `s14-5.md` | 14.5 Runtime Architecture, Module Layout & Startup Sequence | 6069 |
 | `s14-6.md` | 14.6 Rule engine as a pure core | 904 |
 - p6a-extract.md, p6b-extract.md, p6c-extract.md: verbatim extracts of 14.1, 14.2 and GV text for stages P6a to P6c (added by docs06_guide_stages)
+
+Amendment (ADR 0054): `s03-4.md` also carries two rows that Rev 3.45 lacks, AUDIO FAULT [audio_fault] and BASE FIRMWARE MISMATCH [abi_mismatch], and "8 banners" in the completeness sentence. The .docx is not edited (the design is frozen); the ADR is the record of the difference.

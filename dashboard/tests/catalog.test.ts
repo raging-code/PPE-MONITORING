@@ -72,16 +72,8 @@ describe('catalog completeness (P22 catalog test)', () => {
   it('badge_order values are unique and run 1 to 33', () => {
     expect(CATALOG.map((e) => e.badge_order).sort((a, b) => a - b)).toEqual(Array.from({ length: 33 }, (_, i) => i + 1));
   });
-  it('the 6 banners other than audio_fault and abi_mismatch each have a 3.4 row', () => {
-    for (const b of BANNERS.filter((x) => x.type !== 'audio_fault' && x.type !== 'abi_mismatch')) expect(ROW.has(b.type), b.type).toBe(true);
-  });
-  // Expected failure (ADR 0015): Rev 3.45 table 3.4 has no AUDIO FAULT row although its completeness rule and 3.12 require
-  // one. When the row is added to the design, this starts passing, Vitest reports it, and ".fails" is removed.
-  it.fails('the audio_fault banner has a 3.4 row', () => {
-    expect(ROW.has('audio_fault')).toBe(true);
-  });
-  // Expected failure (ADR 0051): the same gap for the abi_mismatch banner. Remove ".fails" when the row is added to the design.
-  it.fails('the abi_mismatch banner has a 3.4 row', () => {
-    expect(ROW.has('abi_mismatch')).toBe(true);
+  it('every one of the 8 banners has a 3.4 row (ADR 0054)', () => {
+    expect(BANNERS).toHaveLength(8);
+    for (const b of BANNERS) expect(ROW.has(b.type), b.type).toBe(true);
   });
 });
