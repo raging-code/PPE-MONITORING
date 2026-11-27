@@ -12,7 +12,7 @@ test('ABI MISMATCH appears when the base reports a different ABI and goes when i
 
   await control(request, { abi_mismatch: true });
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText('ABI MISMATCH');
+  await expect(banner).toContainText('BASE FIRMWARE MISMATCH');
   await expect(banner.getByRole('button', { name: 'Acknowledge' })).toHaveCount(0);   // it cannot be acknowledged
   await expect(page.getByTestId('frame')).toBeVisible();                             // the cards stay
 
