@@ -45,7 +45,7 @@ describe('banners in the Shell', () => {
   it('abi_mismatch shows as a status banner with the catalog text and no Acknowledge button, and goes when the flag clears', () => {
     live(banners({ abi_mismatch: true })); const r = render(<SystemBanners />);
     const el = screen.getByTestId('banner-abi_mismatch');
-    expect(el.getAttribute('role')).toBe('status'); expect(el.textContent).toContain('ABI MISMATCH');
+    expect(el.getAttribute('role')).toBe('status'); expect(el.textContent).toContain('BASE FIRMWARE MISMATCH');
     expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
     cleanup(); live(banners({ abi_mismatch: false })); r.unmount(); render(<SystemBanners />);
     expect(screen.queryByTestId('banner-abi_mismatch')).toBeNull();
