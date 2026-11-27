@@ -1,6 +1,5 @@
 """P24-3c-1: start-up step 8 (runtime.py): the writer and serial threads, the pre-replay queue and its drop rule, and the first host_tick with recovering=1."""
 import json, sqlite3, threading
-from types import SimpleNamespace as NS
 from ppe_host import main as M, runtime as R
 from ppe_host.clock import FakeClock
 from ppe_host.io.serial_reader import Frame

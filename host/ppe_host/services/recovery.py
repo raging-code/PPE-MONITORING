@@ -14,7 +14,7 @@ What the rebuild decides, and why (ADR 0037):
  Only frames with verify = 'OK' are replayed: every other verify value is gated off (14.1) except the BAD_MAC unauth alert, whose state comes from the open row (1).
 The work is chunked (2,000 rows per step_chunk) so the caller can yield to the event loop and touch the liveness stamps between chunks; run() does it in one go (tests), run_async() yields."""
 import asyncio, bisect, json, logging
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, fields, replace
 from ..core import crypto_abi as ca
 from ..core import rule_engine as eng
 from ..core.seq_classifier import SeqState, classify

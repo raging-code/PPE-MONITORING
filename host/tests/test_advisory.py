@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from ppe_host.clock import FakeClock
 from ppe_host.core import advisory as adv
-from ppe_host.core.advisory import (ADVISORY_EVAL_S, ADVISORY_WINDOW_S, RISKS, TABLE, AdvisoryConfig, AdvisoryRow, AdvisoryState, advise, advisory_step, quality_of)
+from ppe_host.core.advisory import (ADVISORY_EVAL_S, ADVISORY_WINDOW_S, RISKS, TABLE, AdvisoryConfig, AdvisoryState, advise, advisory_step, quality_of)
 from ppe_host.core.rule_engine import EngineState, FrameEvent, NodeState, OpenAlert, TickEvent, step
 from test_co_state import BASE
 

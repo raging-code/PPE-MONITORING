@@ -8,7 +8,7 @@ from ppe_host.clock import FakeClock
 from ppe_host.core.rule_engine import OpenAlert, RaiseAlert
 from fakeaudio import FakeBackend
 from fakeport import FakePort
-from test_startup import home, run, no_serve, NOW
+from test_startup import home, run, NOW
 
 def mk(tmp_path, backend, mode='SIMULATOR'):
     h = home(tmp_path); st = run(h, mode); M.begin_session(st); st.recovering = False      # P25-2: RECOVERING is a one-beep item while the host recovers; these tests are about the alarms

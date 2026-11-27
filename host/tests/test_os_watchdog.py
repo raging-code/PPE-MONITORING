@@ -1,6 +1,5 @@
 """P24b Part 2: io/os_watchdog.py (ADR 0036) — Liveness, the marker file, OSWatchdogThread.check()/run()/stop(), and the next-start read (consume_marker)."""
 import json
-import pytest
 from ppe_host.clock import FakeClock
 from ppe_host.io import os_watchdog as W
 

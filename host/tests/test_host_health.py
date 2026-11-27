@@ -1,10 +1,8 @@
 """P24b-3: HostHealth (QUEUE_OVERFLOW, HOST_BATTERY, DISK_LOW, the host_power string), the LOGGING_FAULT callback and the HOST BATTERY audio item."""
 import json
 from types import SimpleNamespace as NS
-from ppe_host import runtime as R
 from ppe_host.clock import FakeClock
 from ppe_host.io import health as H
-from test_startup import home, run, NOW
 
 def make(bat=(False, None), disk=5.0, **kw):
     clock, ev = FakeClock(0, 0), []
@@ -53,7 +51,7 @@ def test_a_custom_threshold_is_used():
     assert [k for k, _ in ev] == ['HOST_BATTERY', 'DISK_LOW'] and hh.host_power() == 'battery 45%'
 
 # ---- through the Runtime ----
-from test_audio_wiring import mk, events
+from test_audio_wiring import mk
 from fakeaudio import FakeBackend
 
 def close(rt, st): rt.writer.conn.close(); st.close()

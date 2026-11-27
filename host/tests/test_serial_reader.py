@@ -73,7 +73,7 @@ class FakeSerialModule:
         def open(self): FakeSerialModule.calls.append(('open',))
 
 def test_the_port_is_opened_with_dtr_and_rts_false_set_before_the_open_call():
-    FakeSerialModule.calls = []; ser = open_serial('COM4', 115200, write_timeout_s=0.2, serial_module=FakeSerialModule)
+    FakeSerialModule.calls = []; _ser = open_serial('COM4', 115200, write_timeout_s=0.2, serial_module=FakeSerialModule)
     c = FakeSerialModule.calls; names = [x[1] if x[0] == 'set' else x[0] for x in c]
     assert c[0] == ('init', (), {})                                                       # created unopened: Serial(port) would open at once, with DTR and RTS asserted
     assert ('set', 'dtr', False) in c and ('set', 'rts', False) in c and ('set', 'port', 'COM4') in c and ('set', 'baudrate', 115200) in c and ('set', 'write_timeout', 0.2) in c

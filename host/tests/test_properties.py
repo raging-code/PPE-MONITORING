@@ -1,12 +1,10 @@
 """P9: the Hypothesis property tests of design 14.6, run over the real engine and the advisory step. Each property is a plain check_* function over a trace so it
 also runs without Hypothesis. Events are built from small spec tuples; the strategy draws specs. Operator events are not generated here (P7c-1 tests them)."""
-from dataclasses import replace
-import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 from ppe_host.clock import FakeClock
-from ppe_host.core.advisory import AdvisoryConfig, AdvisoryRow, AdvisoryState, RISKS, advise, advisory_step
+from ppe_host.core.advisory import AdvisoryRow, AdvisoryState, RISKS, advise, advisory_step
 from ppe_host.core.rule_engine import (ALERT_TYPES, RANK, ChangeAlertLevel, ClearAlert, EngineState, FrameEvent, RaiseAlert, TickEvent, step)
-from test_advisory import BEAT_MS, CFG
+from test_advisory import CFG
 from test_co_state import BASE
 
 DTS = (0, 1000, 2000, 2000, 2000, 5000, 16000, 61000)

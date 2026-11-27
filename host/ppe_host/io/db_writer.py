@@ -5,7 +5,7 @@ binding) are never retried: the unit is rolled back and its rows commit one by o
 import os, re, sqlite3, threading, time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 WRITER_QUEUE_MAX = 500   # design 2.10 ("max 500 units"); no settings key exists, so it is a module constant (like ADR 0001)
 SEQ_COLUMNS = (('frames', 'event_seq'), ('alerts', 'event_seq'), ('alerts', 'cleared_event_seq'), ('audit_events', 'event_seq'),

@@ -1,5 +1,5 @@
 """P19-1: REST shell (design 3.8): error envelope, bearer dependency, POST /api/login, GET /api/events. The host is a fake Port; the database is a real migrated file."""
-import json, pathlib, threading
+import pathlib, threading
 import pytest
 from fastapi.testclient import TestClient
 from ppe_host.api import api_rest as R, models as M
@@ -48,7 +48,7 @@ def test_events_carry_only_the_eight_columns_in_event_seq_order_and_never_a_fram
     alert(c, 5); alert(c, 2, 9, 'link_lost')
     c.execute("INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action, node_id) VALUES (1, 4, 40, NULL, 'LOGIN_REJECTED', NULL)")
     c.execute("INSERT INTO system_events(session_id, event_seq, ts, kind, detail) VALUES (1, 7, 70, 'HOST_START', 'x')")
-    r = get(client); b = r.json(); n = len(port.audits)
+    r = get(client); b = r.json(); _n = len(port.audits)
     assert [(e['event_seq'], e['record_type'], e['code']) for e in b['events']] == [(2, 'alert_raised', 'link_lost'), (4, 'audit', 'LOGIN_REJECTED'), (5, 'alert_raised', 'co_threshold'), (7, 'system', 'HOST_START'), (9, 'alert_cleared', 'link_lost')]
     assert b['last_seq'] == 9 and all(set(e) == set(M.EventRow.model_fields) for e in b['events']) and 'raw_hex' not in r.text and 'record_type' in r.text and port.audits == []
 def test_after_seq_and_limit_page_the_log(rig):

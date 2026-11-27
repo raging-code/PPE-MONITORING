@@ -2,10 +2,10 @@
 heat cases are seeded here and named GV-16a-seeded and GV-16c-seeded; the real GV-16 a and c run in P7c. Boundary times are test values only."""
 from dataclasses import replace
 import pytest
-from test_co_state import CO_FAULT, SHT_FAULT, Sim, co_frame
-from test_co_threshold import Eng, TYPE, frame, kinds
+from test_co_state import CO_FAULT, SHT_FAULT
+from test_co_threshold import Eng, TYPE, frame
 from ppe_host.core import rule_engine as re_
-from ppe_host.core.rule_engine import FrameEvent, NodeState, RaiseAlert, TickEvent, raise_alert
+from ppe_host.core.rule_engine import FrameEvent, TickEvent, raise_alert
 
 IMU_FAULT = 1 << 5
 SF = 'sensor_fault'

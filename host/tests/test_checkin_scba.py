@@ -1,9 +1,8 @@
 """P7c-2: checkin and scba_expired (design 14.1 rows; GV-05 a to d, GV-24 a to c). Frames are built from co_frame; flags, status2, status3 and CO are set per test."""
-import pytest
 from test_co_state import co_frame
 from test_co_threshold import Eng
 from ppe_host.core import rule_engine as re_
-from ppe_host.core.rule_engine import AckAlertEvent, ClearAlert, FrameEvent, RaiseAlert, ChangeAlertLevel, TickEvent
+from ppe_host.core.rule_engine import AckAlertEvent, FrameEvent, ChangeAlertLevel
 
 CI, CI_FALL, MD, CI_MD = 0x81, 0xC0, 0x06, 0x86         # flags: check-in + WARNING, check-in + fall suspected (level NORMAL), man-down + DANGER, both (0x87 would be node_level 3 = INVALID, never evaluated)
 EXP, CO_FAULT = 0x08, 0x10                   # status3 bit 3, status2 bit 4

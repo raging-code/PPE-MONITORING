@@ -5,7 +5,7 @@ import pytest
 from test_co_state import co_frame
 from test_co_threshold import Eng
 from ppe_host.core import rule_engine as re_
-from ppe_host.core.rule_engine import ClearAlert, EngineState, FrameEvent, RaiseAlert, TickEvent
+from ppe_host.core.rule_engine import EngineState, FrameEvent, RaiseAlert, TickEvent
 
 PERSISTENT = ('wrist_open', 'button_stuck', 'missed_event', 'co_warmup')
 ONE_SHOT = ('wrist_close', 'node_reboot', 'latch_restored', 'watchdog_recovery')

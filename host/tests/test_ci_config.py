@@ -38,7 +38,7 @@ def test_host_job_regenerates_checks_the_tree_then_runs_lint_import_rule_pytest_
 
 def test_firmware_job_builds_with_gcc_like_just_test_fw_and_dashboard_job_uses_the_lock_file():
     assert just_recipe('test-fw') == [l.strip() for l in runs('firmware').splitlines() if l.strip().startswith('python ')]
-    d = [l for l in runs('dashboard').splitlines() if l.strip()]; assert d == ['npm ci', 'npm run typecheck', 'npm test', 'npm run build'] and wf()['jobs']['dashboard']['defaults']['run']['working-directory'] == 'dashboard'
+    d = [l for l in runs('dashboard').splitlines() if l.strip()]; assert d == ['npm ci', 'npm run typecheck', 'npm run lint', 'npm test', 'npm run build'] and wf()['jobs']['dashboard']['defaults']['run']['working-directory'] == 'dashboard'
 
 def test_every_file_a_ci_command_names_exists():
     for job in wf()['jobs']:

@@ -1,5 +1,5 @@
 """P24-2: start-up steps 6 and 7 (design 14.5, 2.3 session resume, section 1 restart sequence)."""
-import json, os
+import json
 import pytest
 from ppe_host import main as M
 from ppe_host.clock import FakeClock

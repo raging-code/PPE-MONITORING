@@ -1,6 +1,5 @@
 """P12-2: ingest pipeline (design 1 per-frame order, 2.1 overflow rule, 2.3 frames table, Section 5 host share). Real writer and database, fake port, FakeClock."""
-import json, logging, statistics, time
-from pathlib import Path
+import logging, statistics, time
 from ppe_host.clock import FakeClock
 from ppe_host.io.db_writer import DBWriter
 from ppe_host.io.ingest import Ingest, BAD_FRAMES_KEPT_PER_MIN
@@ -52,7 +51,7 @@ def test_a_host_and_base_disagreement_logs_mac_disagree_and_keeps_both_results(t
     assert len({r['event_seq'] for r in fr_} | {e['event_seq'] for e in ev}) == 5
 
 def test_a_bad_frame_flood_keeps_20_per_minute_and_verified_frames_are_still_stored(tmp_path):
-    c, w, clock, ing = rig(tmp_path); bad = pack(seq=5, flags=6, node=2, key=WRONG_KEY)
+    c, w, clock, ing = rig(tmp_path); _bad = pack(seq=5, flags=6, node=2, key=WRONG_KEY)
     bad_crc = bytearray(pack(seq=6)); bad_crc[2] ^= 1; bad_crc = bytes(bad_crc)
     for i in range(30): send(ing, clock, bad_crc, 'BAD_CRC', dt=100)
     for s in range(1, 4): send(ing, clock, pack(seq=s), dt=100)

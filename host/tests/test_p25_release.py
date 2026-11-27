@@ -2,11 +2,10 @@
 per minute) is rebuilt and RECOVERING_EXIT is logged in 3 s or less of real time (design 2.9 and s05: Proposed, provisional), with no gap between two 'loop' liveness stamps near task_stall_s.
 A second run with a window of 5 times the routine rate gates only the loop stall (a stall is os._exit(1)) and a 9 s ceiling; its time is printed (about 0.35 ms per replayed frame, so the 3 s gate holds up to about 8,000 frames in the window). (2) One restart chain end to end: a crash with an open alert and an open episode, a restart after a gap (open items there before the replay ends, HOST_GAP, no SIGNAL LOST from the gap alone,
 no second episode on the first live frame), a clean stop, and the next start in a new session. The pieces are tested one by one in test_recovery.py, test_recovery_run.py and test_sessions.py; this is the whole path in one test."""
-import asyncio, json, sqlite3, time
+import json, sqlite3, time
 from ppe_host.clock import FakeClock
-from ppe_host.io.serial_reader import Frame
-from test_recovery_run import HOSTKEY, P, boot, kinds, process_a, process_b, recover, finish, rows, send, settle, tick
-from test_startup import home, NOW
+from test_recovery_run import P, kinds, process_a, process_b, recover, finish, rows, send, tick
+from test_startup import home
 
 SLOW_S = 3.0           # the gate: RECOVERING_EXIT within 3 s of the start of recovery
 STALL_S = 3.0          # task_stall_s: a longer gap between two loop stamps is os._exit(1)

@@ -1,5 +1,5 @@
 """P11-1: DBWriter behaviour (design 2.1, 2.10, Section 1 commit paragraph, Rev 3.28 and 3.36). The disk stall is real: a second connection holds the write lock."""
-import time, pytest
+import pytest
 from ppe_host.clock import FakeClock
 from ppe_host.io.db_writer import DBWriter, Unit, Stmt, Ref, connect_db, init_event_seq
 from test_db_schema import new_db, session
@@ -43,7 +43,7 @@ def test_a_constraint_failure_is_not_retried_rows_commit_one_by_one_and_the_aler
 
 def test_a_full_queue_drops_the_oldest_droppable_unit_first_never_the_head_and_never_an_alert_unit(db):
     c, path = db; w = writer(path, queue_max=3)                                                                      # not started: the queue only fills
-    a, d1, d2 = w.submit(frame_u(1, droppable=True)), w.submit(frame_u(2, droppable=True)), w.submit(frame_u(3))
+    _a, _d1, _d2 = w.submit(frame_u(1, droppable=True)), w.submit(frame_u(2, droppable=True)), w.submit(frame_u(3))
     w.submit(frame_u(4)); assert w.counters['retry_buffer_dropped'] == 1 and [u.event_seq for u in w._q] == [1, 3, 4] and w.logging_fault   # head (1) kept, oldest other droppable (2) went
     w.submit(frame_u(5)); w.submit(frame_u(6)); assert w.counters['queue_overflow'] == 2 and w.pending() == 5 and w.counters['retry_buffer_dropped'] == 1   # nothing droppable: kept and counted
     w.start(); assert w.wait(w._q[-1], 3000); w.stop()

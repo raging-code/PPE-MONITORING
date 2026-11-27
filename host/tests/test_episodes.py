@@ -5,7 +5,7 @@ from test_co_state import co_frame
 from test_co_threshold import Eng
 from ppe_host.core import rule_engine as re_
 from ppe_host.core.rule_engine import (AckAlertEvent, AckEpisodeEvent, EngineState, EpisodeAcknowledged, EpisodeEscalated, EpisodeLabelChanged, EpisodeOpened,
-                                       EpisodeResolved, AlertAcknowledged, ClearAlert, FrameEvent, RaiseAlert, ResolveEpisodeEvent, TickEvent, raise_alert)
+                                       EpisodeResolved, AlertAcknowledged, FrameEvent, ResolveEpisodeEvent, TickEvent, raise_alert)
 
 MD, MAYDAY = 0x06, 0x10
 def mf(flags=0, status4=0, motion=0, seq_class='fresh', node=1):

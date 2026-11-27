@@ -4,7 +4,6 @@ give same outputs), the rule registry order, the core import rule and FakeClock.
 import ast, copy, json, re
 from pathlib import Path
 import pytest
-from ppe_host import abi
 from ppe_host.clock import FakeClock, now_of
 from ppe_host.core import rule_engine as re_
 from ppe_host.core import crypto_abi as ca

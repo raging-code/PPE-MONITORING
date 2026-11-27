@@ -3,7 +3,6 @@ shared/vectors/frames.json), sends them through the real pipeline crypto_abi.cla
 exactly the order the shell uses (BAD_LEN and REJECT_ROSTER never reach step(); BAD_MAC and BAD_CRC reach it as suspect). GV-21 to GV-27 are field-level
 vectors but run the same way. A failing case is REPORTED (see the REPORT table at the end of the P10 HANDOFF); no rule or vector is edited to make it pass."""
 import json
-from dataclasses import replace
 from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.ciphers import algorithms
@@ -160,7 +159,7 @@ def test_GV09_a_b_c_acknowledge_lower_keep_ack_then_clear():
     p = Pipe(); fx = p.raw(bytes.fromhex(HEX['F-07']))
     assert kinds(fx, 'co_threshold') == [('raise', 1, 'co_threshold', 'DANGER')] and p.n().co_ppm == 250.0
     p.op(AckAlertEvent(1, 'co_threshold', 1)); assert p.row('co_threshold').acknowledged_ts is not None
-    seq0 = p.row('co_threshold').event_seq; out = []
+    _seq0 = p.row('co_threshold').event_seq; out = []
     for i in range(6): out.append(kinds(p.send(co_x10=1500), 'co_threshold'))                                                                  # (b) 150 ppm: the lowering frame is the one 10 s after the first sub-180 frame
     assert out[:5] == [[]] * 5 and out[5] == [('lower', 1, 'co_threshold', 'WARNING')] and p.row('co_threshold').acknowledged_ts is not None
     assert p.row('co_threshold').level == 'WARNING' and p.row('co_threshold').acknowledged_ts is not None
@@ -204,7 +203,7 @@ def test_GV13_three_continuous_suspect_frames_rebaseline_and_start_the_clear_tim
     p.send(seq=203, co_x10=250); assert (p.last.seq_class, p.last.frames_lost) == ('fresh', 0)
 
 def test_GV14_a_b_suspect_frames_escalate_but_never_lower():
-    p = Pipe(); p.send(seq=1000, co_x10=520, flags=1); p.op(AckAlertEvent(1, 'co_threshold', 1)); sq = p.row('co_threshold').event_seq
+    p = Pipe(); p.send(seq=1000, co_x10=520, flags=1); p.op(AckAlertEvent(1, 'co_threshold', 1)); _sq = p.row('co_threshold').event_seq
     fx = p.send(seq=200, co_x10=2500, flags=0x02)
     assert p.last.seq_class == 'suspect' and kinds(fx, 'co_threshold') == [('escalate', 1, 'co_threshold', 'DANGER')] and p.row('co_threshold').acknowledged_ts is None and p.baseline() == (7, 1000)
     fx = p.send(seq=201, co_x10=250, flags=0)
@@ -267,7 +266,7 @@ def test_GV18_c_d_range_clears_60_s_after_the_first_inside_margin_frame_then_10_
     assert range_t - t_first == 58_000 or range_t - t_first == 60_000, (range_t - t_first)
     assert clear_t - range_t == 12_000, (clear_t - range_t)                                    # timer starts on the next fresh frame (2 s), alert clears 10 s later
 def test_GV18_e_co_250_ppm_escalates_in_place_although_co_range_is_active():
-    p = Pipe(); p.send(co_x10=520); p.run(6, temp_x100=5600, co_x10=200); p.op(AckAlertEvent(1, 'co_threshold', 1)); sq = p.row('co_threshold').event_seq
+    p = Pipe(); p.send(co_x10=520); p.run(6, temp_x100=5600, co_x10=200); p.op(AckAlertEvent(1, 'co_threshold', 1)); _sq = p.row('co_threshold').event_seq
     fx = p.raw(bytes.fromhex(HEX['F-23'])); assert kinds(fx, 'co_threshold') == [('escalate', 1, 'co_threshold', 'DANGER')] and p.row('co_threshold').acknowledged_ts is None and p.n().co_range_active
 def test_GV18_f_52_c_frame_restarts_the_60_s_count():
     p = Pipe(); p.send(co_x10=520); p.run(4, temp_x100=5600, co_x10=200); p.run(40, co_x10=200, temp_x100=2500)

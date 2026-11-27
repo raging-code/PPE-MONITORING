@@ -1,11 +1,9 @@
 """P24-3c-3 part 2: start-up step 10 (serve.py): LoopHub, Runtime.tick, the 1 Hz driver, run_server, the exit codes of main(), and build_app. Timing tests use margins of several times the period."""
-import asyncio, json, socket, threading, time
+import asyncio, socket, threading, time
 from types import SimpleNamespace as NS
 import pytest
 from ppe_host import main as M, runtime as R, serve as S
-from ppe_host.clock import FakeClock
-from fakeport import FakePort
-from test_startup import home, run, no_serve, NOW
+from test_startup import home
 from test_runtime import started
 
 def arun(coro): return asyncio.run(coro)
@@ -186,7 +184,6 @@ def test_real_uvicorn_accepts_connections_ticks_and_stops_on_request(tmp_path):
     rt.stop(); st.close()
 
 def test_a_taken_port_raises_serveerror_with_real_uvicorn(tmp_path):
-    import uvicorn
     st, rt = started(tmp_path, 'SIMULATOR'); rt.start()
     with socket.socket() as blocker:
         blocker.bind(('127.0.0.1', 0)); blocker.listen(1); port = blocker.getsockname()[1]

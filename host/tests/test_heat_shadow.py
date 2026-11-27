@@ -1,6 +1,5 @@
 """P7c-3: heat (design 14.1 row, 14.2 (4), Summary D5 test values) and the shadow estimator with shadow_notice (14.1b, 14.2 (5)): GV-16 a to c, GV-25.
 Frames come from co_frame; temperature, motion, flags and status bytes are set per test. Frames are 2 s apart unless a test says otherwise."""
-import pytest
 from test_co_state import co_frame
 from test_co_threshold import Eng
 from ppe_host.core import rule_engine as re_
@@ -90,7 +89,7 @@ def test_acknowledge_never_closes_a_heat_row_and_last_heat_alert_mono_follows_th
 # ---- GV-16: sensor_fault condition (ii) is now live (the real heat rule sets the row and the stamp) ----
 def test_GV16a_a_temp_fault_30_s_after_heat_opened_raises_sensor_fault_at_danger_and_the_heat_row_stays_open():
     e = Eng(); e.step(hf(6500, flags=0x01), 0); feed(e, 6500, 122, flags=0x01); assert al(e, 'heat') is not None; feed(e, 6500, 30, flags=0x01)
-    fx = e.step(hf(6500, flags=0x0A, status2=TF), 2000); sf = al(e, 'sensor_fault')
+    _fx = e.step(hf(6500, flags=0x0A, status2=TF), 2000); sf = al(e, 'sensor_fault')
     assert sf is not None and sf.level == 'DANGER' and 'heat' in sf.reasons and al(e, 'heat') is not None and al(e, 'node_danger') is None
     assert e.state.nodes[1].co_validity == 'UNRELIABLE' and e.state.nodes[1].level == 'DANGER' and e.state.episodes == {}
 

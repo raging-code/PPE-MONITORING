@@ -1,7 +1,6 @@
 """P8: core/seq_classifier.py (design s01-sequence; GV-11, GV-12 classifier half, GV-13, GV-14) and the suspect_frame notice (14.1b).
 GV-11 to GV-14 run the real classifier in front of step(). Raw bytes only matter for duplicate detection, so synthetic frames carry (node, boot, seq) in their first bytes."""
-import pytest
-from test_co_state import co_frame, vector_event, HEX
+from test_co_state import co_frame, HEX
 from test_co_threshold import Eng
 from ppe_host.core import crypto_abi as ca
 from ppe_host.core import rule_engine as re_

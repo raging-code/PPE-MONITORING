@@ -1,10 +1,9 @@
 """P24-3a: effect-to-row mapping (design 1 commit paragraph, 2.3 alerts, episodes and audit_events, 14.1). Real DBWriter and database, FakeClock, bytes from frames.json style packers.
 The frame row, the alert rows it raises and any episode change commit in one unit; ticks and operator actions go through the same mapping."""
-import sqlite3
 from ppe_host.core.rule_engine import (AckAlertEvent, AckEpisodeEvent, ChangeAlertLevel, ClearAlert, EpisodeLabelChanged, EpisodeOpened, RaiseAlert, ResolveEpisodeEvent)
 from ppe_host.io.db_writer import Ref
 from ppe_host.io.ingest import effect_stmts
-from test_ingest import fr, rig, rows, send
+from test_ingest import rig, rows, send
 from test_gv_bytes import WRONG_KEY, pack
 
 def op(c, oid=1): c.execute("INSERT INTO operators(operator_id, display_name, token_hash, created_ts, token_issued_ts) VALUES (?, ?, 'h', 1, 1)", (oid, 'op%d' % oid))

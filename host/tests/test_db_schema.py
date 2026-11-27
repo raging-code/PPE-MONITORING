@@ -1,5 +1,5 @@
 """P11-1: connection factory, migration runner, schema and index tests (design 2.1, Section 8 Rev 3.20 and 3.38). Roster rows are inserted directly: seed-roster is P11-2."""
-import json, os, pathlib, sqlite3, pytest
+import json, pathlib, sqlite3, pytest
 from ppe_host.io.db_writer import connect_db, run_migrations, init_event_seq, applied_versions, DatabaseTooNewError
 
 MIG = pathlib.Path(__file__).resolve().parents[1] / 'migrations'

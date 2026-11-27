@@ -4,7 +4,6 @@ tick replaces an unsent one) and only the thread touches the port, with the writ
 that tick without retrying it. LinkMonitor is the one place that decides when SERIAL_LOST and SERIAL_BACK are logged, so the reader and the writer share one outage:
 no second row for an outage the other side already logged. The writer thread is not in the watchdog liveness set."""
 import json, threading
-from .. import constants as K
 
 SESSION_MODES = ('LIVE', 'SIMULATOR', 'REPLAY')
 

@@ -3,7 +3,7 @@ Pure: classify(state, node_id, raw, decoded, mono_ms) -> (new state, SeqResult).
 shell writes the 'baseline re-established' log line when SeqResult.rebaselined is True. Run it on every frame with verify = OK, in arrival order, BEFORE
 step(): the result's seq_class goes into FrameEvent and its frames_lost into the frames row. A frame with verify other than OK is never classified."""
 from dataclasses import dataclass, field, replace
-from typing import Mapping, NamedTuple, Optional
+from typing import NamedTuple, Optional
 from .. import abi
 from .. import constants as K
 

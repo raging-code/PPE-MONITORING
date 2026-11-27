@@ -1,6 +1,6 @@
 """P12b: real clock, host_tick writer thread, SERIAL_LOST/BACK sharing, base_health rows, BASE_OFFLINE/BACK, COUNTERS."""
 import json, threading, time
-from ppe_host.clock import FakeClock, RealClock, now_of
+from ppe_host.clock import RealClock, now_of
 from ppe_host.io.health import Counters, Health
 from ppe_host.io.serial_reader import SerialReader, Heartbeat, Frame
 from ppe_host.io.serial_writer import LinkMonitor, SerialWriter, host_tick_line

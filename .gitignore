@@ -54,3 +54,6 @@ Thumbs.db
 
 # downloaded repo snapshots
 *.zip
+
+# P27b-1: ruff cache
+.ruff_cache/

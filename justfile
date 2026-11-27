@@ -5,9 +5,15 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 default:
     @just --list
 
-# P1: install the Python dependencies (the dev extra adds pytest and Hypothesis)
+# P1, P27b-1: install the Python dependencies from the hashed lock (runtime plus pytest, Hypothesis, httpx, pyyaml, ruff), then the host package without dependencies. Use Python 3.12 (.python-version)
 setup:
-    python -m pip install -e ".[dev]"
+    python -m pip install --require-hashes -r requirements-dev.lock
+    python -m pip install --no-deps -e .
+
+# P27b-1: regenerate both Python lock files (needs uv). The cut-off is 14 days before today, e.g. on 2026-11-27: just lock 2026-11-13 (no pin newer than the cut-off)
+lock cutoff:
+    uv pip compile pyproject.toml --python-version 3.12 --generate-hashes --exclude-newer {{cutoff}}T00:00:00Z --custom-compile-command "just lock {{cutoff}}" -o requirements.lock
+    uv pip compile pyproject.toml --extra dev --python-version 3.12 --generate-hashes --exclude-newer {{cutoff}}T00:00:00Z --custom-compile-command "just lock {{cutoff}}" -o requirements-dev.lock
 
 # P21 adds the dashboard dev server and P24 adds the host
 dev:
@@ -37,11 +43,13 @@ gen:
     python tools/gen_ws_schema.py
     python tools/gen_sounds.py
 
-# P1: design document consistency; P27-2 adds the core/ import rule and the dashboard type check; P27b adds one lint tool per language
+# P1: design document consistency; P27-2 adds the core/ import rule and the dashboard type check; P27b-1 adds one lint tool per language (ruff rules E9 and F for Python, Biome for the dashboard; neither formats)
 lint:
     python tools/doc_lint.py
     python tools/check_imports.py
+    python -m ruff check host tools
     Set-Location dashboard; npm run typecheck
+    Set-Location dashboard; npm run lint
 
 # P27-1: the dashboard bundle (dashboard/dist) and dist/build_manifest.json (design 13; a key whose source does not exist yet is null and named)
 build:

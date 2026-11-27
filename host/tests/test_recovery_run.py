@@ -1,11 +1,10 @@
 """P25-2: start-up steps 11 to 13 wired into the host (services/recovery_run.py, Runtime.recover, serve.run_server, Wire.unconfirmed): the chunked rebuild with the liveness stamp, rejected_frames restored,
 the silence clocks re-armed, RECOVERING_EXIT and HOST_GAP from the last row of the previous process, recovering=false, the pre-replay queue released after the exit, INTEGRITY_OK, and a failed rebuild that still ends RECOVERING.
 Two real processes on one database: A writes frames and stops, B starts on the same home with a FakeClock, loads the open rows (step 9) and runs recover()."""
-import asyncio, json, sqlite3, time
+import asyncio, json, sqlite3
 from types import SimpleNamespace as NS
 from ppe_host import main as M, runtime as R
 from ppe_host.clock import FakeClock
-from ppe_host.core import rule_engine as eng
 from ppe_host.host_port import HostPort
 from ppe_host.io.db_writer import Stmt
 from ppe_host.io.serial_reader import Frame

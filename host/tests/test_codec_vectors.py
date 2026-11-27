@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.ciphers import algorithms
 from cryptography.hazmat.primitives.cmac import CMAC
-from ppe_host import abi
 from ppe_host.core import crypto_abi as ca
 
 ROOT = Path(__file__).resolve().parents[2]

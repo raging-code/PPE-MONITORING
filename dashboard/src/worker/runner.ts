@@ -17,6 +17,7 @@ export const CHECK_MS = 250;
 export function createRunner(d: RunnerDeps) {
   const wd = new Watchdog(d.staleMs);
   let sock: TickSocket | null = null;
+  // biome-ignore lint/correctness/noUnusedVariables: P27b-1 (ADR 0043) leaves the watchdog code untouched; the handle is assigned and never read, on purpose until a part that stops the timer
   let stopTimer: (() => void) | null = null;
   let last = '';
   const run = () => {

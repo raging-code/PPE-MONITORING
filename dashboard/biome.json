@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": false },
+  "files": { "includes": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "vite.config.ts", "!src/gen/**"] },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "correctness": { "noUnusedVariables": "error", "noUnusedImports": "error", "noUndeclaredVariables": "off", "noConstAssign": "error", "noUnreachable": "error", "noSelfAssign": "error", "noSwitchDeclarations": "error", "useValidForDirection": "error", "useIsNan": "error" },
+      "suspicious": { "noDebugger": "error", "noDoubleEquals": "error", "noDuplicateCase": "error", "noDuplicateObjectKeys": "error", "noSelfCompare": "error", "noCompareNegZero": "error", "noFallthroughSwitchClause": "error", "noRedeclare": "error", "noShadowRestrictedNames": "error", "noAssignInExpressions": "error", "noGlobalIsNan": "error" }
+    }
+  }
+}

@@ -1,11 +1,10 @@
 """P26-1 (ADR 0038): services/csv_export.py and GET /api/export.csv. The export of v_full_log: all six record types in strict event_seq order, decoded telemetry and raw_hex on frame rows,
 no base_health, no keys or tokens, no audit row whose session_id is NULL; formula protection (leading apostrophe for =, +, -, @, tab and CR, raw_hex always); plain numbers (negative RSSI); the per-session filter
 (the cleared row of an alert that outlives its session stays with the session that raised it); 500-row chunks; the route (token and Origin, CSV_EXPORT audit row, text/csv, file name, read-only)."""
-import csv, io, pathlib, sqlite3, time
+import csv, io, time
 import pytest
 from fastapi.testclient import TestClient
 from ppe_host.api import api_rest as R
-from ppe_host.io.db_writer import connect_db
 from ppe_host.services import csv_export as CE
 from test_db_schema import alert, frame, new_db, session
 from test_api_endpoint_table import GOOD, EVIL, Port

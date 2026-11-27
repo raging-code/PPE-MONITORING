@@ -8,7 +8,7 @@ from ppe_host import abi
 from ppe_host.clock import FakeClock
 from ppe_host.core import crypto_abi as ca
 from ppe_host.core import rule_engine as re_
-from ppe_host.core.rule_engine import (CO_NO_READING_HELD, CO_USABLE, CO_USABLE_HELD, EngineState, FrameEvent, NodeState, TickEvent, step)
+from ppe_host.core.rule_engine import (CO_NO_READING_HELD, CO_USABLE, CO_USABLE_HELD, EngineState, FrameEvent, TickEvent, step)
 
 ROOT = Path(__file__).resolve().parents[2]
 VEC = json.loads((ROOT / 'shared' / 'vectors' / 'frames.json').read_text(encoding='utf8'))

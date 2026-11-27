@@ -1,6 +1,6 @@
 """P23a: host WAV files, manifest check at start-up, volume order and the full Rev 3.17 priority list (design 3.12, 3.3, 3.4).
 If a sound test says the files are missing or differ, run: python tools/gen_sounds.py"""
-import importlib.util, shutil, struct, sys, wave
+import importlib.util, struct, sys, wave
 from pathlib import Path
 import pytest
 from ppe_host.io import audio_watchdog as aw

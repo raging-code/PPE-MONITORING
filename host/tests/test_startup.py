@@ -4,7 +4,7 @@ import pytest
 from ppe_host import main as M
 from ppe_host.cli import MIGRATIONS_DIR
 from ppe_host.io.backup import online_backup
-from ppe_host.io.db_writer import connect_db, run_migrations, DatabaseTooNewError
+from ppe_host.io.db_writer import connect_db, run_migrations
 
 KEY = '000102030405060708090a0b0c0d0e0f'
 NOW = 1_700_000_000_000
