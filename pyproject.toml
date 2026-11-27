@@ -24,6 +24,7 @@ dev = [
     "pytest",
     "hypothesis",
     "httpx",        # not named in the design: fastapi.testclient needs it (P19)
+    "pyyaml",       # reads .github/workflows/ci.yml in host/tests/test_ci_config.py (P27-2); P27b reads requirements/requirements.yaml with it
 ]
 
 [tool.setuptools.packages.find]

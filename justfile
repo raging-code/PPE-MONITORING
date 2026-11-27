@@ -33,14 +33,17 @@ gen:
     python tools/gen_ws_schema.py
     python tools/gen_sounds.py
 
-# P1: design document consistency; P27 adds one lint tool per language
+# P1: design document consistency; P27-2 adds the core/ import rule and the dashboard type check; P27b adds one lint tool per language
 lint:
     python tools/doc_lint.py
+    python tools/check_imports.py
+    Set-Location dashboard; npm run typecheck
 
-# P27 adds the dashboard and manifest build
+# P27-1: the dashboard bundle (dashboard/dist) and dist/build_manifest.json (design 13; a key whose source does not exist yet is null and named)
 build:
-    @echo "build: nothing to build yet"
+    Set-Location dashboard; npm run build
+    python tools/build_manifest.py
 
-# P27 adds the release folder
+# P27-1: the release folder dist/release (host package, migrations, shared files, dashboard/dist, build_manifest.json); the embedded Python runtime and the launcher are added by hand (design 1)
 package:
-    @echo "package: nothing to package yet"
+    python tools/package_release.py
