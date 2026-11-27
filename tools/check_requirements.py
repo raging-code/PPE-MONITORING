@@ -25,7 +25,7 @@ def check_file(doc):
     """Problems in the requirements file itself (a list of strings)."""
     bad = []
     if not isinstance(doc, dict) or not isinstance(doc.get('areas'), dict) or not isinstance(doc.get('requirements'), list) or not isinstance(doc.get('hazards'), dict):
-        return ['%s: needs the keys areas, requirements and hazards' % FILE]
+        return ['%s: needs the keys areas, requirements and hazards' % str(FILE).replace('\\', '/')]
     areas, seen = doc['areas'], {}
     for i, r in enumerate(doc['requirements'], 1):
         rid = r.get('id') if isinstance(r, dict) else None

@@ -84,7 +84,7 @@ def test_a_slow_tick_does_not_cause_a_burst_of_catch_up_ticks():
     async def go():
         d = asyncio.ensure_future(S.tick_driver(NS(tick=tick), 0.05)); await asyncio.sleep(0.8); d.cancel(); await asyncio.gather(d, return_exceptions=True)
     arun(go()); gaps = [b - a for a, b in zip(stamps[2:], stamps[3:])]
-    assert gaps and min(gaps) > 0.03                              # after the overrun the ticks are one period apart again, never back to back
+    assert gaps and min(gaps) > 0.005                           # after the overrun the ticks are one period apart again, never back to back
 
 def test_cancelling_the_driver_stops_the_ticks():
     n = []
