@@ -6,7 +6,9 @@ from fakeaudio import FakeBackend
 from ppe_host import cli
 from ppe_host.io.audio_watchdog import SOUNDS_DIR
 from ppe_host.main import LOCK_NAME, Lockfile
-from ppe_host.services import doctor as D
+from ppe_host.io.db_writer import run_migrations
+from ppe_host.main import MIGRATIONS_DIR
+from ppe_host.services import abi_check, doctor as D
 from ppe_host.settings import CONSTANTS_PATH, constants_hash
 
 CMAC, SALT = 'ab' * 16, 'cd' * 32
@@ -16,7 +18,7 @@ def make(tmp_path, secrets=True, salt=True, dashboard=True, manifest=True):
     home, root = tmp_path / 'home', tmp_path / 'root'
     (home / 'config').mkdir(parents=True); (root / 'shared').mkdir(parents=True)
     if secrets: (home / 'config' / 'secrets.json').write_text(json.dumps({'cmac_key': CMAC, **({'server_salt': SALT} if salt else {})}))
-    shutil.copy(CONSTANTS_PATH, root / 'shared' / 'constants.json')
+    shutil.copy(CONSTANTS_PATH, root / 'shared' / 'constants.json'); shutil.copy(abi_check.ABI_JSON, root / 'shared' / 'abi.json')
     if manifest: (root / 'build_manifest.json').write_text(json.dumps({'rev_tag': 'Rev 3.45', 'git_commit': 'abcdef1234567890', 'constants_sha256': constants_hash(root / 'shared' / 'constants.json')}))
     if dashboard: (root / 'dashboard' / 'dist').mkdir(parents=True); (root / 'dashboard' / 'dist' / 'index.html').write_text('<html></html>')
     return home, root
@@ -29,9 +31,9 @@ def by(rows, name): return [r for r in rows if r[1] == name][0]
 def status(rows, name): return by(rows, name)[0]
 
 def test_a_good_machine_passes_every_check_and_exits_0(tmp_path):
-    home, root = make(tmp_path); rows = run(tmp_path, home, root)
-    assert [r[0] for r in rows] == ['PASS'] * 11 and [r[1] for r in rows] == ['release version', 'settings', 'base serial device', 'sound files', 'audio device', 'free disk', 'port 8420', 'prebuilt dashboard', 'secrets.json', 'database quick_check', 'lockfile']
-    lines, ok = D.format_rows(rows); assert ok and lines[-1] == 'doctor: 11 passed, 0 failed, 0 skipped'
+    home, root = make(tmp_path); abi_db(home, [[]]); rows = run(tmp_path, home, root)                                    # one earlier shift in the database; without a session the base ABI row is a SKIP
+    assert [r[0] for r in rows] == ['PASS'] * 13 and [r[1] for r in rows] == ['release version', 'host ABI', 'settings', 'base serial device', 'sound files', 'audio device', 'free disk', 'port 8420', 'prebuilt dashboard', 'secrets.json', 'database quick_check', 'base ABI', 'lockfile']
+    lines, ok = D.format_rows(rows); assert ok and lines[-1] == 'doctor: 13 passed, 0 failed, 0 skipped'
 
 def test_the_release_check_needs_a_manifest_with_a_rev_tag_and_the_constants_of_this_folder(tmp_path):
     home, root = make(tmp_path, manifest=False); assert status(run(tmp_path, home, root), 'release version') == 'FAIL'
@@ -130,8 +132,47 @@ def test_the_lockfile_line_says_none_running_or_stale(tmp_path):
 def test_unreadable_settings_are_one_fail_and_the_checks_that_need_them_are_skipped(tmp_path):
     home, root = make(tmp_path); (home / 'config' / 'settings.local.json').write_text(json.dumps({'no_such_key': 1}))
     rows = run(tmp_path, home, root); assert status(rows, 'settings') == 'FAIL' and 'no_such_key' in by(rows, 'settings')[2]
-    assert [r[0] for r in rows if r[1] in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'lockfile')] == ['SKIP'] * 6
-    assert status(rows, 'release version') == 'PASS' and status(rows, 'sound files') == 'PASS' and status(rows, 'prebuilt dashboard') == 'PASS'
+    assert [r[0] for r in rows if r[1] in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'base ABI', 'lockfile')] == ['SKIP'] * 7
+    assert status(rows, 'release version') == 'PASS' and status(rows, 'host ABI') == 'PASS' and status(rows, 'sound files') == 'PASS' and status(rows, 'prebuilt dashboard') == 'PASS'
+
+def test_the_host_abi_row_compares_abi_py_with_the_abi_json_of_this_folder(tmp_path):
+    home, root = make(tmp_path); r = by(run(tmp_path, home, root), 'host ABI'); assert r[0] == 'PASS' and 'matches' in r[2]
+    p = root / 'shared' / 'abi.json'; a = json.loads(p.read_text('utf8')); a['beacon']['abi_ver'] += 1; p.write_text(json.dumps(a))              # a folder mixed from two builds
+    r = by(run(tmp_path, home, root), 'host ABI'); assert r[0] == 'FAIL' and 'BEACON_ABI_VER' in r[2] and 'exit 2' in r[2]
+    p.write_text('{broken'); r = by(run(tmp_path, home, root), 'host ABI'); assert r[0] == 'FAIL' and 'cannot read abi.json' in r[2]
+    p.unlink(); assert status(run(tmp_path, home, root), 'host ABI') == 'FAIL'
+    p.write_text('{}'); assert 'layout' in by(run(tmp_path, home, root), 'host ABI')[2]
+
+def abi_db(home, sessions):
+    """The real schema (0001 and 0002). sessions = [[(kind, detail), ...], ...], one list of system_events rows per session, oldest first."""
+    db = home / 'data' / 'ppe.db'; db.parent.mkdir(parents=True, exist_ok=True); c = sqlite3.connect(str(db)); run_migrations(c, MIGRATIONS_DIR, 1)
+    for n, rows in enumerate(sessions, 1):
+        c.execute("INSERT INTO sessions(session_id, started_ts, ended_ts, end_kind, mode, host_build, constants_hash, settings_hash) VALUES (?, ?, ?, 'ENDED', 'LIVE', 'b', 'c', 's')", (n, n, n + 1))
+        for seq, (kind, detail) in enumerate(rows, 1): c.execute('INSERT INTO system_events(session_id, event_seq, ts, kind, detail) VALUES (?, ?, ?, ?, ?)', (n, seq, seq, kind, detail))
+    c.commit(); c.close(); return db
+
+MISMATCH = ('ABI_MISMATCH', 'base reports abi 2, host expects 3')
+
+def test_the_base_abi_row_is_skipped_without_a_database_or_a_session(tmp_path):
+    home, root = make(tmp_path); r = by(run(tmp_path, home, root), 'base ABI'); assert r[0] == 'SKIP' and 'no database' in r[2]
+    abi_db(home, []); r = by(run(tmp_path, home, root), 'base ABI'); assert r[0] == 'SKIP' and 'no session' in r[2]
+
+def test_the_base_abi_row_fails_on_a_recorded_mismatch_and_names_both_numbers(tmp_path):
+    home, root = make(tmp_path); abi_db(home, [[('FW_REPORTED', 'fw-1'), MISMATCH]])
+    r = by(run(tmp_path, home, root), 'base ABI'); assert r[0] == 'FAIL' and 'session 1' in r[2] and 'abi 2' in r[2] and 'host expects 3' in r[2] and 'firmware' in r[2]
+    lines, ok = D.format_rows(run(tmp_path, home, root)); assert not ok
+
+def test_the_base_abi_row_passes_when_nothing_was_recorded_or_the_mismatch_was_cleared(tmp_path):
+    home, root = make(tmp_path); abi_db(home, [[('FW_REPORTED', 'fw-1')]])
+    r = by(run(tmp_path, home, root), 'base ABI'); assert r[0] == 'PASS' and 'no ABI mismatch recorded' in r[2]
+    home, root = make(tmp_path / 'b'); abi_db(home, [[MISMATCH, ('ABI_OK', 'base reports abi 3')]]); assert status(run(tmp_path, home, root), 'base ABI') == 'PASS'     # the newest ABI row decides
+    home, root = make(tmp_path / 'c'); abi_db(home, [[MISMATCH], []]); r = by(run(tmp_path, home, root), 'base ABI'); assert r[0] == 'PASS' and 'session 2' in r[2]      # only the newest session counts
+
+def test_the_base_abi_row_reads_without_changing_anything_and_an_unreadable_file_is_a_skip(tmp_path):
+    home, root = make(tmp_path); db = abi_db(home, [[MISMATCH]]); before = tree(tmp_path); rows = run(tmp_path, home, root); assert status(rows, 'base ABI') == 'FAIL' and tree(tmp_path) == before
+    db.write_bytes(b'this is not a database file' * 200); r = by(run(tmp_path, home, root), 'base ABI'); assert r[0] == 'SKIP' and 'cannot read' in r[2] and status(run(tmp_path, home, root), 'database quick_check') == 'FAIL'
+    home, root = make(tmp_path / 'b'); db = home / 'data' / 'ppe.db'; db.parent.mkdir(); c = sqlite3.connect(str(db)); c.execute('CREATE TABLE t(x)'); c.commit(); c.close()      # a database without the tables
+    assert status(run(tmp_path, home, root), 'base ABI') == 'SKIP'
 
 def test_the_command_is_registered_with_home_and_db_and_its_exit_code_follows_the_checks(tmp_path, monkeypatch, capsys):
     assert 'doctor' in cli.COMMANDS and {f for f, _ in cli.COMMANDS['doctor'][1]} == {'--home', '--db'}

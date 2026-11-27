@@ -1,10 +1,12 @@
 """services/doctor.py (P24-5b, ADR 0047): `python -m ppe_host.cli doctor`, the pre-shift check of design 1 (Release bundle and doctor, Rev 3.43).
-One line per check, PASS, FAIL or SKIP: release version, settings, base serial device, sound files, audio device, free disk, port, prebuilt dashboard, secrets.json, database quick_check, lockfile.
+One line per check, PASS, FAIL or SKIP: release version, host ABI, settings, base serial device, sound files, audio device, free disk, port, prebuilt dashboard, secrets.json, database quick_check, base ABI, lockfile.
 It changes nothing: the database is opened read-only, the serial port is only looked up in the list of the system (never opened, so no DTR or RTS pulse reaches the ESP32), the port is only connected to, and the only
 sound is the 100 ms silent probe WAV. Everything that touches the machine is a parameter of run_checks(), so the tests need no serial device, sound card or open port."""
 import json, socket, sqlite3, sys
 from pathlib import Path
 from ..settings import REPO_ROOT, SettingsError, constants_hash, load_settings
+from .. import abi as host_abi
+from . import abi_check
 from ..io.audio_watchdog import SOUNDS_DIR, check_sounds
 from ..io.health import disk_free_gb
 
@@ -104,6 +106,29 @@ def check_database(db):
     except sqlite3.Error as e: return FAIL, 'database quick_check', '%s: %s' % (type(e).__name__, e)
     return (PASS, 'database quick_check', 'ok') if res == ['ok'] else (FAIL, 'database quick_check', '; '.join(res[:3]))
 
+def check_host_abi(root):
+    """P24-5h (ADR 0053): host/ppe_host/abi.py against shared/abi.json of this folder, the check the host makes at start-up (ADR 0049). A difference here is exit 2 at the start, so it is found before the shift."""
+    try: bad = abi_check.mismatches(Path(root) / 'shared' / 'abi.json')
+    except abi_check.AbiError as e: return FAIL, 'host ABI', '%s (the host would not start: exit 2)' % e
+    if bad: return FAIL, 'host ABI', 'abi.py differs from abi.json: %s%s (the host would not start: exit 2; use one build)' % (', '.join(bad[:3]), ' ...' if len(bad) > 3 else '')
+    return PASS, 'host ABI', 'abi.py matches abi.json (beacon abi %d)' % host_abi.BEACON_ABI_VER
+
+def check_base_abi(db):
+    """P24-5h (ADR 0053): the last thing the base reported about its ABI. doctor never opens the serial port, so it reads the database: the newest ABI_MISMATCH or ABI_OK row of the newest session.
+    ABI_MISMATCH last is a FAIL. A match is not logged (the first agreeing heartbeat is silent, ADR 0050), so no row means no mismatch recorded, not proof that the base reports an ABI."""
+    name = 'base ABI'
+    if not Path(db).exists(): return SKIP, name, 'no database yet'
+    try:
+        c = _ro(db)
+        try:
+            sid = c.execute('SELECT MAX(session_id) FROM sessions').fetchone()[0]
+            if sid is None: return SKIP, name, 'no session yet'
+            row = c.execute("SELECT kind, detail FROM system_events WHERE session_id = ? AND kind IN ('ABI_MISMATCH', 'ABI_OK') ORDER BY event_seq DESC LIMIT 1", (sid,)).fetchone()
+        finally: c.close()
+    except sqlite3.Error as e: return SKIP, name, 'cannot read the session log (%s)' % type(e).__name__
+    if row and row[0] == 'ABI_MISMATCH': return FAIL, name, 'session %d: %s; update the base firmware (this line clears after a session without a mismatch)' % (sid, row[1] or 'the base reports another ABI')
+    return PASS, name, 'session %d: no ABI mismatch recorded' % sid
+
 def check_lockfile(lock, read, alive):
     h = read(lock)
     if not Path(lock).exists(): return PASS, 'lockfile', 'none (the host is not running)'
@@ -113,15 +138,15 @@ def check_lockfile(lock, read, alive):
 def run_checks(home=None, db=None, root=REPO_ROOT, sounds_dir=SOUNDS_DIR, comports=default_comports, listening=default_listening, backend=None, platform=None):
     """[(status, name, detail)] in a fixed order. A settings problem is one FAIL and the checks that need settings are SKIP."""
     from ..main import LOCK_NAME, Lockfile                # imported here: main imports cli, and cli imports this module when the command runs
-    rows = [check_release(root)]
+    rows = [check_release(root), check_host_abi(root)]
     try: s = load_settings(home)
     except SettingsError as e:
         rows.append((FAIL, 'settings', str(e)))
-        rows += [(SKIP, n, 'needs readable settings') for n in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'lockfile')]
-        rows.insert(2, check_sound_files(sounds_dir)); rows.insert(3, check_audio_device(sounds_dir, backend or default_backend(), platform or sys.platform)); rows.append(check_dashboard(root)); return rows
+        rows += [(SKIP, n, 'needs readable settings') for n in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'base ABI', 'lockfile')]
+        rows.insert(3, check_sound_files(sounds_dir)); rows.insert(4, check_audio_device(sounds_dir, backend or default_backend(), platform or sys.platform)); rows.append(check_dashboard(root)); return rows
     dbp = Path(db) if db else s.path('db_path'); lock = s.home / LOCK_NAME; alive = Lockfile.holder_alive(lock)
     rows += [(PASS, 'settings', 'loaded from %s' % s.home), check_serial(s, comports), check_sound_files(sounds_dir), check_audio_device(sounds_dir, backend or default_backend(), platform or sys.platform), check_disk(s),
-             check_port(s, alive, listening), check_dashboard(root), check_secrets(s, dbp), check_database(dbp), check_lockfile(lock, Lockfile.read, Lockfile.holder_alive)]
+             check_port(s, alive, listening), check_dashboard(root), check_secrets(s, dbp), check_database(dbp), check_base_abi(dbp), check_lockfile(lock, Lockfile.read, Lockfile.holder_alive)]
     return rows
 
 def format_rows(rows):
