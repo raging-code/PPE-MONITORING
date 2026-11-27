@@ -1,7 +1,7 @@
 """serve.py (P24-3c-3, ADR 0035): start-up step 10 of design 14.5: Uvicorn with the REST app and the WebSocket hub, then the 1 Hz driver of Runtime.tick().
 build_app wires HostPort, Hub and Wire to the Runtime (Wire gets the Hub through LoopHub, because frames arrive on the SerialReader thread). run_server starts Uvicorn, waits until it
 accepts connections, and only then starts the driver, so the first tick never runs before the API is up. The driver keeps a fixed 1 s grid: a slow tick does not shift the next one, and a
-tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. P25-2: after the driver run_server starts Runtime.recover() as a task (steps 11 to 13: the rebuild, RECOVERING_EXIT, the pre-replay queue) and cancels it on shutdown. The OS watchdog stamps (P24b, ADR 0036): loop_beat stamps 'loop' on the event loop and Runtime.tick stamps 'tick'; Hub.on_tick is not used."""
+tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. P25-2: after the driver run_server starts Runtime.recover() as a task (steps 11 to 13: the rebuild, RECOVERING_EXIT, the pre-replay queue) and cancels it on shutdown. P24-6 (ADR 0055): build_app also mounts the built dashboard, <PPE_HOME>/dashboard/dist, at '/' after the API and socket routes. The OS watchdog stamps (P24b, ADR 0036): loop_beat stamps 'loop' on the event loop and Runtime.tick stamps 'tick'; Hub.on_tick is not used."""
 import asyncio, logging, time
 
 log = logging.getLogger('ppe.serve')
@@ -23,13 +23,14 @@ def build_app(rt, loop):
     """The FastAPI app of a started Runtime. Sets rt.port and rt.wire, turns the Tier 1 advisory on (advisory_heartbeat_s) and connects the AudioThread (alarm feed, AUDIO FAULT banner flag, socket count, monitoring flag). Returns (app, hub)."""
     from .api.api_rest import create_app
     from .api.ws_hub import Hub, install
+    from .api.static_site import install_static
     from .host_port import HostPort
     from .runtime import LoopHub
     from .wire import Wire
     s = rt.st.settings
     port = HostPort.from_startup(rt.st, rt.ingest)
     hub = Hub(port, bind_port=s['bind_port'], queue_max=s['ws_send_queue_max'], send_timeout_s=s['ws_send_timeout_s'], auth_timeout_s=s['ws_auth_timeout_s'])
-    app = create_app(port, str(rt.st.db_path), s['bind_port']); install(app, hub)
+    app = create_app(port, str(rt.st.db_path), s['bind_port']); install(app, hub); install_static(app, s.home / 'dashboard' / 'dist', s['bind_port'])     # last: a mount at '/' would shadow the socket routes (ADR 0055)
     rt.port = port
     wire = Wire(port, LoopHub(hub, loop), audio_fault=lambda: bool(rt.audio is not None and rt.audio.audio_fault), host_power=rt.host_health.host_power).attach(); wire.enable_advisory(s['advisory_heartbeat_s'])
     rt.wire, wire.on_change = wire, rt.audio_refresh                           # a new alarm reaches the AudioThread as soon as the engine has decided it
