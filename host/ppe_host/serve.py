@@ -1,7 +1,7 @@
 """serve.py (P24-3c-3, ADR 0035): start-up step 10 of design 14.5: Uvicorn with the REST app and the WebSocket hub, then the 1 Hz driver of Runtime.tick().
 build_app wires HostPort, Hub and Wire to the Runtime (Wire gets the Hub through LoopHub, because frames arrive on the SerialReader thread). run_server starts Uvicorn, waits until it
 accepts connections, and only then starts the driver, so the first tick never runs before the API is up. The driver keeps a fixed 1 s grid: a slow tick does not shift the next one, and a
-tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. Not here: the OS watchdog liveness stamp (Hub.on_tick, P24b)."""
+tick that overran is not made up by a burst. It stops first on shutdown, then Uvicorn closes the sockets. The OS watchdog stamps (P24b, ADR 0036): loop_beat stamps 'loop' on the event loop and Runtime.tick stamps 'tick'; Hub.on_tick is not used."""
 import asyncio, logging, time
 
 log = logging.getLogger('ppe.serve')
