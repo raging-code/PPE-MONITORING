@@ -11,7 +11,7 @@ from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from ..io.db_writer import connect_db
 from ..services import csv_export
-from . import models as M, security as sec
+from . import models as M, pin_auth, security as sec
 
 log = logging.getLogger('ppe.api')
 class Operator(NamedTuple):
@@ -24,7 +24,7 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def login_failed(self) -> Optional[float]: ...  # P19b: the delay for this failed login (retry_after_s), None for no delay
     def login_ok(self) -> None: ...  # P19b: a successful login resets the delay
     # P28-4a (ADR 0056). The three methods block (scrypt, the commit wait), so the routes call them in a worker thread.
-    def pin_login(self, display_name: str, pin: str) -> 'PinResult': ...  # the scrypt check, then the failure count and the lock through the writer
+    def pin_login(self, display_name: str, pin: str) -> 'pin_auth.PinResult': ...  # the scrypt check, then the failure count and the lock through the writer
     def start_login_session(self, operator_id: int, remember: bool) -> tuple: ...  # (session_token, expires_ts); the row is committed before this returns
     def logout(self, token: str) -> bool: ...  # revokes the login session of this token; False when there is nothing to revoke (an operator token)
     # P19-2. A method raises ApiError for a conflict and returns None for an unknown id. The host owns every write and every event_seq.
