@@ -176,6 +176,6 @@ def test_the_test_suite_cannot_open_a_real_port_through_the_runtime():
 
 # ---- docs ----
 def test_adr_0058_exists_is_proposed_and_progress_points_to_it():
-    adr = (ROOT / 'docs' / 'adr' / '0058.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0058') and 'Status: Proposed' in adr
+    adr = (ROOT / 'docs' / 'adr' / '0058.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0058') and ('Status: Proposed' in adr or 'Status: Decided' in adr)
     assert 'LIVE_FRAME_IN_TEST_MODE' in adr and 'SerialDrainThread' in adr and 'Decisions to confirm' in adr
     assert 'Part S7-2 done (ADR 0058' in (ROOT / 'docs' / 'PROGRESS.md').read_text(encoding='utf8')

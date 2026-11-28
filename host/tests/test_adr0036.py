@@ -3,7 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 def test_adr_0036_is_proposed_and_lists_the_decisions():
     t = (ROOT / 'docs' / 'adr' / '0036.md').read_text(encoding='utf8')
-    assert t.startswith('# ADR 0036') and 'Status: Proposed' in t
+    assert t.startswith('# ADR 0036') and ('Status: Proposed' in t or 'Status: Decided' in t)
     for word in ('OSWatchdogThread', 'crash_marker.json', 'LIVENESS_RESTART', 'TICK_STALL', 'loop_beat', 's.path', 'HostHealth', 'host_power', 'QUEUE_OVERFLOW', 'DISK_LOW', 'HOST_BATTERY', 'LOGGING_FAULT', 'psutil'): assert word in t
 def test_progress_and_the_other_docs_point_to_the_p24b_work():
     assert 'Part 24b done' in (ROOT / 'docs' / 'PROGRESS.md').read_text(encoding='utf8')

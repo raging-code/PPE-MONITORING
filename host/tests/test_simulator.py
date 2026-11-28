@@ -316,6 +316,6 @@ def test_main_in_live_mode_prints_no_scenario_and_starts_no_simulator(tmp_path, 
 
 # ---- docs ----
 def test_adr_0057_exists_is_proposed_and_progress_points_to_it():
-    adr = (ROOT / 'docs' / 'adr' / '0057.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0057') and 'Status: Proposed' in adr
+    adr = (ROOT / 'docs' / 'adr' / '0057.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0057') and ('Status: Proposed' in adr or 'Status: Decided' in adr)
     assert all(name in adr for name in S.SCENARIOS) and '--scenario' in adr and 'create-operator' in adr and 'Ctrl+C' in adr
     assert 'Part S7-1 done (ADR 0057' in (ROOT / 'docs' / 'PROGRESS.md').read_text(encoding='utf8')

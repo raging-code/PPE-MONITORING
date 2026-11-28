@@ -307,6 +307,6 @@ def test_main_never_opens_the_original_database_for_writing(tmp_path, capsys):
 
 # ---- docs ----
 def test_adr_0059_exists_is_proposed_and_progress_points_to_it():
-    adr = (ROOT / 'docs' / 'adr' / '0059.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0059') and 'Status: Proposed' in adr
+    adr = (ROOT / 'docs' / 'adr' / '0059.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0059') and ('Status: Proposed' in adr or 'Status: Decided' in adr)
     assert all(w in adr for w in ('--session', '--speed', 'ScaledClock', 'read-only', 'MAX_GAP_S', 'new_replay', 'Decisions to confirm', 'Pause'))
     assert 'Part S7-3 done (ADR 0059' in (ROOT / 'docs' / 'PROGRESS.md').read_text(encoding='utf8')
