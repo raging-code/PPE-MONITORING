@@ -20,11 +20,11 @@ def add(c, **over): return F.add_firefighter(c, NOW, **{**GOOD, **over})
 def audit(c): return c.execute('SELECT action, node_id, reason FROM audit_events ORDER BY audit_id').fetchall()
 
 def test_migration_0006_adds_the_tables_and_three_audit_actions(db):
-    assert applied_versions(db) == [1, 2, 3, 4, 5, 6, 7]
+    assert applied_versions(db) == [1, 2, 3, 4, 5, 6, 7, 8]
     names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type IN ('table','index')")}
     assert {'firefighters', 'firefighter_assignments', 'uq_assignment_open_node', 'uq_assignment_open_firefighter', 'idx_assignment_firefighter'} <= names
     a = {r[0] for r in db.execute('SELECT action FROM audit_actions')}
-    assert {'FIREFIGHTER_ADDED', 'FIREFIGHTER_ASSIGNED', 'ROSTER_ACTIVE_SET'} <= a and len(a) == 28
+    assert {'FIREFIGHTER_ADDED', 'FIREFIGHTER_ASSIGNED', 'ROSTER_ACTIVE_SET', 'FIREFIGHTER_EDITED', 'CONSENT_WITHDRAWN'} <= a and len(a) == 30
 
 def test_add_gives_ffr_aliases_stores_the_profile_and_audits_without_the_name(db):
     assert add(db) == (1, 'FFR-01') and add(db, full_name='Pat Other', sex='F', max_hr=190, years_service=6.5, smoker=True) == (2, 'FFR-02')

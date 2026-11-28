@@ -173,7 +173,7 @@ def test_a_version_4_database_is_upgraded_keeps_its_rows_and_then_accepts_the_ne
     c = connect_db(tmp_path / 'old.db'); assert run_migrations(c, str(old), 1) == [1, 2, 3, 4]; operator(c)
     ins = lambda act, ts: c.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action) VALUES (NULL, 0, ?, 1, ?)', (ts, act))
     ins('REPLAY_PAUSE', 5); rejects(lambda: ins('REPLAY_SPEED', 6))                                # not an action yet
-    assert run_migrations(c, str(MIG), 2) == [5, 6, 7] and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7]
+    assert run_migrations(c, str(MIG), 2) == [5, 6, 7, 8] and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8]
     ins('REPLAY_SPEED', 7); assert [r[0] for r in c.execute('SELECT action FROM audit_events ORDER BY ts')] == ['REPLAY_PAUSE', 'REPLAY_SPEED'] and c.execute('SELECT display_name FROM operators').fetchone()[0] == 'Ana'
 
 # ---- a real REPLAY host: speed changed through the real route, running and paused ----

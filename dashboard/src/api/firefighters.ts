@@ -7,7 +7,9 @@ export type Sex = 'F' | 'M' | 'X';
 export interface FirefighterRow {
   firefighter_id: number; alias: string; full_name: string; sex: Sex | null; age_years: number; height_cm: number; weight_kg: number; resting_hr: number; max_hr: number | null;
   smoker: boolean; years_service: number | null; consent_ts: number; consent_form_version: string; active: boolean; node_id: number | null;
+  consent_withdrawn_ts?: number | null;      // ADR 0074: when the person withdrew consent; absent or null = not withdrawn (an older host sends no such field)
 }
+export const isWithdrawn = (r: FirefighterRow): boolean => r.consent_withdrawn_ts != null;
 export interface AddBody {
   full_name: string; sex: Sex | null; age_years: number; height_cm: number; weight_kg: number; resting_hr: number; max_hr: number | null; smoker: boolean; years_service: number | null;
   consent: boolean; consent_form_version: string; consent_witness: string; consent_date: string | null;
@@ -21,6 +23,12 @@ export const postFirefighter = (api: Api, body: AddBody): Promise<ActionResult<A
 export const postAssign = (api: Api, nodeId: number, firefighterId: number | null): Promise<ActionResult<AssignBody>> => request<AssignBody>(api, 'POST', '/api/firefighters/assign', { node_id: nodeId, firefighter_id: firefighterId });
 
 export const postActive = (api: Api, firefighterId: number, active: boolean): Promise<ActionResult<ActiveBody>> => request<ActiveBody>(api, 'POST', '/api/firefighters/active', { firefighter_id: firefighterId, active });
+// ADR 0074: edit a profile and withdraw consent.
+export type EditBody = { firefighter_id: number } & Partial<{ full_name: string; sex: Sex | null; age_years: number; height_cm: number; weight_kg: number; resting_hr: number; max_hr: number | null; smoker: boolean; years_service: number | null }>;
+export interface EditedBody { firefighter_id: number; alias: string; result: 'changed' | 'unchanged'; changed: string[] }
+export interface WithdrawnBody { firefighter_id: number; alias: string; result: 'withdrawn' | 'unchanged' }
+export const postEdit = (api: Api, body: EditBody): Promise<ActionResult<EditedBody>> => request<EditedBody>(api, 'POST', '/api/firefighters/edit', body);
+export const postWithdraw = (api: Api, firefighterId: number): Promise<ActionResult<WithdrawnBody>> => request<WithdrawnBody>(api, 'POST', '/api/firefighters/withdraw', { firefighter_id: firefighterId });
 const recovering = (r: { retryAfterS?: number | null }) => `The host is recovering. Try again${r.retryAfterS ? ` in ${Math.ceil(r.retryAfterS)} s` : ' in a moment'}.`;
 export function addMessage(r: ActionResult<AddedBody>): string {
   switch (r.kind) {
@@ -46,6 +54,26 @@ export function assignMessage(r: ActionResult<AssignBody>): string {
 export function activeMessage(r: ActionResult<ActiveBody>, alias: string): string {
   switch (r.kind) {
     case 'ok': return r.body.result === 'unchanged' ? 'No change.' : r.body.active ? `${alias} is active again.` : `${alias} is inactive now and no longer wears a jacket.`;
+    case 'conflict': return r.code === 'RECOVERING' ? recovering(r) : 'The host refused the change.';
+    case 'auth': return 'Not signed in. Log in again.';
+    case 'retry': return 'The host did not answer. Nothing was changed. Try again.';
+    case 'gone': return 'The host does not know this firefighter.';
+    case 'bad': return `Not accepted: ${r.detail}`;
+  }
+}
+export function editMessage(r: ActionResult<EditedBody>, alias: string): string {
+  switch (r.kind) {
+    case 'ok': return r.body.result === 'unchanged' ? 'No change.' : `Saved the changes to ${alias}.`;
+    case 'conflict': return r.code === 'RECOVERING' ? recovering(r) : `The host refused the change. ${alias} may have withdrawn consent, and then the profile cannot be edited.`;
+    case 'auth': return 'Not signed in. Log in again.';
+    case 'retry': return 'The host did not answer. Nothing was changed. Try again.';
+    case 'gone': return 'The host does not know this firefighter.';
+    case 'bad': return `Not accepted: ${r.detail}`;
+  }
+}
+export function withdrawMessage(r: ActionResult<WithdrawnBody>, alias: string): string {
+  switch (r.kind) {
+    case 'ok': return r.body.result === 'unchanged' ? `Consent was already withdrawn for ${alias}.` : `Consent withdrawn for ${alias}. ${alias} is inactive, wears no jacket and is left out of the readings download.`;
     case 'conflict': return r.code === 'RECOVERING' ? recovering(r) : 'The host refused the change.';
     case 'auth': return 'Not signed in. Log in again.';
     case 'retry': return 'The host did not answer. Nothing was changed. Try again.';
@@ -94,6 +122,32 @@ export function checkForm(f: Form, today: string): { error: string } | { body: A
   return { body: { full_name: name, sex: f.sex === '' ? null : f.sex, age_years: a.value, height_cm: h.value, weight_kg: w.value, resting_hr: r.value, max_hr: m.value, smoker: f.smoker === 'yes', years_service: y.value,
     consent: true, consent_form_version: form, consent_witness: witness, consent_date: f.date === '' ? null : f.date } };
 }
+// ---- the Edit form (ADR 0074): the same fields and ranges as the Add form, starting at what the host has; only what differs is sent ----
+export interface EditForm { name: string; age: string; height: string; weight: string; restingHr: string; maxHr: string; sex: '' | Sex; smoker: 'yes' | 'no'; years: string }
+export const editFormOf = (r: FirefighterRow): EditForm => ({ name: r.full_name, age: String(r.age_years), height: String(r.height_cm), weight: String(r.weight_kg), restingHr: String(r.resting_hr),
+  maxHr: r.max_hr === null ? '' : String(r.max_hr), sex: r.sex ?? '', smoker: r.smoker ? 'yes' : 'no', years: r.years_service === null ? '' : String(r.years_service) });
+// The first problem as one sentence, or the body with only the fields that differ from the row. Nothing differs: 'Nothing was changed.'
+export function checkEdit(f: EditForm, row: FirefighterRow): { error: string } | { body: EditBody } {
+  const name = f.name.trim();
+  if (!name) return { error: 'Full name is required.' };
+  if (name.length > 80) return { error: 'Full name is at most 80 characters.' };
+  const age = num('Age', f.age, RANGES.age, true, true), height = num('Height', f.height, RANGES.height, true, true), weight = num('Weight', f.weight, RANGES.weight, false, true);
+  const rhr = num('Resting heart rate', f.restingHr, RANGES.restingHr, true, true), mhr = num('Maximum heart rate', f.maxHr, RANGES.maxHr, true, false), ys = num('Years of service', f.years, RANGES.years, false, false);
+  for (const n of [age, height, weight, rhr, mhr, ys]) if ('error' in n) return { error: n.error };
+  const a = age as { value: number }, h = height as { value: number }, w = weight as { value: number }, r = rhr as { value: number }, m = mhr as { value: number | null }, y = ys as { value: number | null };
+  if (m.value !== null && m.value <= r.value) return { error: 'Maximum heart rate must be above the resting heart rate.' };
+  const body: EditBody = { firefighter_id: row.firefighter_id }, sex = f.sex === '' ? null : f.sex, smoker = f.smoker === 'yes';
+  if (name !== row.full_name) body.full_name = name;
+  if (sex !== row.sex) body.sex = sex;
+  if (a.value !== row.age_years) body.age_years = a.value;
+  if (h.value !== row.height_cm) body.height_cm = h.value;
+  if (w.value !== row.weight_kg) body.weight_kg = w.value;
+  if (r.value !== row.resting_hr) body.resting_hr = r.value;
+  if (m.value !== row.max_hr) body.max_hr = m.value;
+  if (smoker !== row.smoker) body.smoker = smoker;
+  if (y.value !== row.years_service) body.years_service = y.value;
+  return Object.keys(body).length === 1 ? { error: 'Nothing was changed.' } : { body };
+}
 // ADR 0073: the readings of each firefighter as a CSV. The same authenticated fetch, blob and object URL as the other CSV files (a plain link carries no Authorization header); the file holds the alias, never the name.
 export async function downloadReadings(api: Api, deps: SaveDeps = realSaveDeps()): Promise<'saved' | 'auth' | 'failed'> {
   let res: Response;
@@ -107,4 +161,4 @@ export async function downloadReadings(api: Api, deps: SaveDeps = realSaveDeps()
   deps.revokeObjectURL(url);
   return 'saved';
 }
-export const readingsMessage = (r: 'saved' | 'auth' | 'failed'): string => (r === 'saved' ? 'Saved firefighter-readings.csv. It shows the alias, not the name.' : r === 'auth' ? 'Not signed in. Log in again.' : 'The host did not send the file. Try again.');
+export const readingsMessage = (r: 'saved' | 'auth' | 'failed'): string => (r === 'saved' ? 'Saved firefighter-readings.csv. It shows the alias, not the name. People who withdrew consent are left out.' : r === 'auth' ? 'Not signed in. Log in again.' : 'The host did not send the file. Try again.');

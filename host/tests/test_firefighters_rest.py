@@ -39,6 +39,20 @@ class DbPort:
             if stmts: F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
             return result, reason, alias
         finally: c.close()
+    def edit_firefighter(self, firefighter_id, changes):      # S8-5
+        c = self._conn()
+        try:
+            result, stmts, reason, alias, changed = F.plan_edit(c, firefighter_id, changes, NOW)
+            if stmts: F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
+            return result, reason, alias, changed
+        finally: c.close()
+    def withdraw_firefighter(self, firefighter_id):      # S8-5
+        c = self._conn()
+        try:
+            result, stmts, reason, alias = F.plan_withdraw(c, firefighter_id, NOW)
+            if stmts: F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
+            return result, reason, alias
+        finally: c.close()
     def assign_firefighter(self, node_id, firefighter_id):
         c = self._conn()
         try:

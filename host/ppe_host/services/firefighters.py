@@ -79,9 +79,9 @@ def add_firefighter(conn, now_ms, *, full_name, age_years, height_cm, weight_kg,
 
 def list_firefighters(conn, show_names=False):
     """Rows of dicts, oldest first: alias, the profile numbers, consent date and form, active, and the node now worn (None when not assigned). full_name only when show_names."""
-    rows = conn.execute('SELECT f.firefighter_id, f.alias, f.full_name, f.sex, f.age_years, f.height_cm, f.weight_kg, f.resting_hr, f.max_hr, f.smoker, f.years_service, f.consent_ts, f.consent_form_version, f.active,'
+    rows = conn.execute('SELECT f.firefighter_id, f.alias, f.full_name, f.sex, f.age_years, f.height_cm, f.weight_kg, f.resting_hr, f.max_hr, f.smoker, f.years_service, f.consent_ts, f.consent_form_version, f.active, f.consent_withdrawn_ts,'
                         ' (SELECT a.node_id FROM firefighter_assignments a WHERE a.firefighter_id = f.firefighter_id AND a.end_ts IS NULL) FROM firefighters f ORDER BY f.firefighter_id').fetchall()
-    keys = ('firefighter_id', 'alias', 'full_name', 'sex', 'age_years', 'height_cm', 'weight_kg', 'resting_hr', 'max_hr', 'smoker', 'years_service', 'consent_ts', 'consent_form_version', 'active', 'node_id')
+    keys = ('firefighter_id', 'alias', 'full_name', 'sex', 'age_years', 'height_cm', 'weight_kg', 'resting_hr', 'max_hr', 'smoker', 'years_service', 'consent_ts', 'consent_form_version', 'active', 'consent_withdrawn_ts', 'node_id')
     out = []
     for r in rows:
         d = dict(zip(keys, r))
@@ -114,12 +114,57 @@ def plan_set_active(conn, firefighter_id, active, now_ms):
     Nothing is deleted: the profile, the consent record and the assignment history stay."""
     if active not in (0, 1, True, False): raise FirefighterError('active must be true or false')
     active = int(bool(active))
-    f = conn.execute('SELECT alias, active FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
+    f = conn.execute('SELECT alias, active, consent_withdrawn_ts FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
     if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
     if f[1] == active: return 'unchanged', [], None, f[0]
+    if f[2] is not None: raise FirefighterError('%s withdrew consent and cannot be set active again; a new profile needs a new consent' % f[0], 'conflict')      # S8-5 (ADR 0074)
     stmts = [('UPDATE firefighters SET active = ? WHERE firefighter_id = ?', (active, firefighter_id))]
     if not active: stmts.append(('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE firefighter_id = ? AND end_ts IS NULL', (now_ms, firefighter_id)))
     return 'changed', stmts, 'firefighter_id %d (%s) %s' % (firefighter_id, f[0], 'active' if active else 'inactive'), f[0]
+
+EDIT_FIELDS = ('full_name', 'sex', 'age_years', 'height_cm', 'weight_kg', 'resting_hr', 'max_hr', 'smoker', 'years_service')
+
+def plan_edit(conn, firefighter_id, changes, now_ms):
+    """S8-5 (ADR 0074): what an edit of a profile would do, without doing it. `changes` holds only the fields to change (EDIT_FIELDS); a field that is not in it stays. The same ranges as a new profile; max_hr must stay above
+    resting_hr after the change. Returns (outcome, stmts, reason, alias, changed): outcome 'changed' or 'unchanged' (every value was already what it is, nothing to write); changed the names of the fields whose value differs.
+    The audit reason holds the id, the alias and the field NAMES, never a value and never the name. The consent record is not editable. A person who withdrew consent cannot be edited (kind 'conflict'); an unknown
+    firefighter is kind 'missing'; an empty change, an unknown field or a value out of range is kind 'invalid'."""
+    bad = sorted(set(changes) - set(EDIT_FIELDS))
+    if bad: raise FirefighterError('%s cannot be changed' % ', '.join(bad))
+    if not changes: raise FirefighterError('nothing to change')
+    row = conn.execute('SELECT alias, ' + ', '.join(EDIT_FIELDS) + ', consent_withdrawn_ts FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
+    if row is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
+    if row[-1] is not None: raise FirefighterError('%s withdrew consent and the profile cannot be edited' % row[0], 'conflict')
+    cur = dict(zip(EDIT_FIELDS, row[1:-1])); new = dict(cur)
+    for k, v in changes.items():
+        if k == 'full_name': new[k] = _text('name', v, 80)
+        elif k == 'sex':
+            if v is not None and v not in SEX: raise FirefighterError('sex must be one of %s' % ', '.join(SEX))
+            new[k] = v
+        elif k == 'smoker':
+            if v not in (0, 1, True, False): raise FirefighterError('smoker must be yes or no')
+            new[k] = int(bool(v))
+        elif k in ('age_years', 'height_cm', 'resting_hr'): new[k] = _num(k, v, True, True)
+        elif k == 'weight_kg': new[k] = _num(k, v, True, False)
+        elif k == 'max_hr': new[k] = _num(k, v, False, True)
+        else: new[k] = _num(k, v, False, False)      # years_service
+    if new['max_hr'] is not None and new['max_hr'] <= new['resting_hr']: raise FirefighterError('max_hr must be above resting_hr')
+    changed = [k for k in EDIT_FIELDS if k in changes and new[k] != cur[k]]
+    if not changed: return 'unchanged', [], None, row[0], []
+    stmts = [('UPDATE firefighters SET ' + ', '.join('%s = ?' % k for k in changed) + ' WHERE firefighter_id = ?', tuple(new[k] for k in changed) + (firefighter_id,))]
+    return 'changed', stmts, 'firefighter_id %d (%s) changed: %s' % (firefighter_id, row[0], ', '.join(changed)), row[0], changed
+
+def plan_withdraw(conn, firefighter_id, now_ms):
+    """S8-5 (ADR 0074): what withdrawing a person's consent would do, without doing it. Returns (outcome, stmts, reason, alias): outcome 'withdrawn' or 'unchanged' (already withdrawn, nothing to write).
+    The date of the withdrawal is stored (consent_withdrawn_ts), the person is set inactive and the jacket they wear is ended. Nothing is deleted: the profile and the consent record stay as the record of what was agreed
+    and when it was withdrawn. Their readings are left out of the per-firefighter export (services/firefighter_export.py). It cannot be undone through the software: a person who agrees again gets a new profile
+    with a new consent. An unknown firefighter is kind 'missing'."""
+    f = conn.execute('SELECT alias, consent_withdrawn_ts FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
+    if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
+    if f[1] is not None: return 'unchanged', [], None, f[0]
+    stmts = [('UPDATE firefighters SET consent_withdrawn_ts = ?, active = 0 WHERE firefighter_id = ?', (now_ms, firefighter_id)),
+             ('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE firefighter_id = ? AND end_ts IS NULL', (now_ms, firefighter_id))]
+    return 'withdrawn', stmts, 'firefighter_id %d (%s) consent withdrawn' % (firefighter_id, f[0]), f[0]
 
 def assign(conn, now_ms, node_id, firefighter_id=None):
     """Put a firefighter on a node, replacing whoever wore it; firefighter_id None ends the node's assignment. Returns 'assigned', 'ended' or 'unchanged'. A firefighter on another node,

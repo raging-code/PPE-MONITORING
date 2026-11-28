@@ -344,6 +344,28 @@ async def firefighter_active(body: M.FirefighterActiveReq, request: Request, op:
     if result != 'unchanged': port.audit('FIREFIGHTER_ACTIVE_SET', operator_id=op.operator_id, reason=reason)      # a repeat of the state it already has writes no row
     return M.FirefighterActiveResp(firefighter_id=body.firefighter_id, alias=alias, active=body.active, result=result)
 
+# ---- S8-5 (ADR 0074): POST /api/firefighters/edit and POST /api/firefighters/withdraw ----
+@router.post('/firefighters/edit', response_model=M.FirefighterEditResp)
+async def firefighter_edit(body: M.FirefighterEditReq, request: Request, op: Operator = Depends(current_operator)):
+    from ..services.firefighters import FirefighterError
+    port = request.app.state.port; retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    changes = body.model_dump(exclude_unset=True); fid = changes.pop('firefighter_id')      # a field that was not sent stays; one sent as null is cleared
+    try: result, reason, alias, changed = await run_in_threadpool(port.edit_firefighter, fid, changes)
+    except FirefighterError as e: raise _ff_refused(e) from None
+    if result != 'unchanged': port.audit('FIREFIGHTER_EDITED', operator_id=op.operator_id, reason=reason)      # the field names only, never a value or the name
+    return M.FirefighterEditResp(firefighter_id=fid, alias=alias, result=result, changed=changed)
+
+@router.post('/firefighters/withdraw', response_model=M.FirefighterWithdrawResp)
+async def firefighter_withdraw(body: M.FirefighterWithdrawReq, request: Request, op: Operator = Depends(current_operator)):
+    from ..services.firefighters import FirefighterError
+    port = request.app.state.port; retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    try: result, reason, alias = await run_in_threadpool(port.withdraw_firefighter, body.firefighter_id)
+    except FirefighterError as e: raise _ff_refused(e) from None
+    if result != 'unchanged': port.audit('CONSENT_WITHDRAWN', operator_id=op.operator_id, reason=reason)      # a repeat writes no row
+    return M.FirefighterWithdrawResp(firefighter_id=body.firefighter_id, alias=alias, result=result)
+
 # ---- S8-4 (ADR 0073): GET /api/firefighters/readings.csv ----
 @router.get('/firefighters/readings.csv')
 async def firefighter_readings_csv(request: Request, session_id: Optional[int] = Query(None, ge=0), op: Operator = Depends(current_operator)):

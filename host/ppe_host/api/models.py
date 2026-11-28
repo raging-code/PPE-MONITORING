@@ -372,6 +372,7 @@ class FirefighterRow(_Strict):
     consent_ts: int
     consent_form_version: str
     active: bool
+    consent_withdrawn_ts: Optional[int]                      # S8-5 (ADR 0074): when the person withdrew consent, null when they have not
     node_id: Optional[int]                                   # the node this firefighter wears now, null when none
 class FirefighterAssignReq(_Strict):
     node_id: int = Field(ge=1, le=7)
@@ -389,3 +390,25 @@ class FirefighterActiveResp(_Strict):
     alias: str
     active: bool
     result: Literal['changed', 'unchanged']
+class FirefighterEditReq(_Strict):      # S8-5 (ADR 0074): only the fields sent are changed; an optional field sent as null is cleared; the ranges are checked in services/firefighters.py
+    firefighter_id: int = Field(ge=1)
+    full_name: Optional[str] = Field(default=None, max_length=80)
+    sex: Optional[Literal['F', 'M', 'X']] = None
+    age_years: Optional[int] = None
+    height_cm: Optional[int] = None
+    weight_kg: Optional[float] = None
+    resting_hr: Optional[int] = None
+    max_hr: Optional[int] = None
+    smoker: Optional[bool] = None
+    years_service: Optional[float] = None
+class FirefighterEditResp(_Strict):
+    firefighter_id: int
+    alias: str
+    result: Literal['changed', 'unchanged']
+    changed: list[str]                                       # the names of the fields that changed, never their values
+class FirefighterWithdrawReq(_Strict):
+    firefighter_id: int = Field(ge=1)
+class FirefighterWithdrawResp(_Strict):
+    firefighter_id: int
+    alias: str
+    result: Literal['withdrawn', 'unchanged']
