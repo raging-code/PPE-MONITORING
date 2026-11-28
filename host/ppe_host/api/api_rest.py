@@ -332,3 +332,14 @@ async def firefighter_assign(body: M.FirefighterAssignReq, request: Request, op:
     except FirefighterError as e: raise _ff_refused(e) from None
     if result != 'unchanged': port.audit('FIREFIGHTER_ASSIGNED', operator_id=op.operator_id, node_id=body.node_id, reason=reason)      # a repeat of the state it already has writes no row
     return M.FirefighterAssignResp(node_id=body.node_id, firefighter_id=None if result == 'ended' else body.firefighter_id, alias=alias, result=result)
+
+# ---- S8-3a (ADR 0072): POST /api/firefighters/active ----
+@router.post('/firefighters/active', response_model=M.FirefighterActiveResp)
+async def firefighter_active(body: M.FirefighterActiveReq, request: Request, op: Operator = Depends(current_operator)):
+    from ..services.firefighters import FirefighterError
+    port = request.app.state.port; retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    try: result, reason, alias = await run_in_threadpool(port.set_firefighter_active, body.firefighter_id, body.active)
+    except FirefighterError as e: raise _ff_refused(e) from None
+    if result != 'unchanged': port.audit('FIREFIGHTER_ACTIVE_SET', operator_id=op.operator_id, reason=reason)      # a repeat of the state it already has writes no row
+    return M.FirefighterActiveResp(firefighter_id=body.firefighter_id, alias=alias, active=body.active, result=result)

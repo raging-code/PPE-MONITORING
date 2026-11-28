@@ -14,10 +14,12 @@ export interface AddBody {
 export interface AddedBody { firefighter_id: number; alias: string }
 export interface AssignBody { node_id: number; firefighter_id: number | null; alias: string | null; result: 'assigned' | 'ended' | 'unchanged' }
 
+export interface ActiveBody { firefighter_id: number; alias: string; active: boolean; result: 'changed' | 'unchanged' }
 export const getFirefighters = (api: Api): Promise<ActionResult<FirefighterRow[]>> => request<FirefighterRow[]>(api, 'GET', '/api/firefighters');
 export const postFirefighter = (api: Api, body: AddBody): Promise<ActionResult<AddedBody>> => request<AddedBody>(api, 'POST', '/api/firefighters', body);
 export const postAssign = (api: Api, nodeId: number, firefighterId: number | null): Promise<ActionResult<AssignBody>> => request<AssignBody>(api, 'POST', '/api/firefighters/assign', { node_id: nodeId, firefighter_id: firefighterId });
 
+export const postActive = (api: Api, firefighterId: number, active: boolean): Promise<ActionResult<ActiveBody>> => request<ActiveBody>(api, 'POST', '/api/firefighters/active', { firefighter_id: firefighterId, active });
 const recovering = (r: { retryAfterS?: number | null }) => `The host is recovering. Try again${r.retryAfterS ? ` in ${Math.ceil(r.retryAfterS)} s` : ' in a moment'}.`;
 export function addMessage(r: ActionResult<AddedBody>): string {
   switch (r.kind) {
@@ -36,6 +38,17 @@ export function assignMessage(r: ActionResult<AssignBody>): string {
     case 'auth': return 'Not signed in. Log in again.';
     case 'retry': return 'The host did not answer. Nothing was changed. Try again.';
     case 'gone': return 'The host has no such jacket or firefighter.';
+    case 'bad': return `Not accepted: ${r.detail}`;
+  }
+}
+// ADR 0072: set inactive (the jacket they wear is ended) or active again. alias is the one the person pressed, so no name is needed here.
+export function activeMessage(r: ActionResult<ActiveBody>, alias: string): string {
+  switch (r.kind) {
+    case 'ok': return r.body.result === 'unchanged' ? 'No change.' : r.body.active ? `${alias} is active again.` : `${alias} is inactive now and no longer wears a jacket.`;
+    case 'conflict': return r.code === 'RECOVERING' ? recovering(r) : 'The host refused the change.';
+    case 'auth': return 'Not signed in. Log in again.';
+    case 'retry': return 'The host did not answer. Nothing was changed. Try again.';
+    case 'gone': return 'The host does not know this firefighter.';
     case 'bad': return `Not accepted: ${r.detail}`;
   }
 }

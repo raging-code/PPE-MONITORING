@@ -381,3 +381,11 @@ class FirefighterAssignResp(_Strict):
     firefighter_id: Optional[int]
     alias: Optional[str]
     result: Literal['assigned', 'ended', 'unchanged']
+class FirefighterActiveReq(_Strict):      # S8-3a (ADR 0072)
+    firefighter_id: int = Field(ge=1)
+    active: bool
+class FirefighterActiveResp(_Strict):
+    firefighter_id: int
+    alias: str
+    active: bool
+    result: Literal['changed', 'unchanged']

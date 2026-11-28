@@ -14,7 +14,9 @@ import type { Gate } from '../audio/gate.ts';
 import AudioBar from './AudioBar.tsx'; // P22c-3: banners next
 import SystemBanners, { ModeBar } from './SystemBanners.tsx'; // P22c-4: top strip next
 import ReplayBar from './ReplayBar.tsx'; // S7-5b: Pause and Resume of a REPLAY host
-import TopStrip from './TopStrip.tsx';
+import TopStrip, { defaultApi } from './TopStrip.tsx';
+import WearerConfirm from './WearerConfirm.tsx'; // S8-3b: who wears each jacket, before Start monitoring
+import { resetWearers, startBlocked, useWearers } from '../store/wearers.ts';
 
 export interface ShellProps {
   controller: Pick<Controller, 'start' | 'login'> & Partial<Pick<Controller, 'logout'>>; // logout: the Log out button shows only when there is one
@@ -39,7 +41,7 @@ export default function Shell({ controller, bridge, silence, fetchFn, gate }: Sh
   const conn = useLive((s) => s.conn);
   const staleS = useLive((s) => Number(s.constants.dashboard_stale_s ?? CONSTANTS.dashboard_stale_s));
   const noData = useActiveFor(conn === 'CONNECTING', staleS * 1000);
-  const wd = useWd((s) => s), unlocked = useAudio((s) => s.unlocked), bar = gate ? <AudioBar gate={gate} /> : null;
+  const wd = useWd((s) => s), unlocked = useAudio((s) => s.unlocked), blocked = useWearers(startBlocked), bar = gate ? <AudioBar gate={gate} before={<WearerConfirm api={defaultApi(fetchFn)} />} startBlocked={blocked} /> : null;
 
   useEffect(() => {
     controller.start(); // opens /ws when a token is stored, otherwise shows Login
@@ -65,6 +67,7 @@ export default function Shell({ controller, bridge, silence, fetchFn, gate }: Sh
     const token = readToken();
     if (token) await postLogout(token, fetchFn);
     gate?.release();
+    resetWearers();
     logout();
   } : undefined;
 

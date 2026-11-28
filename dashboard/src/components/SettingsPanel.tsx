@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { Api } from '../api/actions.ts';
-import { addMessage, assignMessage, checkForm, emptyForm, getFirefighters, postAssign, postFirefighter, type FirefighterRow, type Form } from '../api/firefighters.ts';
+import { activeMessage, addMessage, assignMessage, checkForm, emptyForm, getFirefighters, postActive, postAssign, postFirefighter, type FirefighterRow, type Form } from '../api/firefighters.ts';
 import { useLive } from '../store/live.ts';
 import { setWearers } from '../store/wearers.ts';
 import { BTN } from './btn.ts';
@@ -40,6 +40,12 @@ export default function SettingsPanel({ api, onClose }: { api: Api; onClose: () 
     setBusy(false); setNote(assignMessage(r));
     if (r.kind === 'ok') { setPick((p) => { const n = { ...p }; delete n[nodeId]; return n; }); await run(); }
   };
+  const toggle = async (r: FirefighterRow) => {
+    setBusy(true); setNote(null);
+    const res = await postActive(api, r.firefighter_id, !r.active);
+    setBusy(false); setNote(activeMessage(res, r.alias));
+    if (res.kind === 'ok') await run();
+  };
   const nodeAlias = (id: number | null) => (id === null ? 'none' : roster.find((r) => r.node_id === id)?.alias ?? `node ${id}`);
   const active = rows.filter((r) => r.active), nodes = roster.filter((r) => r.active);
 
@@ -57,8 +63,8 @@ export default function SettingsPanel({ api, onClose }: { api: Api; onClose: () 
             {rows.length === 0 ? <p className="text-base">No firefighters yet.</p> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-base">
-                  <thead><tr><th className="p-1">Alias</th><th className="p-1">Name</th><th className="p-1">Age</th><th className="p-1">Weight (kg)</th><th className="p-1">Resting HR</th><th className="p-1">Smoker</th><th className="p-1">Wears</th></tr></thead>
-                  <tbody>{rows.map((r) => <tr key={r.firefighter_id} className="border-t border-card-border"><td className="p-1">{r.alias}</td><td className="p-1">{r.full_name}</td><td className="p-1">{r.age_years}</td><td className="p-1">{r.weight_kg}</td><td className="p-1">{r.resting_hr}</td><td className="p-1">{r.smoker ? 'Yes' : 'No'}</td><td className="p-1">{r.active ? nodeAlias(r.node_id) : 'inactive'}</td></tr>)}</tbody>
+                  <thead><tr><th className="p-1">Alias</th><th className="p-1">Name</th><th className="p-1">Age</th><th className="p-1">Weight (kg)</th><th className="p-1">Resting HR</th><th className="p-1">Smoker</th><th className="p-1">Wears</th><th className="p-1">Status</th></tr></thead>
+                  <tbody>{rows.map((r) => <tr key={r.firefighter_id} className="border-t border-card-border"><td className="p-1">{r.alias}</td><td className="p-1">{r.full_name}</td><td className="p-1">{r.age_years}</td><td className="p-1">{r.weight_kg}</td><td className="p-1">{r.resting_hr}</td><td className="p-1">{r.smoker ? 'Yes' : 'No'}</td><td className="p-1">{r.active ? nodeAlias(r.node_id) : 'inactive'}</td><td className="p-1"><button type="button" className={BTN} disabled={busy} aria-label={r.active ? `Set ${r.alias} inactive` : `Set ${r.alias} active`} onClick={() => { void toggle(r); }}>{r.active ? 'Set inactive' : 'Set active'}</button></td></tr>)}</tbody>
                 </table>
               </div>
             )}

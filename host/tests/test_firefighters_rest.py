@@ -32,6 +32,13 @@ class DbPort:
                 fid = c.execute('SELECT COALESCE(MAX(firefighter_id), 0) + 1 FROM firefighters').fetchone()[0]; c.execute(*F.insert_stmt(v, fid, NOW)); return fid, F.alias_of(fid)
             return F._txn(c, w)
         finally: c.close()
+    def set_firefighter_active(self, firefighter_id, active):      # S8-3a
+        c = self._conn()
+        try:
+            result, stmts, reason, alias = F.plan_set_active(c, firefighter_id, active, NOW)
+            if stmts: F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
+            return result, reason, alias
+        finally: c.close()
     def assign_firefighter(self, node_id, firefighter_id):
         c = self._conn()
         try:
@@ -113,3 +120,30 @@ def test_plan_assign_changes_nothing_by_itself(rig):
 
 def test_the_error_kinds_of_the_service():
     assert F.FirefighterError('x').kind == 'invalid' and F.FirefighterError('x', 'missing').kind == 'missing'
+
+# ---- S8-3a (ADR 0072): POST /api/firefighters/active ----
+def active(client, ff, on): return client.post('/api/firefighters/active', json={'firefighter_id': ff, 'active': on}, headers=GOOD)
+
+def test_inactive_ends_the_jacket_keeps_the_history_and_writes_one_audit_row_without_a_name(rig):
+    client, port = rig; add(client); assign(client, 1, 1); port.audits.clear()
+    r = active(client, 1, False); assert r.status_code == 200 and r.json() == dict(firefighter_id=1, alias='FFR-01', active=False, result='changed')
+    row = client.get('/api/firefighters', headers=GOOD).json()[0]; assert row['active'] is False and row['node_id'] is None
+    assert port.audits == [dict(action='FIREFIGHTER_ACTIVE_SET', operator_id=1, node_id=None, reason='firefighter_id 1 (FFR-01) inactive')] and 'Sam' not in str(port.audits)
+    c = connect_db(port.db, readonly=True); rows = c.execute('SELECT end_ts FROM firefighter_assignments').fetchall(); c.close(); assert len(rows) == 1 and rows[0][0] is not None      # the history stays, closed
+
+def test_an_inactive_firefighter_cannot_be_assigned_until_active_again(rig):
+    client, _ = rig; add(client); active(client, 1, False)
+    assert assign(client, 1, 1).status_code == 409
+    assert active(client, 1, True).json()['result'] == 'changed' and assign(client, 1, 1).json()['result'] == 'assigned'
+
+def test_a_repeat_changes_nothing_and_writes_no_row(rig):
+    client, port = rig; add(client); port.audits.clear()
+    r = active(client, 1, True); assert r.status_code == 200 and r.json()['result'] == 'unchanged' and port.audits == []
+
+def test_active_refusals_and_recovering_and_no_token(rig):
+    client, port = rig; add(client)
+    assert active(client, 99, False).status_code == 404 and client.post('/api/firefighters/active', json={'firefighter_id': 1, 'active': 'maybe'}, headers=GOOD).status_code == 422
+    assert client.post('/api/firefighters/active', json={'firefighter_id': 0, 'active': False}, headers=GOOD).status_code == 422 and client.post('/api/firefighters/active', json={'firefighter_id': 1}, headers=GOOD).status_code == 422
+    assert client.post('/api/firefighters/active', json={'firefighter_id': 1, 'active': False}).status_code == 401
+    port.recovering = 3.0; r = active(client, 1, False); assert r.status_code == 409 and r.json()['error_code'] == 'RECOVERING'
+    port.recovering = None; assert client.get('/api/firefighters', headers=GOOD).json()[0]['active'] is True      # nothing changed

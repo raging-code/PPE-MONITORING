@@ -108,6 +108,19 @@ def plan_assign(conn, node_id, firefighter_id, now_ms):
     stmts = ([close] if close else []) + [('INSERT INTO firefighter_assignments(node_id, firefighter_id, start_ts) VALUES (?, ?, ?)', (node_id, firefighter_id, now_ms))]
     return 'assigned', stmts, 'firefighter_id %d' % firefighter_id, f[0]
 
+def plan_set_active(conn, firefighter_id, active, now_ms):
+    """S8-3a (ADR 0072): what set_active would do, without doing it. Returns (outcome, stmts, reason, alias): outcome 'changed' or 'unchanged'; stmts the statements for one transaction (empty when unchanged);
+    reason the audit text (the id and the alias, never a name). Setting a firefighter inactive also ends the jacket they wear, so nobody who left stays on a node. An unknown firefighter is kind 'missing'.
+    Nothing is deleted: the profile, the consent record and the assignment history stay."""
+    if active not in (0, 1, True, False): raise FirefighterError('active must be true or false')
+    active = int(bool(active))
+    f = conn.execute('SELECT alias, active FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
+    if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
+    if f[1] == active: return 'unchanged', [], None, f[0]
+    stmts = [('UPDATE firefighters SET active = ? WHERE firefighter_id = ?', (active, firefighter_id))]
+    if not active: stmts.append(('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE firefighter_id = ? AND end_ts IS NULL', (now_ms, firefighter_id)))
+    return 'changed', stmts, 'firefighter_id %d (%s) %s' % (firefighter_id, f[0], 'active' if active else 'inactive'), f[0]
+
 def assign(conn, now_ms, node_id, firefighter_id=None):
     """Put a firefighter on a node, replacing whoever wore it; firefighter_id None ends the node's assignment. Returns 'assigned', 'ended' or 'unchanged'. A firefighter on another node,
     an inactive or unknown firefighter and a node outside the roster are refused."""

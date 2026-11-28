@@ -234,6 +234,15 @@ class HostPort:
             finally: c.close()
             if stmts and self._done(None, self.ing.write([Stmt(s, p) for s, p in stmts], durable=True)) is not True: raise RuntimeError('the assignment could not be written')
             return result, reason, alias
+    def set_firefighter_active(self, firefighter_id, active):
+        """(result, audit reason, alias): result 'changed' or 'unchanged' (nothing written). Inactive also ends the jacket the firefighter wears. FirefighterError for an unknown id. The audit row is written by the route (ADR 0072)."""
+        from .services import firefighters as F
+        with self._ff_lock:
+            now = self.ing.clock.wall_ms(); c = connect_db(self.db_path, readonly=True)
+            try: result, stmts, reason, alias = F.plan_set_active(c, firefighter_id, active, now)
+            finally: c.close()
+            if stmts and self._done(None, self.ing.write([Stmt(s, p) for s, p in stmts], durable=True)) is not True: raise RuntimeError('the change could not be written')
+            return result, reason, alias
     def ack_banner(self, kind, operator_id):
         from .api.api_rest import BannerAck
         active, ts = self.banner_state(kind)

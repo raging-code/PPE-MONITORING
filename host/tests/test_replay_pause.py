@@ -159,7 +159,7 @@ def test_a_version_3_database_is_upgraded_keeps_its_rows_and_then_accepts_the_ne
     c = connect_db(tmp_path / 'old.db'); assert run_migrations(c, str(old), 1) == [1, 2, 3]; operator(c)
     ins = lambda act, ts: c.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action) VALUES (NULL, 0, ?, 1, ?)', (ts, act))
     ins('PIN_SET', 5); rejects(lambda: ins('REPLAY_PAUSE', 6))                                    # not an action yet
-    assert run_migrations(c, str(MIG), 2) == [4, 5, 6] and applied_versions(c) == [1, 2, 3, 4, 5, 6]
+    assert run_migrations(c, str(MIG), 2) == [4, 5, 6, 7] and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7]
     ins('REPLAY_PAUSE', 7); ins('REPLAY_RESUME', 8)
     assert [r[0] for r in c.execute('SELECT action FROM audit_events ORDER BY ts')] == ['PIN_SET', 'REPLAY_PAUSE', 'REPLAY_RESUME'] and c.execute('SELECT display_name FROM operators').fetchone()[0] == 'Ana'
 
