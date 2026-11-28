@@ -14,16 +14,16 @@ test('a speed press reaches the host, and the words and the pressed button follo
   await control(request, { replay: true });
   await signInAndWaitLive(page);
   const bar = page.getByTestId('replay-bar');
-  await expect(bar.getByRole('button', { name: 'Speed ×16' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(bar.getByRole('button', { name: 'Speed ×16', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
-  await bar.getByRole('button', { name: 'Speed ×4' }).click();
+  await bar.getByRole('button', { name: 'Speed ×4', exact: true }).click();
   await expect(bar.getByTestId('replay-state')).toHaveText('Replay running, ×4');
-  await expect(bar.getByRole('button', { name: 'Speed ×4' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(bar.getByRole('button', { name: 'Speed ×16' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(bar.getByRole('button', { name: 'Speed ×4', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(bar.getByRole('button', { name: 'Speed ×16', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => (await control(request, {})).replay?.speed).toBe(4);
 
-  await bar.getByRole('button', { name: 'Speed ×4' }).click();                       // the speed it already has: nothing is sent
-  await bar.getByRole('button', { name: 'Speed ×1' }).click();
+  await bar.getByRole('button', { name: 'Speed ×4', exact: true }).click();                       // the speed it already has: nothing is sent
+  await bar.getByRole('button', { name: 'Speed ×1', exact: true }).click();
   await expect(bar.getByTestId('replay-state')).toHaveText('Replay running, ×1');
   await expect.poll(async () => (await control(request, {})).replay?.speed).toBe(1);
   expect((await control(request, {})).replaySpeeds).toBe(2);                         // one change each, the repeat wrote nothing
@@ -36,7 +36,7 @@ test('a speed can be chosen while paused, and it stays paused', async ({ page, r
   const bar = page.getByTestId('replay-bar');
   await bar.getByRole('button', { name: 'Pause replay' }).click();
   await expect(bar.getByTestId('replay-state')).toContainText('Replay paused, ×16');
-  await bar.getByRole('button', { name: 'Speed ×1' }).click();
+  await bar.getByRole('button', { name: 'Speed ×1', exact: true }).click();
   await expect(bar.getByTestId('replay-state')).toContainText('Replay paused, ×1');
   await expect(bar.getByRole('button', { name: 'Resume replay' })).toBeEnabled();
   await bar.getByRole('button', { name: 'Resume replay' }).click();
@@ -50,19 +50,19 @@ test('a second screen and a reload both show the host\'s speed', async ({ page, 
   await signInAndWaitLive(page);
   const other = await context.newPage();
   await signInAndWaitLive(other);
-  await page.getByRole('button', { name: 'Speed ×4' }).click();
+  await page.getByRole('button', { name: 'Speed ×4', exact: true }).click();
   await expect(other.getByTestId('replay-state')).toHaveText('Replay running, ×4');   // the host's system message, not this tab's own click
-  await expect(other.getByRole('button', { name: 'Speed ×4' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(other.getByRole('button', { name: 'Speed ×4', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.reload();                                                                  // the snapshot carries the replay block
   await expect(page.getByTestId('replay-state')).toHaveText('Replay running, ×4');
-  await expect(page.getByRole('button', { name: 'Speed ×4' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Speed ×4', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('when the data has ended the speed buttons are disabled', async ({ page, request }) => {
   await control(request, { replay: true });
   await signInAndWaitLive(page);
-  await expect(page.getByRole('button', { name: 'Speed ×4' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Speed ×4', exact: true })).toBeEnabled();
   await control(request, { replay_finished: true });
   await expect(page.getByTestId('replay-state')).toHaveText('Replay finished');
-  for (const n of [1, 4, 16]) await expect(page.getByRole('button', { name: `Speed ×${n}` })).toBeDisabled();
+  for (const n of [1, 4, 16]) await expect(page.getByRole('button', { name: `Speed ×${n}`, exact: true })).toBeDisabled();
 });
