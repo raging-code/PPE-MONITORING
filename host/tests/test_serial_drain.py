@@ -8,6 +8,7 @@ from ppe_host.clock import FakeClock
 from ppe_host.io.serial_reader import Frame, Heartbeat, SerialReader
 from ppe_host.services import serial_drain as D, simulator as S
 from fakeport import FakePort, frame_line, hb_line
+from test_replay import make_source
 from test_simulator import rows, wait_polls
 from test_startup import NOW, home, run
 
@@ -160,7 +161,9 @@ def test_the_drain_stops_before_the_writer_so_no_row_is_queued_after_the_last_on
 def run_main(tmp_path, argv, capsys):
     box = {}
     async def serve(rt, host, port): box['rt'] = rt; box['drain'] = rt.drain is not None
-    h = home(tmp_path); code = M.main(['--home', str(h)] + argv, serve=serve); capsys.readouterr(); return code, box
+    h = home(tmp_path)
+    if '--mode' in argv and argv[argv.index('--mode') + 1] == 'REPLAY': make_source(h, 'quiet', 5); argv = argv + ['--session', '1']      # S7-3: a REPLAY host needs a session to replay
+    code = M.main(['--home', str(h)] + argv, serve=serve); capsys.readouterr(); return code, box
 
 @pytest.mark.parametrize('mode,expect', [('SIMULATOR', True), ('REPLAY', True), ('LIVE', False)])
 def test_main_starts_the_drain_in_simulator_and_replay_and_never_in_live(tmp_path, capsys, mode, expect):

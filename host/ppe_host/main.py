@@ -1,6 +1,7 @@
 """main.py (P24-1): start-up steps 1 to 5 of design 14.5 and the start-up failure policy (a to d). P24-2 added steps 6 and 7 (begin_session); step 8 (threads, P24-3c-1), step 9 (open state, P24-3c-2), step 10 (Uvicorn and the 1 Hz driver, serve.py, P24-3c-3).
 Exit codes: 0 = clean exit or another host already runs (the supervisor does not respawn), 1 = unexpected crash, 2 = configuration or database failure, or Uvicorn cannot bind its port (counts toward the crash-loop guard).
-Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME] [--scenario quiet|co_ramp|man_down|link_loss|rehearsal] [--seed N]
+Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME] [--scenario quiet|co_ramp|man_down|link_loss|rehearsal] [--seed N] [--session N] [--speed 1|4|16]
+S7-3 (ADR 0059): --mode REPLAY needs --session N (a session of db_path) and takes --speed 1, 4 or 16 (default 1); both are refused with any other mode (exit 2). The session is replayed from db_path, read-only, into a new REPLAY session of test_db_path.
 S7-1 (ADR 0057): --scenario and --seed are accepted only with --mode SIMULATOR (exit 2 otherwise); SIMULATOR without them runs the rehearsal scenario with seed 1. LIVE and REPLAY never start a simulator.
 A rehearsal needs an operator in the TEST database: python -m ppe_host.cli create-operator --name NAME --db data/ppe_test.db (operators are per database)."""
 import argparse, asyncio, json, logging, os, shutil, stat, sys, time, uuid
@@ -14,7 +15,7 @@ from .io.db_writer import DatabaseTooNewError, applied_versions, connect_db, ini
 from .cli import MIGRATIONS_DIR, seed_roster
 from .io.audio_watchdog import WinsoundBackend
 from .io.os_watchdog import consume_marker
-from .services import abi_check, sessions as ses
+from .services import abi_check, replay as rpl, sessions as ses
 from .runtime import Runtime
 from .services.simulator import DEFAULT_SCENARIO, DEFAULT_SEED, SCENARIOS
 from .serve import ServeError, run_server
@@ -197,7 +198,7 @@ def begin_session(st, clock=None):
     try:
         row = conn.execute('SELECT session_id, mode, constants_hash, settings_hash FROM sessions WHERE ended_ts IS NULL').fetchone(); sid, changed = None, False
         if row:
-            why = 'mode_changed' if row[1] != st.mode else 'config_hash_changed' if (row[2], row[3]) != (ch, sh) else 'stale_30min' if now - last_row_ts(conn, row[0]) >= limit else None
+            why = 'mode_changed' if row[1] != st.mode else 'new_replay' if st.mode == 'REPLAY' else 'config_hash_changed' if (row[2], row[3]) != (ch, sh) else 'stale_30min' if now - last_row_ts(conn, row[0]) >= limit else None
             if why is None: sid, st.resumed = row[0], True
             else:
                 ses.run_stmts(conn, ses.close_stmts('ABANDONED', row[0], now, st.event_seq, detail=why)); st.event_seq += 1; changed = why == 'config_hash_changed'      # P25-3: the same rows in the same order as before, from the one close_session
@@ -222,6 +223,14 @@ def begin_session(st, clock=None):
     st.session_id, st.recovering = sid, True
     return st
 
+def check_replay(st, session_id):
+    """S7-3 (ADR 0059): before any session row is written. The session must be in db_path and hold frames, and the test database must have no open alert or unresolved episode from an earlier test session. Returns the SourceInfo."""
+    try: info = rpl.open_source(st.settings.path('db_path'), session_id)
+    except rpl.ReplayError as e: raise StartupExit(EXIT_CONFIG, 'REPLAY: %s' % e)
+    alerts, episodes = rpl.stale_test_items(st.conn)
+    if alerts or episodes: raise StartupExit(EXIT_CONFIG, 'REPLAY: %s has %d open alert(s) and %d unresolved episode(s) from an earlier test session; resolve them or delete the file, then start again' % (st.db_path, alerts, episodes))
+    return info
+
 def watchdog_exit(code): os._exit(code)                      # the OSWatchdogThread's exit (tests replace it with a recorder, tests/conftest.py)
 def make_audio_backend(): return WinsoundBackend()          # tests replace this with a silent fake (tests/conftest.py)
 
@@ -229,17 +238,24 @@ def main(argv=None, serve=run_server):
     """serve(rt, host, port) is the coroutine function of step 10; tests pass a fake that returns at once."""
     p = argparse.ArgumentParser(prog='ppe_host.main'); p.add_argument('--mode', choices=MODES, default='LIVE'); p.add_argument('--home')
     p.add_argument('--scenario', choices=tuple(SCENARIOS), help='SIMULATOR only (default %s)' % DEFAULT_SCENARIO); p.add_argument('--seed', type=int, help='SIMULATOR only (default %d)' % DEFAULT_SEED)
+    p.add_argument('--session', type=int, help='REPLAY only (required): the session_id in db_path to replay'); p.add_argument('--speed', type=int, choices=rpl.SPEEDS, help='REPLAY only (default 1)')
     a = p.parse_args(argv)
     if a.mode != 'SIMULATOR' and (a.scenario is not None or a.seed is not None): print('--scenario and --seed need --mode SIMULATOR', file=sys.stderr); return EXIT_CONFIG
+    if a.mode != 'REPLAY' and (a.session is not None or a.speed is not None): print('--session and --speed need --mode REPLAY', file=sys.stderr); return EXIT_CONFIG
+    if a.mode == 'REPLAY' and a.session is None: print('--mode REPLAY needs --session N (the session_id in db_path to replay; python -m ppe_host.cli lists them in the dashboard Sessions list)', file=sys.stderr); return EXIT_CONFIG
     sim = (a.scenario or DEFAULT_SCENARIO, DEFAULT_SEED if a.seed is None else a.seed) if a.mode == 'SIMULATOR' else None
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
         st = startup(a.home, a.mode)
-        try: begin_session(st); rt = Runtime(st, audio_backend=make_audio_backend(), watchdog_exit=lambda c: watchdog_exit(c), simulator=sim, drain=st.mode != 'LIVE').start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
+        try:
+            info = check_replay(st, a.session) if a.mode == 'REPLAY' else None; speed = a.speed or 1
+            begin_session(st)
+            if info: st.conn.execute('UPDATE sessions SET session_label = ? WHERE session_id = ?', (rpl.label_of(info), st.session_id))
+            rt = Runtime(st, audio_backend=make_audio_backend(), watchdog_exit=lambda c: watchdog_exit(c), simulator=sim, drain=st.mode != 'LIVE', replay=(a.session, speed) if info else None).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
         except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
-    print('start-up steps 1 to 9 done: %s, session %d%s, database %s%s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path, ', scenario %s seed %d' % sim if sim else ''))
+    print('start-up steps 1 to 9 done: %s, session %d%s, database %s%s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path, ', scenario %s seed %d' % sim if sim else '') + (', replaying session %d at %dx (%d frames)' % (a.session, speed, info.frames) if info else ''))
     clean = False                                                                                              # P25-3: only a server that stopped by itself (SIGINT, SIGTERM) is a clean shutdown
     try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port'])); clean = True                                 # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
     except ServeError as e: print('step 10 failed: %s' % e, file=sys.stderr); return EXIT_CONFIG

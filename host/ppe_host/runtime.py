@@ -9,7 +9,7 @@ then exceed its bound (pre_replay_overflow counts that). No rule runs and no ale
 import json, logging, threading
 from collections import deque
 from . import abi
-from .clock import RealClock
+from .clock import RealClock, ScaledClock
 from .io.audio_watchdog import SOUNDS_DIR, AudioThread
 from .io.db_writer import DBWriter
 from .io.health import Counters, Health, HostHealth
@@ -17,6 +17,7 @@ from .io.os_watchdog import MARKER_NAME, Liveness, OSWatchdogThread
 from .io.ingest import Ingest
 from .io.serial_reader import SerialReader, open_serial
 from .io.serial_writer import LinkMonitor, SerialWriter, host_tick_line
+from .services.replay import ReplayThread
 from .services.serial_drain import LiveTrafficDetector
 from .services.simulator import SimulatorThread
 
@@ -78,14 +79,18 @@ class LoopHub:
         return call
 
 class Runtime:
-    def __init__(self, st, clock=None, open_port=None, audio_backend=None, watchdog_exit=None, simulator=None, drain=False):
+    def __init__(self, st, clock=None, open_port=None, audio_backend=None, watchdog_exit=None, simulator=None, drain=False, replay=None):
         """audio_backend: the sound card object for the AudioThread (io/audio_watchdog.WinsoundBackend, or a fake). None means no AudioThread, as in the tests that do not care about sound.
         watchdog_exit: the function the OSWatchdogThread calls on a stall (main passes os._exit); None means no watchdog thread, as in most tests. The stamps are always kept.
         simulator: (scenario, seed) for the SimulatorThread (S7-1), or None for no simulated traffic. Only a SIMULATOR host may have one; any other mode raises ValueError before anything is built.
-        drain: S7-2 (ADR 0058): True in SIMULATOR and REPLAY (main passes it) starts the SerialDrainThread, which reads the base's port only to write LIVE_FRAME_IN_TEST_MODE when valid live frames arrive. LIVE raises ValueError. Default False, so a test that does not care opens no port."""
+        drain: S7-2 (ADR 0058): True in SIMULATOR and REPLAY (main passes it) starts the SerialDrainThread, which reads the base's port only to write LIVE_FRAME_IN_TEST_MODE when valid live frames arrive. LIVE raises ValueError. Default False, so a test that does not care opens no port.
+        replay: S7-3 (ADR 0059): (session_id, speed) of the session of db_path to replay, or None. Only a REPLAY host may have one (ValueError otherwise, before anything is built). Every host timer then reads a ScaledClock
+        (speed 1, 4 or 16, pausable); the OS watchdog and its liveness stamps keep the real clock. The ReplayThread feeds Runtime.gate.on_item like the SerialReader and starts its time when the gate goes live."""
         if simulator is not None and st.mode != 'SIMULATOR': raise ValueError('a simulator needs mode SIMULATOR, this host runs %s' % st.mode)
+        if replay is not None and st.mode != 'REPLAY': raise ValueError('a replay needs mode REPLAY, this host runs %s' % st.mode)
         if drain and st.mode == 'LIVE': raise ValueError('the serial drain is for SIMULATOR and REPLAY; LIVE reads the port for real')
-        s, self.st, self.clock = st.settings, st, clock or RealClock()
+        s, self.st = st.settings, st; self.real_clock = clock or RealClock()                     # real_clock: the OS watchdog and the liveness stamps (S7-3)
+        self.clock = self.real_clock if replay is None else ScaledClock(self.real_clock, replay[1])     # every other timer of the host
         self.serial = st.mode == 'LIVE'
         self.writer = DBWriter(st.db_path, self.clock, on_logging_fault=lambda table, msg: self.ingest.system_event('LOGGING_FAULT', json.dumps({'table': table, 'error': msg}, sort_keys=True, separators=(',', ':'))))   # the lambda reads self.ingest only when a fault happens, after __init__
         roster = [r[0] for r in st.conn.execute('SELECT node_id FROM roster WHERE active = 1 ORDER BY node_id')]
@@ -93,7 +98,7 @@ class Runtime:
         self.gate = PreReplayGate(self.ingest, s['pre_replay_queue_max'])
         self.link = LinkMonitor(self.ingest.system_event)                         # one SERIAL_LOST or SERIAL_BACK per outage, whichever thread notices first
         port = open_port or (lambda: open_serial(s['serial_port'], write_timeout_s=s['serial_write_timeout_ms'] / 1000.0))
-        self.liveness = Liveness(self.clock)
+        self.liveness = Liveness(self.real_clock)
         self.reader = SerialReader(port, self.gate.on_item, self.link.on_link, on_alive=self.liveness.stamper('serial'))
         self.serial_writer = SerialWriter(lambda: None if self.reader.lost else self.reader.port, self.link)
         self.sim = None if simulator is None else SimulatorThread(self.clock, self.gate.on_item, s.cmac_key(), s['sys_id'], simulator[0], simulator[1], base_id=s['base_id'], on_alive=self.liveness.stamper('serial'))   # the same stamp the SerialReader gives the OS watchdog
@@ -101,13 +106,14 @@ class Runtime:
         if drain:       # nothing from the drain reaches the gate, Ingest or the writer except the one system_event row; it never writes to the port and its link events are only logged
             self.detector = LiveTrafficDetector(self.clock, self.ingest.system_event, s.cmac_key(), s['sys_id'])
             self.drain = SerialReader(port, self.detector.on_item, lambda e, d: log.warning('serial drain: %s %s', e, d or ''), on_alive=self.liveness.stamper('drain'), name='SerialDrainThread')
+        self.replay = None if replay is None else ReplayThread(self.clock, self.gate.on_item, st.settings.path('db_path'), replay[0], base_id=s['base_id'], ready=lambda: self.gate.live, on_alive=self.liveness.stamper('replay'), on_done=lambda: self.liveness.retire('replay'))
         counters = Counters.for_host(self.ingest, self.writer, self.reader, self.serial_writer,
                                      extra={'pre_replay_dropped': lambda: self.gate.dropped, 'pre_replay_overflow': lambda: self.gate.overflow})
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
         self.host_health = HostHealth(self.clock, self.ingest.system_event, self.writer, st.db_path.parent, warn_pct=s['host_bat_warn_pct'], disk_min_gb=s['host_disk_min_gb'])
         self.started, self.wire, self.port, self.ticks = False, None, None, 0   # wire and port are set by serve.build_app (step 10)
         self.recovery_report, self._recovery_started = None, False             # P25-2: the RunReport of services/recovery_run.run, and a guard so steps 11 to 13 run once
-        self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.clock, s.path('log_dir') / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
+        self.watchdog = None if watchdog_exit is None else OSWatchdogThread(self.liveness, self.real_clock, s.path('log_dir') / MARKER_NAME, stall_s=s['task_stall_s'], exit_fn=watchdog_exit)
         self.audio = None if audio_backend is None else AudioThread(audio_backend, self.clock, sounds_dir=SOUNDS_DIR, check_interval_s=s['audio_check_interval_s'],
                                                                     chime_interval_min=s['host_chime_interval_min'], on_event=self._audio_event)   # sockets_fn and monitoring_fn come with the hub (serve.build_app)
     def start(self):
@@ -116,6 +122,7 @@ class Runtime:
         self.writer.start()
         if self.serial: self.reader.start(); self.serial_writer.start()
         if self.drain is not None: self.drain.start()                              # S7-2: after the writer, so the row of a live frame has a queue to go to
+        if self.replay is not None: self.replay.start()                            # its time 0 is the moment the gate goes live (RECOVERING_EXIT)
         if self.sim is not None: self.sim.start()                                  # after the writer: its first frame is queued behind the gate until RECOVERING_EXIT
         if self.audio is not None: self.audio.start(); self.audio_refresh()
         self.started = True; self.offer_tick(); return self
@@ -171,6 +178,7 @@ class Runtime:
         if self.audio is not None and self.audio.is_alive(): self.audio.stop(); self.audio.join(2)
         if self.serial: self.reader.stop(); self.serial_writer.stop()
         if self.drain is not None: self.drain.stop()                                # before CLEAN_SHUTDOWN and the writer, like the simulator
+        if self.replay is not None: self.replay.stop()                              # before CLEAN_SHUTDOWN and the writer, like the simulator
         if self.sim is not None: self.sim.stop()                                   # before CLEAN_SHUTDOWN and the writer: no simulated frame may be queued after the last row
         if clean:
             try: self.ingest.close_session('CLEAN_SHUTDOWN')
