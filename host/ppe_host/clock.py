@@ -58,4 +58,11 @@ class ScaledClock:
     def resume(self):
         with self._lock:
             if self._paused: self._since = self.base.mono_ms(); self._paused = False
+    def set_speed(self, speed):
+        """S7-7a (ADR 0064): change the speed of a running or a paused clock without a jump. The scaled time up to now is kept (the old speed is applied to it), the base reference is moved to
+        now and only then does the new speed count, so mono_ms and wall_ms never step and never run backwards. A paused clock only takes the new value; it counts from the next resume."""
+        if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not speed > 0: raise ValueError('speed must be a number above 0')
+        with self._lock:
+            if not self._paused: self._acc = self._elapsed(); self._since = self.base.mono_ms()
+            self.speed = speed
     def now(self): return now_of(self)

@@ -84,6 +84,12 @@ class ReplayThread:
     @property
     def paused(self): return self.clock.paused
     def pause(self): self.clock.pause()
+    @property
+    def speed(self): return self.clock.speed
+    def set_speed(self, speed):
+        """S7-7a (ADR 0064): 1, 4 or 16, while running or paused. The clock is re-based, so the next item is due at the same source time as before. A finished replay keeps its speed."""
+        if isinstance(speed, bool) or speed not in SPEEDS: raise ValueError('speed must be one of %s' % (SPEEDS,))
+        if not self.finished.is_set(): self.clock.set_speed(speed)
     def resume(self):
         """A finished replay stays frozen (ADR 0059): a resume that races with the end of the data is undone."""
         if self.finished.is_set(): return

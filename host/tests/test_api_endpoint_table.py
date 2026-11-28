@@ -62,6 +62,8 @@ class Port:
     def set_scba_correction(self, node, note, op): return R.ScbaRecord(8000, 'Ana') if node in (1, 2, 3) else None
     def replay_set_paused(self, paused):      # S7-5a
         self.calls.append('replay'); return R.ReplayState(paused, False, True)
+    def replay_set_speed(self, speed):        # S7-7a
+        self.calls.append('speed'); return R.ReplaySpeedState(speed, 1, False, False, True)
     def ack_banner(self, kind, op):
         if not self.banners[kind]: raise R.ApiError(409, 'STATE_CONFLICT', 'banner is not active')
         return R.BannerAck(kind, 9000)
@@ -78,7 +80,8 @@ VALID = {'POST /api/login': ('/api/login', {'token': 'good-token'}, None), 'POST
          'POST /api/system-banners/{kind}/ack': ('/api/system-banners/host_gap/ack', {}, None), 'POST /api/scba-correction': ('/api/scba-correction', {'node_id': 1}, None),
          'POST /api/dashboard-outage': ('/api/dashboard-outage', {'started_ts': NOW - 30000, 'ended_ts': NOW - 10000, 'duration_s': 20.0}, None),
          'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0}), 'GET /api/export.csv': ('/api/export.csv', None, None),
-         'POST /api/logout': ('/api/logout', None, None), 'POST /api/replay/pause': ('/api/replay/pause', {'paused': True}, None)}
+         'POST /api/logout': ('/api/logout', None, None), 'POST /api/replay/pause': ('/api/replay/pause', {'paused': True}, None),
+         'POST /api/replay/speed': ('/api/replay/speed', {'speed': 4}, None)}
 # (key, label, path, body, query, status, setup): one request per listed non-200 code beyond the generated 401 and 403 rows
 EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, None, 401, None),
          ('POST /api/session/end', 'wrong confirm_text', '/api/session/end', {'confirm_text': 'x', 'session_id': 4}, None, 400, None),
@@ -98,19 +101,21 @@ EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, Non
          ('POST /api/dashboard-outage', 'duration more than 1 s off', '/api/dashboard-outage', {'started_ts': NOW - 20000, 'ended_ts': NOW - 10000, 'duration_s': 11.5}, None, 422, None),
          ('POST /api/dashboard-outage', 'duration above 86400', '/api/dashboard-outage', {'started_ts': 0, 'ended_ts': 86_401_000, 'duration_s': 86401.0}, None, 422, None),
          ('POST /api/replay/pause', 'body without paused', '/api/replay/pause', {}, None, 422, None),
+         ('POST /api/replay/speed', 'speed outside 1, 4 and 16', '/api/replay/speed', {'speed': 2}, None, 422, None),
          ('GET /api/events', 'limit out of range', '/api/events', None, {'limit': 0}, 422, None),
          ('GET /api/sessions', 'limit out of range', '/api/sessions', None, {'limit': 0}, 422, None)]
 RECOVERING = ('POST /api/session/end', 'host recovering', '/api/session/end', {'confirm_text': 'END', 'session_id': 4}, None, 409, lambda p: setattr(p, 'recovering', 3.0))
 RECOVERING_REPLAY = ('POST /api/replay/pause', 'host recovering', '/api/replay/pause', {'paused': True}, None, 409, lambda p: setattr(p, 'recovering', 3.0))      # S7-5a
-CASES = [(k, 'valid request', p, b, q, 200, None) for k, (p, b, q) in VALID.items()] + EXTRA + [RECOVERING, RECOVERING_REPLAY] \
+RECOVERING_SPEED = ('POST /api/replay/speed', 'host recovering', '/api/replay/speed', {'speed': 4}, None, 409, lambda p: setattr(p, 'recovering', 3.0))      # S7-7a
+CASES = [(k, 'valid request', p, b, q, 200, None) for k, (p, b, q) in VALID.items()] + EXTRA + [RECOVERING, RECOVERING_REPLAY, RECOVERING_SPEED] \
       + [(k, '401 no token', p, b, q, 401, None) for k, (p, b, q) in VALID.items() if k != 'POST /api/login'] + [(k, '403 Origin', p, b, q, 403, None) for k, (p, b, q) in VALID.items()]
 def send(client, key, path, body, query, status, label):
     headers = {} if label == '401 no token' else ({} if key == 'POST /api/login' else dict(GOOD))
     if label == '403 Origin': headers['Origin'] = EVIL
     return client.request(key.split()[0], path, json=body, params=query, headers=headers)
 
-def test_the_list_parses_to_the_fourteen_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout, S7-5a POST /api/replay/pause
-    assert len(LIST) == 14 and LIST['POST /api/replay/pause']['keys'] == {'paused', 'finished'} and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
+def test_the_list_parses_to_the_fifteen_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout, S7-5a POST /api/replay/pause, S7-7a POST /api/replay/speed
+    assert len(LIST) == 15 and LIST['POST /api/replay/pause']['keys'] == {'paused', 'finished'} and LIST['POST /api/replay/speed']['keys'] == {'speed', 'paused', 'finished'} and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
     assert LIST['GET /api/events']['keys'] == {'events', 'last_seq'} and len(LIST['GET /api/sessions']['keys']) == 10 and {400} in LIST['POST /api/system-banners/{kind}/ack']['codes']
 def code_endpoints(app):
     """'METHOD path' of every HTTP route, read from the generated OpenAPI schema (app.openapi() works although /openapi.json is not served), so it does not depend on how FastAPI stores included routers."""

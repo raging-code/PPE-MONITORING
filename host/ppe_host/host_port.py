@@ -195,6 +195,18 @@ class HostPort:
             r.pause() if paused else r.resume()
             if self.wire is not None: self.wire.on_replay_changed()   # the system message, at once
         return ReplayState(r.paused, r.finished.is_set(), changed)
+    def replay_set_speed(self, speed):
+        """S7-7a (ADR 0064): set the speed of the replay to 1, 4 or 16. Not a toggle: the speed it already has changes nothing (changed False). Allowed while paused (it counts from the resume).
+        STATE_CONFLICT on a host that is not replaying and on a replay that has finished. Runs on the event loop and never blocks; the audit row is written by the route."""
+        from .api.api_rest import ReplaySpeedState
+        r = self.replay
+        if r is None: raise self._conflict('this host is not replaying a session')
+        if r.finished.is_set(): raise self._conflict('the replay has finished')
+        speed = int(speed); before = int(r.speed); changed = before != speed
+        if changed:
+            r.set_speed(speed)
+            if self.wire is not None: self.wire.on_replay_changed()   # the system message, at once
+        return ReplaySpeedState(int(r.speed), before, r.paused, r.finished.is_set(), changed)
     def ack_banner(self, kind, operator_id):
         from .api.api_rest import BannerAck
         active, ts = self.banner_state(kind)

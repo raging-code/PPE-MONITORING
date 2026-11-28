@@ -10,7 +10,7 @@ from ppe_host.clock import FakeClock, ScaledClock
 from ppe_host.io.db_writer import applied_versions, connect_db, run_migrations
 from ppe_host.services import replay as RP
 from test_host_port import port as host_port, settle
-from test_migration_0003 import MIG, fresh, operator, rejects
+from test_migration_0003 import MIG, operator, rejects
 from test_replay import T0, make_source, replay_runtime, wait_for, wait_polls, rows
 from test_startup import home
 from test_wire import got
@@ -144,11 +144,14 @@ def test_resume_on_a_running_replay_restarts_the_clock(tmp_path):
 def test_0004_adds_exactly_the_two_audit_actions_and_changes_no_table(tmp_path):
     old = tmp_path / 'm3'; old.mkdir()
     for n in ('0001', '0002', '0003'): shutil.copy(MIG / (n + '.sql'), old / (n + '.sql'))
-    a = connect_db(tmp_path / 'a.db'); run_migrations(a, str(old), 1); b = fresh(tmp_path, 'b.db')
+    a = connect_db(tmp_path / 'a.db'); run_migrations(a, str(old), 1)
+    up = tmp_path / 'm4'; up.mkdir()                                                             # S7-7a added 0005: this test looks at 0004 alone
+    for n in ('0001', '0002', '0003', '0004'): shutil.copy(MIG / (n + '.sql'), up / (n + '.sql'))
+    b = connect_db(tmp_path / 'b.db'); run_migrations(b, str(up), 1)
     sql = lambda c: sorted(r[0] or '' for r in c.execute('SELECT sql FROM sqlite_master'))
     assert sql(a) == sql(b) and applied_versions(b) == [1, 2, 3, 4] and b.execute('SELECT description FROM schema_version WHERE version = 4').fetchone()[0].startswith('Migration 0004')
     new = {r[0] for r in b.execute('SELECT action FROM audit_actions')} - {r[0] for r in a.execute('SELECT action FROM audit_actions')}
-    assert new == {'REPLAY_PAUSE', 'REPLAY_RESUME'} and b.execute('SELECT COUNT(*) FROM audit_actions').fetchone()[0] == 23 and run_migrations(b, str(MIG), 9) == []
+    assert new == {'REPLAY_PAUSE', 'REPLAY_RESUME'} and b.execute('SELECT COUNT(*) FROM audit_actions').fetchone()[0] == 23 and run_migrations(b, str(up), 9) == []
 
 def test_a_version_3_database_is_upgraded_keeps_its_rows_and_then_accepts_the_new_actions(tmp_path):
     old = tmp_path / 'm3'; old.mkdir()
@@ -156,7 +159,7 @@ def test_a_version_3_database_is_upgraded_keeps_its_rows_and_then_accepts_the_ne
     c = connect_db(tmp_path / 'old.db'); assert run_migrations(c, str(old), 1) == [1, 2, 3]; operator(c)
     ins = lambda act, ts: c.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action) VALUES (NULL, 0, ?, 1, ?)', (ts, act))
     ins('PIN_SET', 5); rejects(lambda: ins('REPLAY_PAUSE', 6))                                    # not an action yet
-    assert run_migrations(c, str(MIG), 2) == [4] and applied_versions(c) == [1, 2, 3, 4]
+    assert run_migrations(c, str(MIG), 2) == [4, 5] and applied_versions(c) == [1, 2, 3, 4, 5]
     ins('REPLAY_PAUSE', 7); ins('REPLAY_RESUME', 8)
     assert [r[0] for r in c.execute('SELECT action FROM audit_events ORDER BY ts')] == ['PIN_SET', 'REPLAY_PAUSE', 'REPLAY_RESUME'] and c.execute('SELECT display_name FROM operators').fetchone()[0] == 'Ana'
 

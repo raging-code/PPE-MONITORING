@@ -38,6 +38,7 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def set_scba_correction(self, node_id: int, note: Optional[str], operator_id: int) -> Optional['ScbaRecord']: ...  # live state only; None when node_id is not in the roster; the audit row is written by the route
     def ack_banner(self, kind: str, operator_id: int) -> 'BannerAck': ...  # ApiError STATE_CONFLICT when the banner is not active or is already acknowledged (design 3.8 error-code list)
     # S7-5a (ADR 0061)
+    def replay_set_speed(self, speed: int) -> 'ReplaySpeedState': ...  # S7-7a (ADR 0064): ApiError STATE_CONFLICT when this host is not replaying or the replay has finished; idempotent; allowed while paused
     def replay_set_paused(self, paused: bool) -> 'ReplayState': ...  # ApiError STATE_CONFLICT when this host is not replaying or the replay has finished; idempotent; sends the system message
 
 class ApiError(Exception):
@@ -255,6 +256,12 @@ class ReplayState(NamedTuple):
     paused: bool
     finished: bool
     changed: bool
+class ReplaySpeedState(NamedTuple):   # S7-7a
+    speed: int
+    previous: int
+    paused: bool
+    finished: bool
+    changed: bool
 BANNER_KINDS = ('no_live_data', 'base_offline', 'logging_fault', 'host_gap', 'recovering', 'host_power', 'audio_fault', 'abi_mismatch')  # the banners of alert_catalog.json (a test compares)
 
 @router.post('/scba-correction', response_model=M.ScbaCorrection)
@@ -283,3 +290,15 @@ async def replay_pause(body: M.ReplayPauseReq, request: Request, op: Operator = 
     r = port.replay_set_paused(body.paused)
     if r.changed: port.audit('REPLAY_PAUSE' if r.paused else 'REPLAY_RESUME', operator_id=op.operator_id)
     return M.ReplayPauseResp(paused=r.paused, finished=r.finished)
+
+# ---- S7-7a (ADR 0064): POST /api/replay/speed ----
+@router.post('/replay/speed', response_model=M.ReplaySpeedResp)
+async def replay_speed(body: M.ReplaySpeedReq, request: Request, op: Operator = Depends(current_operator)):
+    """Sets the speed of a REPLAY host to 1, 4 or 16 (not a toggle). Any logged-in operator may press it, also while the replay is paused. 409 RECOVERING before the replay has started, 409 STATE_CONFLICT
+    on a host that is not replaying or whose replay has finished. One audit row (REPLAY_SPEED, reason '1x to 4x') when the speed changed; asking for the speed it already has changes nothing and writes no row."""
+    port = request.app.state.port
+    retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    r = port.replay_set_speed(body.speed)
+    if r.changed: port.audit('REPLAY_SPEED', operator_id=op.operator_id, reason='%dx to %dx' % (r.previous, r.speed))
+    return M.ReplaySpeedResp(speed=r.speed, paused=r.paused, finished=r.finished)

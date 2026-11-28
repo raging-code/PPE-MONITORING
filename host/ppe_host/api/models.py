@@ -4,7 +4,7 @@ fields and has no defaults (v and type are always sent and always required), so 
 Imports nothing from core/, io/ or services/. Level values are uppercase on the wire; a node level is NORMAL, WARNING or DANGER and an alert level is NONE, WARNING or DANGER."""
 from typing import Annotated, Any, Literal, Optional, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 SCHEMA_VERSION = 1
 NodeLevel = Literal['NORMAL', 'WARNING', 'DANGER']
@@ -282,6 +282,17 @@ class SessionEndResp(_Strict):
 class ReplayPauseReq(_Strict):  # S7-5a: the state wanted, not a toggle, so a retry or a second tab changes nothing more
     paused: bool
 class ReplayPauseResp(_Strict):
+    paused: bool
+    finished: bool
+class ReplaySpeedReq(_Strict):  # S7-7a: the speed wanted (1, 4 or 16 = replay.SPEEDS), not a step up or down, so a retry or a second tab changes nothing more
+    speed: Literal[1, 4, 16]
+    @field_validator('speed', mode='before')
+    @classmethod
+    def _whole_number(cls, v):
+        if isinstance(v, bool) or not isinstance(v, int): raise ValueError('speed must be the whole number 1, 4 or 16')
+        return v
+class ReplaySpeedResp(_Strict):
+    speed: int
     paused: bool
     finished: bool
 class AckAlertResp(_Strict):
