@@ -30,10 +30,16 @@ def run(tmp_path, home, root, **kw):
 def by(rows, name): return [r for r in rows if r[1] == name][0]
 def status(rows, name): return by(rows, name)[0]
 
+def add_operators(db, *ops):
+    """ops = (display_name, has_pin) or (display_name, has_pin, active). Real schema (0003 has the PIN columns)."""
+    c = sqlite3.connect(str(db))
+    for n, o in enumerate(ops, 1): c.execute('INSERT INTO operators(operator_id, display_name, token_hash, active, created_ts, token_issued_ts, pin_hash, pin_salt) VALUES (?, ?, ?, ?, 1, 1, ?, ?)', (n, o[0], 'x', o[2] if len(o) > 2 else 1, 'h' if o[1] else None, 's' if o[1] else None))
+    c.commit(); c.close()
+
 def test_a_good_machine_passes_every_check_and_exits_0(tmp_path):
-    home, root = make(tmp_path); abi_db(home, [[]]); rows = run(tmp_path, home, root)                                    # one earlier shift in the database; without a session the base ABI row is a SKIP
-    assert [r[0] for r in rows] == ['PASS'] * 13 and [r[1] for r in rows] == ['release version', 'host ABI', 'settings', 'base serial device', 'sound files', 'audio device', 'free disk', 'port 8420', 'prebuilt dashboard', 'secrets.json', 'database quick_check', 'base ABI', 'lockfile']
-    lines, ok = D.format_rows(rows); assert ok and lines[-1] == 'doctor: 13 passed, 0 failed, 0 skipped'
+    home, root = make(tmp_path); db = abi_db(home, [[]]); add_operators(db, ('Ana', True)); rows = run(tmp_path, home, root)                    # one earlier shift and one operator with a PIN; without a session the base ABI row is a SKIP
+    assert [r[0] for r in rows] == ['PASS'] * 14 and [r[1] for r in rows] == ['release version', 'host ABI', 'settings', 'base serial device', 'sound files', 'audio device', 'free disk', 'port 8420', 'prebuilt dashboard', 'secrets.json', 'database quick_check', 'operator PINs', 'base ABI', 'lockfile']
+    lines, ok = D.format_rows(rows); assert ok and lines[-1] == 'doctor: 14 passed, 0 failed, 0 skipped'
 
 def test_the_release_check_needs_a_manifest_with_a_rev_tag_and_the_constants_of_this_folder(tmp_path):
     home, root = make(tmp_path, manifest=False); assert status(run(tmp_path, home, root), 'release version') == 'FAIL'
@@ -180,3 +186,36 @@ def test_the_command_is_registered_with_home_and_db_and_its_exit_code_follows_th
     assert cli.main(['doctor']) == 0; out = capsys.readouterr().out; assert 'doctor: PASS a: fine' in out and out.rstrip().endswith('doctor: 1 passed, 0 failed, 1 skipped')
     monkeypatch.setattr(D, 'run_checks', lambda home, db: [('PASS', 'a', 'fine'), ('FAIL', 'b', 'broken')])
     assert cli.main(['doctor']) == 1; assert 'doctor: FAIL b: broken' in capsys.readouterr().out
+
+def test_the_operator_pin_row_passes_when_every_active_operator_has_a_pin(tmp_path):
+    home, root = make(tmp_path); add_operators(abi_db(home, []), ('Ana', True), ('Ben', True))
+    r = by(run(tmp_path, home, root), 'operator PINs'); assert r[0] == 'PASS' and '2 active operator(s), every one has a PIN' in r[2]
+
+def test_the_operator_pin_row_names_who_has_no_pin_and_is_never_a_fail(tmp_path):
+    home, root = make(tmp_path); add_operators(abi_db(home, []), ('Ana', True), ('Ben', False), ('Cy', False), ('Old', False, 0))      # Old is disabled: not named
+    rows = run(tmp_path, home, root); r = by(rows, 'operator PINs')
+    assert r[0] == 'PASS' and 'no PIN for 2 of 3 active operator(s): Ben (id 2), Cy (id 3)' in r[2] and 'Old' not in r[2] and 'set-pin' in r[2] and 'token only' in r[2]
+    assert D.format_rows(rows)[1] is True                                                                                                # the exit code stays 0
+
+def test_the_operator_pin_row_lists_four_names_and_then_dots(tmp_path):
+    home, root = make(tmp_path); add_operators(abi_db(home, []), *[('Op%d' % i, False) for i in range(6)])
+    r = by(run(tmp_path, home, root), 'operator PINs'); assert 'no PIN for 6 of 6' in r[2] and 'Op3 (id 4)' in r[2] and 'Op4' not in r[2] and ' ...' in r[2]
+
+def test_the_operator_pin_row_is_skipped_without_a_database_an_operator_or_migration_0003(tmp_path):
+    home, root = make(tmp_path); r = by(run(tmp_path, home, root), 'operator PINs'); assert r[0] == 'SKIP' and 'no database' in r[2]
+    db = abi_db(home, []); r = by(run(tmp_path, home, root), 'operator PINs'); assert r[0] == 'SKIP' and 'no active operator' in r[2]
+    add_operators(db, ('Old', True, 0)); assert status(run(tmp_path, home, root), 'operator PINs') == 'SKIP'                           # only a disabled operator
+    old, mig = tmp_path / 'old' / 'ppe.db', tmp_path / 'mig'; mig.mkdir(); old.parent.mkdir()
+    for f in ('0001.sql', '0002.sql'): shutil.copy(MIGRATIONS_DIR / f, mig / f)
+    c = sqlite3.connect(str(old)); run_migrations(c, mig, 1); c.commit(); c.close()
+    h2, r2 = make(tmp_path / 'b'); (h2 / 'data').mkdir(); shutil.copy(old, h2 / 'data' / 'ppe.db')
+    r = by(run(tmp_path, h2, r2), 'operator PINs'); assert r[0] == 'SKIP' and 'migration 0003' in r[2]
+
+def test_the_operator_pin_row_changes_nothing(tmp_path):
+    home, root = make(tmp_path); add_operators(abi_db(home, [[]]), ('Ana', False)); before = tree(tmp_path)
+    assert status(run(tmp_path, home, root), 'operator PINs') == 'PASS' and tree(tmp_path) == before
+
+def test_a_settings_problem_skips_the_operator_pin_row_with_the_others(tmp_path):
+    home, root = make(tmp_path); (home / 'config' / 'settings.local.json').write_text('{"session_hours": 0}')
+    assert status(run(tmp_path, home, root), 'operator PINs') == 'SKIP'
+

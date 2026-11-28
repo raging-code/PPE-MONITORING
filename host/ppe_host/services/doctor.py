@@ -1,5 +1,5 @@
 """services/doctor.py (P24-5b, ADR 0047): `python -m ppe_host.cli doctor`, the pre-shift check of design 1 (Release bundle and doctor, Rev 3.43).
-One line per check, PASS, FAIL or SKIP: release version, host ABI, settings, base serial device, sound files, audio device, free disk, port, prebuilt dashboard, secrets.json, database quick_check, base ABI, lockfile.
+One line per check, PASS, FAIL or SKIP: release version, host ABI, settings, base serial device, sound files, audio device, free disk, port, prebuilt dashboard, secrets.json, database quick_check, operator PINs, base ABI, lockfile.
 It changes nothing: the database is opened read-only, the serial port is only looked up in the list of the system (never opened, so no DTR or RTS pulse reaches the ESP32), the port is only connected to, and the only
 sound is the 100 ms silent probe WAV. Everything that touches the machine is a parameter of run_checks(), so the tests need no serial device, sound card or open port."""
 import json, socket, sqlite3, sys
@@ -113,6 +113,24 @@ def check_host_abi(root):
     if bad: return FAIL, 'host ABI', 'abi.py differs from abi.json: %s%s (the host would not start: exit 2; use one build)' % (', '.join(bad[:3]), ' ...' if len(bad) > 3 else '')
     return PASS, 'host ABI', 'abi.py matches abi.json (beacon abi %d)' % host_abi.BEACON_ABI_VER
 
+def check_operator_pins(db):
+    """P28-6 (ADR 0056): which active operators have no PIN. Never a FAIL: the operator token stays the admin and break-glass login, so an operator who signs in with the token only is allowed.
+    The row names the operators without a PIN so the administrator can run `cli set-pin --operator-id N` before the shift. SKIP without a database, without an active operator, or with a database that is not at migration 0003 yet."""
+    name = 'operator PINs'
+    if not Path(db).exists(): return SKIP, name, 'no database yet'
+    try:
+        c = _ro(db)
+        try: ops = c.execute('SELECT operator_id, display_name, pin_hash IS NOT NULL FROM operators WHERE active = 1 ORDER BY operator_id').fetchall()
+        finally: c.close()
+    except sqlite3.OperationalError as e:
+        if 'pin_hash' in str(e): return SKIP, name, 'the database is not at migration 0003 yet (the next start migrates it)'
+        return SKIP, name, 'cannot read the operators (OperationalError)'
+    except sqlite3.Error as e: return SKIP, name, 'cannot read the operators (%s)' % type(e).__name__
+    if not ops: return SKIP, name, 'no active operator yet'
+    missing = ['%s (id %d)' % (n, i) for i, n, has in ops if not has]
+    if not missing: return PASS, name, '%d active operator(s), every one has a PIN' % len(ops)
+    return PASS, name, 'no PIN for %d of %d active operator(s): %s%s; they sign in with the token only (cli set-pin --operator-id N gives a PIN)' % (len(missing), len(ops), ', '.join(missing[:4]), ' ...' if len(missing) > 4 else '')
+
 def check_base_abi(db):
     """P24-5h (ADR 0053): the last thing the base reported about its ABI. doctor never opens the serial port, so it reads the database: the newest ABI_MISMATCH or ABI_OK row of the newest session.
     ABI_MISMATCH last is a FAIL. A match is not logged (the first agreeing heartbeat is silent, ADR 0050), so no row means no mismatch recorded, not proof that the base reports an ABI."""
@@ -142,11 +160,11 @@ def run_checks(home=None, db=None, root=REPO_ROOT, sounds_dir=SOUNDS_DIR, compor
     try: s = load_settings(home)
     except SettingsError as e:
         rows.append((FAIL, 'settings', str(e)))
-        rows += [(SKIP, n, 'needs readable settings') for n in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'base ABI', 'lockfile')]
+        rows += [(SKIP, n, 'needs readable settings') for n in ('base serial device', 'free disk', 'port', 'secrets.json', 'database quick_check', 'operator PINs', 'base ABI', 'lockfile')]
         rows.insert(3, check_sound_files(sounds_dir)); rows.insert(4, check_audio_device(sounds_dir, backend or default_backend(), platform or sys.platform)); rows.append(check_dashboard(root)); return rows
     dbp = Path(db) if db else s.path('db_path'); lock = s.home / LOCK_NAME; alive = Lockfile.holder_alive(lock)
     rows += [(PASS, 'settings', 'loaded from %s' % s.home), check_serial(s, comports), check_sound_files(sounds_dir), check_audio_device(sounds_dir, backend or default_backend(), platform or sys.platform), check_disk(s),
-             check_port(s, alive, listening), check_dashboard(root), check_secrets(s, dbp), check_database(dbp), check_base_abi(dbp), check_lockfile(lock, Lockfile.read, Lockfile.holder_alive)]
+             check_port(s, alive, listening), check_dashboard(root), check_secrets(s, dbp), check_database(dbp), check_operator_pins(dbp), check_base_abi(dbp), check_lockfile(lock, Lockfile.read, Lockfile.holder_alive)]
     return rows
 
 def format_rows(rows):

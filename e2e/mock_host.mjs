@@ -1,7 +1,10 @@
 // e2e/mock_host.mjs (P27-3, ADR 0042): a stand-in for the host that serves the BUILT dashboard (dashboard/dist) and speaks just enough of the
-// design 3.8 wire protocol for the browser tests: POST /api/login, POST /api/session/start, the /ws data socket (snapshot first, then a tick every second)
+// design 3.8 wire protocol for the browser tests: POST /api/login (the token form, and since P28-6 the PIN form of ADR 0056), POST /api/logout, POST /api/session/start, the /ws data socket (snapshot first, then a tick every second)
 // and the /ws/tick socket of the worker. It is not the host: the real host is covered by pytest. What runs for real here is the dashboard, in Chromium.
 // Test control (not part of any design interface, loopback only): POST /__ctl {"mode":"live"|"muted"|"dead","reset":true,"abi_mismatch":true|false,"alert":{"alert_id":n,"alert_type":"man_down","level":"DANGER","cleared":true|false}}, GET /__state.
+//   expire : the PIN login session ends on the host (P28-6): the session token stops working and every socket that used it is closed with 4401, as the host does.
+//   PIN form: name Ana, PIN 482913 gives the session token e2e-session-token and a /ws or REST call with it works until Log out or expire. A wrong PIN is a 401 with retry_after_s 1; the 5th wrong PIN in a row is a 401 with retry_after_s 900
+//   and the PIN form stays locked (even the right PIN) for 15 minutes; the admin token e2e-token is never locked. /__state also counts pinLogins, logouts and wrongPins and shows lastRemember.
 //   alert  : one alert message to every signed-in data socket (a raise, or with cleared:true the clear plus acknowledge that makes the dashboard drop it). Sent unless the mode is dead.
 //   live   : snapshot and a tick every second on both sockets.
 //   muted  : the sockets stay open but nothing is sent (a host that stalled; this is the NO LIVE DATA case of 3.7).
@@ -16,6 +19,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(HERE, '..', 'dashboard', 'dist');
 const CONSTANTS = JSON.parse(fs.readFileSync(path.resolve(HERE, '..', 'shared', 'constants.json'), 'utf8'));
 export const PORT = Number(process.env.E2E_PORT ?? 8431), HOST = '127.0.0.1', TOKEN = 'e2e-token';
+export const PIN_NAME = 'Ana', PIN = '482913', SESSION_TOKEN = 'e2e-session-token', LOCK_S = 900;
 
 export const snapshotMessage = (now, abi = false) => ({
   v: 1, type: 'snapshot', srv_seq: 0, srv_ts: now, epoch: '5d1f7c3a-2b64-4e0f-9a51-3c7e8d2b6a10', recovering: false, monitoring_active: false,
@@ -35,30 +39,49 @@ export const alertMessage = (seq, now, a) => ({ v: 1, type: 'alert', srv_seq: se
   reasons: null, authenticated: 1, episode_id: null, raised_ts: now, cleared_ts: a.cleared ? now : null, acknowledged_ts: a.cleared ? now : null, acknowledged_by: a.cleared ? 1 : null,
   unauth_count: null, last_seen_ts: null });
 
+export const pinLoginReply = (now) => ({ operator_id: 1, display_name: PIN_NAME, session_id: 1, session_token: SESSION_TOKEN, expires_ts: now + 12 * 3600 * 1000 });
+
 if (process.argv.includes('--print-messages')) {
   console.log(JSON.stringify([snapshotMessage(1_700_000_000_000), tickMessage(1, 1_700_000_001_000)]));
   process.exit(0);
 }
 if (process.argv.includes('--print-alert')) { console.log(JSON.stringify(alertMessage(1, 1_700_000_001_000, { alert_id: 1 }))); process.exit(0); }   // for the pytest check against the Pydantic models
+if (process.argv.includes('--print-login')) { console.log(JSON.stringify(pinLoginReply(1_700_000_000_000))); process.exit(0); }   // for the pytest check against PinLoginResp
 const { WebSocketServer } = await import('ws');                                  // after --print-messages, so that mode needs no npm install
 if (!fs.existsSync(path.join(DIST, 'index.html'))) {
   console.error('dashboard/dist/index.html is missing: build the dashboard first (just build, or: cd dashboard; npm run build).');
   process.exit(1);
 }
 
-const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false };
+const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false, pinLogins: 0, logouts: 0, wrongPins: 0, lockedUntil: 0, sessionLive: false, lastRemember: null };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.stl': 'model/stl' };
 const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
 const readBody = (req) => new Promise((resolve) => { let s = ''; req.on('data', (c) => { s += c; }); req.on('end', () => { try { resolve(JSON.parse(s || '{}')); } catch { resolve({}); } }); });
-const bearerOk = (req) => req.headers.authorization === `Bearer ${TOKEN}`;
+const tokenOk = (t) => t === TOKEN || (t === SESSION_TOKEN && state.sessionLive);          // the operator token always; the session token until Log out or expire
+const bearerOk = (req) => { const a = req.headers.authorization ?? ''; return a.startsWith('Bearer ') && tokenOk(a.slice(7)); };
+const refuse = (res, detail, retry) => json(res, 401, { error_code: 'UNAUTHENTICATED', detail, retry_after_s: retry });
+// The PIN form. The real host waits out the failed-login delay before it answers; the mock answers at once and only reports it in retry_after_s.
+const pinLogin = (b, res) => {
+  const now = Date.now();
+  if (state.lockedUntil > now) return refuse(res, 'locked', Math.ceil((state.lockedUntil - now) / 1000));
+  if (b.display_name !== PIN_NAME || b.pin !== PIN) {
+    state.wrongPins += 1;
+    if (state.wrongPins < 5) return refuse(res, 'invalid name or PIN', 1);
+    state.wrongPins = 0; state.lockedUntil = now + LOCK_S * 1000;
+    return refuse(res, 'locked', LOCK_S);
+  }
+  state.wrongPins = 0; state.pinLogins += 1; state.sessionLive = true; state.lastRemember = b.remember === true;
+  return json(res, 200, pinLoginReply(now));
+};
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${HOST}`);
   if (url.pathname === '/__state') return json(res, 200, state);
   if (url.pathname === '/__ctl' && req.method === 'POST') {
     const b = await readBody(req);
-    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; }
+    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; state.pinLogins = 0; state.logouts = 0; state.wrongPins = 0; state.lockedUntil = 0; state.sessionLive = false; state.lastRemember = null; }
+    if (b.expire) { state.sessionLive = false; for (const c of clients) if (c.token === SESSION_TOKEN) c.ws.close(4401); }
     if (['live', 'muted', 'dead'].includes(b.mode)) state.mode = b.mode;
     if (typeof b.abi_mismatch === 'boolean' && b.abi_mismatch !== state.abi_mismatch) {   // the base reports a different ABI (or agrees again): one system message, like the host
       state.abi_mismatch = b.abi_mismatch;
@@ -69,9 +92,16 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/login' && req.method === 'POST') {
     const b = await readBody(req);
+    if (b.pin !== undefined) return pinLogin(b, res);
     if (b.token !== TOKEN) return json(res, 401, { error_code: 'UNAUTHENTICATED', detail: 'token not accepted', retry_after_s: null });
     state.logins += 1;
     return json(res, 200, { operator_id: 1, display_name: 'E2E', session_id: 1 });
+  }
+  if (url.pathname === '/api/logout' && req.method === 'POST') {
+    if (!bearerOk(req)) return refuse(res, 'no token', null);
+    if (req.headers.authorization === `Bearer ${SESSION_TOKEN}`) state.sessionLive = false;     // the host revokes the login session; an operator token has nothing to revoke
+    state.logouts += 1;
+    return json(res, 200, { logged_out: true });
   }
   if (url.pathname === '/api/session/start' && req.method === 'POST') {
     if (!bearerOk(req)) return json(res, 401, { error_code: 'UNAUTHENTICATED', detail: 'no token', retry_after_s: null });
@@ -102,8 +132,8 @@ server.on('upgrade', (req, socket, head) => {
     ws.on('message', (raw) => {
       let m; try { m = JSON.parse(String(raw)); } catch { return; }
       if (!c.authed) {
-        if (m.type !== 'auth' || m.token !== TOKEN) { ws.close(4401); return; }
-        c.authed = true;
+        if (m.type !== 'auth' || !tokenOk(m.token)) { ws.close(4401); return; }
+        c.authed = true; c.token = m.token;
         if (c.kind === 'data' && state.mode !== 'dead') ws.send(JSON.stringify(snapshotMessage(Date.now(), state.abi_mismatch)));
       }
     });

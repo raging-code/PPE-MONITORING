@@ -33,6 +33,8 @@ def test_the_specs_cover_design_8_and_use_no_fixed_sleeps():
     assert 'Start monitoring' in body and 'Siren ON' in body                                        # Start monitoring unlocks audio
     assert 'waitForTimeout' not in body and 'setTimeout' not in body, 'wait for something to appear, never for a fixed time'
     assert 'test.skip' not in body and 'test.fixme' not in body
+    pin = text(E2E / 'tests' / 'pin_login.spec.ts')                                                  # P28-6: the PIN login of ADR 0056 is in the browser tests
+    for w in ('Remember me', 'Log out', 'expire: true', 'Too many wrong PINs', 'Use the admin token instead'): assert w in pin, w
 
 def test_the_justfile_has_test_e2e():
     j = text(ROOT / 'justfile').replace('\r\n', '\n')
@@ -55,6 +57,16 @@ def test_every_node_version_in_ci_is_22():
     for job in wf()['jobs'].values():
         for s in job['steps']:
             if s.get('uses', '').startswith('actions/setup-node'): assert str(s['with']['node-version']) == '22'
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
+def test_the_mock_host_pin_login_answer_is_one_the_host_model_accepts_and_the_spec_uses_its_name_and_pin():
+    from ppe_host.api.models import PinLoginResp, LoginReq
+    out = subprocess.run(['node', str(E2E / 'mock_host.mjs'), '--print-login'], capture_output=True, text=True, timeout=60, cwd=str(ROOT))
+    assert out.returncode == 0, out.stderr
+    r = PinLoginResp.model_validate(json.loads(out.stdout)); assert r.session_token and r.expires_ts > 0
+    LoginReq.model_validate({'display_name': r.display_name, 'pin': '482913', 'remember': True})        # the request the dashboard sends is one the host accepts
+    helpers, mock = text(E2E / 'tests' / 'helpers.ts'), text(E2E / 'mock_host.mjs')
+    for k in ('PIN_NAME', 'PIN', 'SESSION_TOKEN'): assert re.search(r"%s = '([^']+)'" % k, helpers).group(1) == re.search(r"%s = '([^']+)'" % k, mock).group(1), k       # helpers.ts and the mock host agree
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
 def test_the_mock_host_alert_message_is_one_the_host_models_accept():
