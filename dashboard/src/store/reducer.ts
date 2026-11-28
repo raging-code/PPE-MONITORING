@@ -2,7 +2,7 @@
 // apply() returns resync = true when the message cannot be trusted (an increment before the
 // snapshot, or a gap in srv_seq): the caller reconnects, and the host sends a snapshot first.
 import type {
-  AdvisoryMsg, AlertBody, Banners, EpisodeBody, NodeSnap, ReadingMsg, RosterRow, ServerMessage, SessionInfo,
+  AdvisoryMsg, AlertBody, Banners, EpisodeBody, NodeSnap, ReadingMsg, ReplayInfo, RosterRow, ServerMessage, SessionInfo,
 } from '../gen/ws.ts';
 import { appendPoint } from '../alerts/trend.ts';
 
@@ -19,6 +19,7 @@ export interface LiveState {
   recovering: boolean;
   monitoringActive: boolean;
   session: SessionInfo | null;
+  replay: ReplayInfo | null; // S7-5b (ADR 0062): speed, paused and finished of a REPLAY host; null on any other host
   roster: RosterRow[];
   nodes: Record<number, NodeSnap>;
   alerts: Record<number, AlertBody>;
@@ -35,7 +36,7 @@ export interface LiveState {
 export function initialState(conn: Conn): LiveState {
   return {
     conn, epoch: null, lastSeq: -1, lastSrvTs: null, recovering: false, monitoringActive: false,
-    session: null, roster: [], nodes: {}, alerts: {}, episodes: {}, advisories: {}, coHistory: {}, detail: {},
+    session: null, replay: null, roster: [], nodes: {}, alerts: {}, episodes: {}, advisories: {}, coHistory: {}, detail: {},
     banners: null, bannerAck: {}, rejectedFrames: 0, constants: {},
   };
 }
@@ -53,7 +54,7 @@ export function apply(s: LiveState, m: ServerMessage): { state: LiveState; resyn
       resync: false,
       state: {
         conn: 'LIVE', epoch: m.epoch, lastSeq: 0, lastSrvTs: m.srv_ts, recovering: m.recovering,
-        monitoringActive: m.monitoring_active, session: m.session, roster: m.roster,
+        monitoringActive: m.monitoring_active, session: m.session, replay: m.replay ?? null, roster: m.roster,
         nodes: byId(m.nodes, (n) => n.node_id), alerts: byId(m.open_alerts, (a) => a.alert_id),
         episodes: byId(m.open_episodes, (e) => e.episode_id), advisories: {},
         coHistory: m.co_history_30m, detail: {}, banners: m.banners, bannerAck: {}, rejectedFrames: 0,
@@ -105,6 +106,7 @@ export function apply(s: LiveState, m: ServerMessage): { state: LiveState; resyn
     case 'system': {
       n.recovering = m.recovering;
       n.rejectedFrames = m.rejected_frames;
+      n.replay = m.replay ?? null;
       if (s.session) n.session = { ...s.session, session_id: m.session_id, mode: m.session_mode };
       n.banners = {
         base_offline: m.base === 'offline', logging_fault: m.logging_fault, host_gap: m.host_gap,

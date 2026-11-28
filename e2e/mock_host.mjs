@@ -9,6 +9,9 @@
 //   live   : snapshot and a tick every second on both sockets.
 //   muted  : the sockets stay open but nothing is sent (a host that stalled; this is the NO LIVE DATA case of 3.7).
 //   dead   : the sockets accept and authenticate but send nothing at all, not even the snapshot (a host that never answers).
+//   replay : S7-5b (ADR 0062). {"replay":true} makes this a REPLAY host (session mode REPLAY, replay block {speed 16, paused false, finished false} in the snapshot and in every system message; false goes back to the simulator);
+//            {"replay_finished":true} marks the data as ended. POST /api/replay/pause {paused} sets the state like the host (200 {paused, finished}; 409 STATE_CONFLICT when not REPLAY or finished; 401 without a token),
+//            counts changes in replayPauses, and sends a system message to every signed-in data socket when the state changed.
 // `node e2e/mock_host.mjs --print-messages` prints the two server messages it sends as JSON, for the pytest check against the Pydantic models.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -21,9 +24,9 @@ const CONSTANTS = JSON.parse(fs.readFileSync(path.resolve(HERE, '..', 'shared', 
 export const PORT = Number(process.env.E2E_PORT ?? 8431), HOST = '127.0.0.1', TOKEN = 'e2e-token';
 export const PIN_NAME = 'Ana', PIN = '482913', SESSION_TOKEN = 'e2e-session-token', LOCK_S = 900;
 
-export const snapshotMessage = (now, abi = false) => ({
+export const snapshotMessage = (now, abi = false, replay = null) => ({
   v: 1, type: 'snapshot', srv_seq: 0, srv_ts: now, epoch: '5d1f7c3a-2b64-4e0f-9a51-3c7e8d2b6a10', recovering: false, monitoring_active: false,
-  session: { session_id: 1, started_ts: now, mode: 'SIMULATOR', session_label: 'e2e' },
+  session: { session_id: 1, started_ts: now, mode: replay ? 'REPLAY' : 'SIMULATOR', session_label: 'e2e' }, replay: replay ?? null,
   roster: [{ node_id: 1, alias: 'FF-01', active: 1 }],
   nodes: [{ node_id: 1, alias: 'FF-01', last_rx_ts: now, co_ppm: 12, temp_c: 31.2, hum_pct: 44, motion_g: 0.08, bat_pct: 86,
     scba: 1, mandown: 0, level: 'NORMAL', link_state: 'ok', status2: 0, flags: 0, id_mode: 73, status3: 0, status4: 0,
@@ -33,7 +36,7 @@ export const snapshotMessage = (now, abi = false) => ({
   constants: CONSTANTS,
 });
 export const tickMessage = (seq, now) => ({ v: 1, type: 'tick', srv_seq: seq, srv_ts: now });
-export const systemMessage = (seq, now, abi) => ({ v: 1, type: 'system', srv_seq: seq, srv_ts: now, base: 'ok', recovering: false, session_id: 1, session_mode: 'SIMULATOR', rejected_frames: 0,
+export const systemMessage = (seq, now, abi, replay = null) => ({ v: 1, type: 'system', srv_seq: seq, srv_ts: now, base: 'ok', recovering: false, session_id: 1, session_mode: replay ? 'REPLAY' : 'SIMULATOR', replay: replay ?? null, rejected_frames: 0,
   logging_fault: false, host_gap: null, host_power: 'ac', audio_fault: false, abi_mismatch: abi, banner: null, acknowledged_ts: null });
 export const alertMessage = (seq, now, a) => ({ v: 1, type: 'alert', srv_seq: seq, srv_ts: now, alert_id: a.alert_id, node_id: 1, alert_type: a.alert_type ?? 'man_down', level: a.level ?? 'DANGER',
   reasons: null, authenticated: 1, episode_id: null, raised_ts: now, cleared_ts: a.cleared ? now : null, acknowledged_ts: a.cleared ? now : null, acknowledged_by: a.cleared ? 1 : null,
@@ -45,6 +48,7 @@ if (process.argv.includes('--print-messages')) {
   console.log(JSON.stringify([snapshotMessage(1_700_000_000_000), tickMessage(1, 1_700_000_001_000)]));
   process.exit(0);
 }
+if (process.argv.includes('--print-replay')) { console.log(JSON.stringify([snapshotMessage(1_700_000_000_000, false, { speed: 16, paused: true, finished: false }), systemMessage(1, 1_700_000_001_000, false, { speed: 16, paused: false, finished: true })])); process.exit(0); }   // for the pytest check against the Pydantic models
 if (process.argv.includes('--print-alert')) { console.log(JSON.stringify(alertMessage(1, 1_700_000_001_000, { alert_id: 1 }))); process.exit(0); }   // for the pytest check against the Pydantic models
 if (process.argv.includes('--print-login')) { console.log(JSON.stringify(pinLoginReply(1_700_000_000_000))); process.exit(0); }   // for the pytest check against PinLoginResp
 const { WebSocketServer } = await import('ws');                                  // after --print-messages, so that mode needs no npm install
@@ -53,7 +57,9 @@ if (!fs.existsSync(path.join(DIST, 'index.html'))) {
   process.exit(1);
 }
 
-const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false, pinLogins: 0, logouts: 0, wrongPins: 0, lockedUntil: 0, sessionLive: false, lastRemember: null };
+const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false, pinLogins: 0, logouts: 0, wrongPins: 0, lockedUntil: 0, sessionLive: false, lastRemember: null, replay: null, replayPauses: 0 };
+const replayBlock = () => (state.replay ? { ...state.replay } : null);
+const sendSystem = () => { if (state.mode === 'live') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(systemMessage(++c.seq, Date.now(), state.abi_mismatch, replayBlock()))); };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.stl': 'model/stl' };
 const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -80,12 +86,14 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/__state') return json(res, 200, state);
   if (url.pathname === '/__ctl' && req.method === 'POST') {
     const b = await readBody(req);
-    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; state.pinLogins = 0; state.logouts = 0; state.wrongPins = 0; state.lockedUntil = 0; state.sessionLive = false; state.lastRemember = null; }
+    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; state.pinLogins = 0; state.logouts = 0; state.wrongPins = 0; state.lockedUntil = 0; state.sessionLive = false; state.lastRemember = null; state.replay = null; state.replayPauses = 0; }
+    if (typeof b.replay === 'boolean' && (b.replay !== (state.replay !== null))) { state.replay = b.replay ? { speed: 16, paused: false, finished: false } : null; sendSystem(); }   // a live switch; the tests set it before signing in
+    if (b.replay_finished === true && state.replay && !state.replay.finished) { state.replay.finished = true; sendSystem(); }
     if (b.expire) { state.sessionLive = false; for (const c of clients) if (c.token === SESSION_TOKEN) c.ws.close(4401); }
     if (['live', 'muted', 'dead'].includes(b.mode)) state.mode = b.mode;
     if (typeof b.abi_mismatch === 'boolean' && b.abi_mismatch !== state.abi_mismatch) {   // the base reports a different ABI (or agrees again): one system message, like the host
       state.abi_mismatch = b.abi_mismatch;
-      if (state.mode === 'live') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(systemMessage(++c.seq, Date.now(), state.abi_mismatch)));
+      sendSystem();
     }
     if (b.alert && state.mode !== 'dead') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(alertMessage(++c.seq, Date.now(), b.alert)));
     return json(res, 200, state);
@@ -107,6 +115,14 @@ const server = http.createServer(async (req, res) => {
     if (!bearerOk(req)) return json(res, 401, { error_code: 'UNAUTHENTICATED', detail: 'no token', retry_after_s: null });
     state.startCount += 1;
     return json(res, 200, { session_id: 1, started_ts: Date.now(), mode: 'SIMULATOR', monitoring_active: true });
+  }
+  if (url.pathname === '/api/replay/pause' && req.method === 'POST') {
+    if (!bearerOk(req)) return json(res, 401, { error_code: 'UNAUTHENTICATED', detail: 'no token', retry_after_s: null });
+    const b = await readBody(req);
+    if (typeof b.paused !== 'boolean') return json(res, 422, { error_code: 'VALIDATION', detail: 'paused must be true or false', retry_after_s: null });
+    if (!state.replay || state.replay.finished) return json(res, 409, { error_code: 'STATE_CONFLICT', detail: state.replay ? 'the replay has finished' : 'not a REPLAY host', retry_after_s: null });
+    if (state.replay.paused !== b.paused) { state.replay.paused = b.paused; state.replayPauses += 1; sendSystem(); }      // one system message per change, none for a repeat, like the host
+    return json(res, 200, { paused: state.replay.paused, finished: state.replay.finished });
   }
   if (url.pathname === '/api/events') return json(res, 200, { events: [], last_seq: 0 });
   if (url.pathname.startsWith('/api/')) return json(res, 404, { error_code: 'NOT_FOUND', detail: 'not part of the e2e mock', retry_after_s: null });
@@ -134,7 +150,7 @@ server.on('upgrade', (req, socket, head) => {
       if (!c.authed) {
         if (m.type !== 'auth' || !tokenOk(m.token)) { ws.close(4401); return; }
         c.authed = true; c.token = m.token;
-        if (c.kind === 'data' && state.mode !== 'dead') ws.send(JSON.stringify(snapshotMessage(Date.now(), state.abi_mismatch)));
+        if (c.kind === 'data' && state.mode !== 'dead') ws.send(JSON.stringify(snapshotMessage(Date.now(), state.abi_mismatch, replayBlock())));
       }
     });
   });

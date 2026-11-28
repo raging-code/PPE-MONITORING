@@ -60,3 +60,7 @@ export const postSessionStart = (api: Api) => post<{ session_id: number; started
 
 // POST /api/system-banners/{kind}/ack (design 3.8): only host_gap and logging_fault are accepted; 409 means already acknowledged.
 export const postBannerAck = (api: Api, kind: string) => post<{ kind: string; acknowledged_ts: number }>(api, `/api/system-banners/${kind}/ack`, {});
+
+// POST /api/replay/pause (ADR 0061, S7-5b): sets the state of a REPLAY host, it does not toggle, so a double click or a retry is harmless. 409 RECOVERING: the replay has not started; 409 STATE_CONFLICT: not a REPLAY host, or the replay has finished.
+export interface ReplayBody { paused: boolean; finished: boolean }
+export const postReplayPause = (api: Api, paused: boolean) => post<ReplayBody>(api, '/api/replay/pause', { paused });

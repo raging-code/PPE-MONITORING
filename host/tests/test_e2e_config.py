@@ -86,3 +86,16 @@ def test_the_mock_host_sends_messages_the_host_models_accept():
     for m in msgs: SERVER_ADAPTER.validate_python(m)
     consts = json.loads(text(ROOT / 'shared' / 'constants.json'))
     assert msgs[0]['constants'] == consts and consts['dashboard_stale_s'] == 4                      # the 4 s of the spec is the one the dashboard really uses
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
+def test_the_mock_host_replay_messages_are_ones_the_host_models_accept():
+    """S7-5b (ADR 0062): the snapshot and the system message of a REPLAY mock host carry a replay block the host's models accept, and the spec for it exists and uses no fixed sleeps. Requirements: REQ-API-007."""
+    from ppe_host.api.models import SERVER_ADAPTER
+    out = subprocess.run(['node', str(E2E / 'mock_host.mjs'), '--print-replay'], capture_output=True, text=True, timeout=60, cwd=str(ROOT))
+    assert out.returncode == 0, out.stderr
+    snap, sysm = (SERVER_ADAPTER.validate_python(m) for m in json.loads(out.stdout))
+    assert snap.session.mode == 'REPLAY' and snap.replay.paused is True and snap.replay.speed == 16
+    assert sysm.session_mode == 'REPLAY' and sysm.replay.finished is True
+    spec = text(E2E / 'tests' / 'replay_pause.spec.ts')
+    for w in ('Pause replay', 'Resume replay', 'Replay paused, ×16', 'Replay finished'): assert w in spec, w
+    assert 'waitForTimeout' not in spec and 'setTimeout' not in spec
