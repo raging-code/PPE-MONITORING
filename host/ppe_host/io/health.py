@@ -3,7 +3,7 @@
 treated as seen at start-up, so a base that never speaks is offline 5 s after the host starts. Call tick() once per second from the event loop; seen() is called by Ingest.on_item.
 emit(kind, detail) is Ingest.system_event.
 P24b adds HostHealth: QUEUE_OVERFLOW, HOST_BATTERY and DISK_LOW, and the host_power string for the snapshot banner."""
-import json, shutil, threading
+import ctypes, json, shutil, sys, threading
 from .. import constants as K
 
 class Counters:
@@ -43,13 +43,31 @@ def disk_free_gb(path):
     try: return shutil.disk_usage(path).free / 1e9
     except OSError: return None
 
-def default_battery():
-    """(on_battery, percent) of the laptop. The standard library cannot read a battery, so this uses psutil if it is installed; without it, or on a machine with no battery, the answer is (False, None): unknown is never reported as 'on battery'."""
+# GetSystemPowerStatus (kernel32, ADR 0069): the Windows call that fills SYSTEM_POWER_STATUS. The standard library cannot read a battery, and the host is
+# Windows-only (it plays alarms through winsound), so ctypes replaces psutil and adds no dependency to the lock files or the release folder.
+class _SystemPowerStatus(ctypes.Structure):
+    _fields_ = [('ACLineStatus', ctypes.c_ubyte), ('BatteryFlag', ctypes.c_ubyte), ('BatteryLifePercent', ctypes.c_ubyte), ('SystemStatusFlag', ctypes.c_ubyte),
+                ('BatteryLifeTime', ctypes.c_uint32), ('BatteryFullLifeTime', ctypes.c_uint32)]
+
+def _read_power_status():
+    """(ACLineStatus, BatteryFlag, BatteryLifePercent) as the raw bytes of GetSystemPowerStatus, or None off Windows or when the call fails."""
+    if sys.platform != 'win32': return None
     try:
-        import psutil
-        b = psutil.sensors_battery()
-        return (False, None) if b is None else (b.power_plugged is False, None if b.percent is None else int(b.percent))
-    except Exception: return False, None
+        st = _SystemPowerStatus()
+        if not ctypes.WinDLL('kernel32').GetSystemPowerStatus(ctypes.byref(st)): return None
+        return st.ACLineStatus, st.BatteryFlag, st.BatteryLifePercent
+    except Exception: return None
+
+def battery_from_status(ac_line, battery_flag, percent):
+    """(on_battery, percent) from the raw bytes. ACLineStatus 0 is offline (on battery), 1 online, 255 unknown; BatteryFlag 128 is 'no system battery' and 255 unknown;
+    BatteryLifePercent is 0 to 100 or 255 for unknown. Unknown is never reported as 'on battery'."""
+    if battery_flag == 128 or ac_line not in (0, 1): return False, None
+    return ac_line == 0, percent if percent <= 100 else None
+
+def default_battery():
+    """(on_battery, percent) of the laptop, read with GetSystemPowerStatus. Off Windows, on a machine with no battery, or when the call fails, the answer is (False, None): unknown is never reported as 'on battery'."""
+    raw = _read_power_status()
+    return (False, None) if raw is None else battery_from_status(*raw)
 
 def host_power_str(on_battery, pct, warn_pct):
     """The string Wire sends as host_power (the dashboard's parseHostPower): 'ac' on mains; 'battery' on battery (notice banner, no sound); 'battery N%' only at or below warn_pct (warning banner, beep), because the dashboard shows the warning whenever a number is present."""
