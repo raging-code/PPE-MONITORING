@@ -4,7 +4,6 @@ Only a session that has been dead for more than older_than_days is deleted (defa
 Nothing else points at a login_sessions row (no audit, frame or alert column holds a login_session_id), so no other table changes. The operators table is untouched.
 No audit row is written: audit_actions is frozen at 21 rows and has no action for it (ADR 0056); the command prints what it deleted.
 Backup copies keep the rows they were made with; the next backup after the purge is without them."""
-import sqlite3
 from ..io.db_writer import connect_db
 
 DAY_MS = 86_400_000
