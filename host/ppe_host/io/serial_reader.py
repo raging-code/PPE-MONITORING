@@ -97,13 +97,13 @@ class SerialReader:
     """The dedicated reader thread. open_port() returns an object with readline(size) -> bytes (b'' on timeout) and close().
     on_item(kind, payload) gets 'frame' and 'hb' items on this thread; on_link(event, detail) gets 'SERIAL_LOST' (detail 'open' or 'read') once per outage
     and 'SERIAL_BACK' when reading resumes after one. The first successful open is not a SERIAL_BACK."""
-    def __init__(self, open_port, on_item, on_link=None, retry_s=K.SERIAL_RETRY_S, on_alive=None):
+    def __init__(self, open_port, on_item, on_link=None, retry_s=K.SERIAL_RETRY_S, on_alive=None, name='SerialReaderThread'):
         self.open_port, self.on_item, self.on_link, self.retry_s = open_port, on_item, on_link or (lambda e, d: None), retry_s
         self.on_alive = on_alive or (lambda: None)             # P24b: the liveness stamp of the OS watchdog, called on every pass of the loops below (a read times out after 0.5 s, a retry waits 1 s)
         self.counters = {'serial_framing_errors': 0, 'serial_bad_lines': 0, 'serial_lines_ok': 0, 'serial_handler_errors': 0}
         self.lost, self.port, self.last_error = False, None, None
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name='SerialReaderThread', daemon=True)
+        self._thread = threading.Thread(target=self._run, name=name, daemon=True)
     def start(self): self._thread.start(); return self
     def stop(self, timeout_s=2):
         self._stop.set(); self._thread.join(timeout_s)

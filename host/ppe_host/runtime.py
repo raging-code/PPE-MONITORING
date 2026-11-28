@@ -1,7 +1,7 @@
 """runtime.py (P24-3c-1): start-up step 8 of design 14.5: the DBWriterThread, the SerialReaderThread with the bounded pre-replay queue, and the SerialWriterThread.
 Runtime(st) wires Ingest, DBWriter, SerialReader, SerialWriter, LinkMonitor and Health from a Startup (main.py, steps 1 to 7) and starts the threads in the design's order.
 P24-3c-3 adds the AudioThread (Runtime.audio, started in step 8 and fed by Runtime.audio_items()). P24b adds the OSWatchdogThread (Runtime.watchdog, started first in step 8) and the liveness stamps. Not here: step 9 is load_open() (P24-3c-2, ADR 0034); step 10 is serve.py (P24-3c-3: Uvicorn and the 1 Hz driver, which calls Runtime.tick()),
-steps 11 to 13 (P25: services/recovery.py and services/recovery_run.py through Runtime.recover(), then release()). SIMULATOR and REPLAY have no serial port: only the writer and the gate exist there.
+steps 11 to 13 (P25: services/recovery.py and services/recovery_run.py through Runtime.recover(), then release()). SIMULATOR and REPLAY have no serial writer and nothing from the port is ingested there; S7-2 (ADR 0058) adds the read-only drain (Runtime(drain=True)).
 S7-1 (ADR 0057): in SIMULATOR mode Runtime(st, simulator=(scenario, seed)) adds the SimulatorThread (services/simulator.py), which feeds Runtime.gate.on_item as the SerialReader does, so simulated frames wait for RECOVERING_EXIT like live ones.
 Pre-replay queue (design 1, recovery rule a): frames that arrive while recovering wait in a queue of at most pre_replay_queue_max. When it overflows, the oldest frame with node level
 NORMAL and no event bit is dropped first and counted (pre_replay_dropped); a frame with a non-NORMAL node level, mandown, mayday, fault or check-in is never dropped, so the queue may
@@ -17,6 +17,7 @@ from .io.os_watchdog import MARKER_NAME, Liveness, OSWatchdogThread
 from .io.ingest import Ingest
 from .io.serial_reader import SerialReader, open_serial
 from .io.serial_writer import LinkMonitor, SerialWriter, host_tick_line
+from .services.serial_drain import LiveTrafficDetector
 from .services.simulator import SimulatorThread
 
 log = logging.getLogger('ppe.runtime')
@@ -77,11 +78,13 @@ class LoopHub:
         return call
 
 class Runtime:
-    def __init__(self, st, clock=None, open_port=None, audio_backend=None, watchdog_exit=None, simulator=None):
+    def __init__(self, st, clock=None, open_port=None, audio_backend=None, watchdog_exit=None, simulator=None, drain=False):
         """audio_backend: the sound card object for the AudioThread (io/audio_watchdog.WinsoundBackend, or a fake). None means no AudioThread, as in the tests that do not care about sound.
         watchdog_exit: the function the OSWatchdogThread calls on a stall (main passes os._exit); None means no watchdog thread, as in most tests. The stamps are always kept.
-        simulator: (scenario, seed) for the SimulatorThread (S7-1), or None for no simulated traffic. Only a SIMULATOR host may have one; any other mode raises ValueError before anything is built."""
+        simulator: (scenario, seed) for the SimulatorThread (S7-1), or None for no simulated traffic. Only a SIMULATOR host may have one; any other mode raises ValueError before anything is built.
+        drain: S7-2 (ADR 0058): True in SIMULATOR and REPLAY (main passes it) starts the SerialDrainThread, which reads the base's port only to write LIVE_FRAME_IN_TEST_MODE when valid live frames arrive. LIVE raises ValueError. Default False, so a test that does not care opens no port."""
         if simulator is not None and st.mode != 'SIMULATOR': raise ValueError('a simulator needs mode SIMULATOR, this host runs %s' % st.mode)
+        if drain and st.mode == 'LIVE': raise ValueError('the serial drain is for SIMULATOR and REPLAY; LIVE reads the port for real')
         s, self.st, self.clock = st.settings, st, clock or RealClock()
         self.serial = st.mode == 'LIVE'
         self.writer = DBWriter(st.db_path, self.clock, on_logging_fault=lambda table, msg: self.ingest.system_event('LOGGING_FAULT', json.dumps({'table': table, 'error': msg}, sort_keys=True, separators=(',', ':'))))   # the lambda reads self.ingest only when a fault happens, after __init__
@@ -94,6 +97,10 @@ class Runtime:
         self.reader = SerialReader(port, self.gate.on_item, self.link.on_link, on_alive=self.liveness.stamper('serial'))
         self.serial_writer = SerialWriter(lambda: None if self.reader.lost else self.reader.port, self.link)
         self.sim = None if simulator is None else SimulatorThread(self.clock, self.gate.on_item, s.cmac_key(), s['sys_id'], simulator[0], simulator[1], base_id=s['base_id'], on_alive=self.liveness.stamper('serial'))   # the same stamp the SerialReader gives the OS watchdog
+        self.detector = self.drain = None
+        if drain:       # nothing from the drain reaches the gate, Ingest or the writer except the one system_event row; it never writes to the port and its link events are only logged
+            self.detector = LiveTrafficDetector(self.clock, self.ingest.system_event, s.cmac_key(), s['sys_id'])
+            self.drain = SerialReader(port, self.detector.on_item, lambda e, d: log.warning('serial drain: %s %s', e, d or ''), on_alive=self.liveness.stamper('drain'), name='SerialDrainThread')
         counters = Counters.for_host(self.ingest, self.writer, self.reader, self.serial_writer,
                                      extra={'pre_replay_dropped': lambda: self.gate.dropped, 'pre_replay_overflow': lambda: self.gate.overflow})
         self.health = self.ingest.health = Health(self.clock, self.ingest.system_event, counters, interval_s=s['counters_interval_s'])
@@ -108,6 +115,7 @@ class Runtime:
         if self.watchdog is not None: self.watchdog.start()                        # design 14.5 step 8: the OS watchdog first
         self.writer.start()
         if self.serial: self.reader.start(); self.serial_writer.start()
+        if self.drain is not None: self.drain.start()                              # S7-2: after the writer, so the row of a live frame has a queue to go to
         if self.sim is not None: self.sim.start()                                  # after the writer: its first frame is queued behind the gate until RECOVERING_EXIT
         if self.audio is not None: self.audio.start(); self.audio_refresh()
         self.started = True; self.offer_tick(); return self
@@ -162,6 +170,7 @@ class Runtime:
         if self.watchdog is not None: self.watchdog.stop()                          # first: a clean shutdown (draining the writer takes seconds) must never look like a stall
         if self.audio is not None and self.audio.is_alive(): self.audio.stop(); self.audio.join(2)
         if self.serial: self.reader.stop(); self.serial_writer.stop()
+        if self.drain is not None: self.drain.stop()                                # before CLEAN_SHUTDOWN and the writer, like the simulator
         if self.sim is not None: self.sim.stop()                                   # before CLEAN_SHUTDOWN and the writer: no simulated frame may be queued after the last row
         if clean:
             try: self.ingest.close_session('CLEAN_SHUTDOWN')

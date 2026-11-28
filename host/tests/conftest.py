@@ -28,3 +28,10 @@ def _no_real_battery(monkeypatch):
     """HostHealth reads the laptop battery by default (P24b); a test must never depend on the machine it runs on."""
     from ppe_host.io import health
     monkeypatch.setattr(health, 'default_battery', lambda: (False, None))
+
+@pytest.fixture(autouse=True)
+def _no_real_serial_port(monkeypatch):
+    """S7-2: main() in SIMULATOR and REPLAY starts the serial drain, which opens the configured port (settings serial_port); a test must never open a real COM port of the machine it runs on."""
+    from ppe_host import runtime
+    def refuse(*a, **k): raise OSError('no real serial port in the tests')
+    monkeypatch.setattr(runtime, 'open_serial', refuse)
