@@ -338,3 +338,46 @@ class ScbaCorrectionReq(_Strict):
 class BannerAckResp(_Strict):
     kind: BannerKind
     acknowledged_ts: int
+
+# ---- S8-2 (ADR 0071): firefighter profiles and who wears which jacket. The ranges are checked in services/firefighters.py (one place for the CLI and the route), so a value out of range is a 422 with its sentence. ----
+class FirefighterAddReq(_Strict):
+    full_name: str = Field(min_length=1, max_length=80)      # personal data: stored, shown on the Settings screen only, never in the audit log, the wire or an export
+    sex: Optional[Literal['F', 'M', 'X']]
+    age_years: int
+    height_cm: int
+    weight_kg: float
+    resting_hr: int
+    max_hr: Optional[int]
+    smoker: bool
+    years_service: Optional[float]
+    consent: bool                                            # must be true; the host refuses a profile without it
+    consent_form_version: str = Field(min_length=1, max_length=40)
+    consent_witness: str = Field(min_length=1, max_length=80)
+    consent_date: Optional[str]                              # YYYY-MM-DD, null = today
+class FirefighterAddResp(_Strict):
+    firefighter_id: int
+    alias: str
+class FirefighterRow(_Strict):
+    firefighter_id: int
+    alias: str
+    full_name: str
+    sex: Optional[Literal['F', 'M', 'X']]
+    age_years: int
+    height_cm: int
+    weight_kg: float
+    resting_hr: int
+    max_hr: Optional[int]
+    smoker: bool
+    years_service: Optional[float]
+    consent_ts: int
+    consent_form_version: str
+    active: bool
+    node_id: Optional[int]                                   # the node this firefighter wears now, null when none
+class FirefighterAssignReq(_Strict):
+    node_id: int = Field(ge=1, le=7)
+    firefighter_id: Optional[int]                            # null ends the node's assignment
+class FirefighterAssignResp(_Strict):
+    node_id: int
+    firefighter_id: Optional[int]
+    alias: Optional[str]
+    result: Literal['assigned', 'ended', 'unchanged']

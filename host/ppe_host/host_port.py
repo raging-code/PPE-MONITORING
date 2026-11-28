@@ -207,6 +207,33 @@ class HostPort:
             r.set_speed(speed)
             if self.wire is not None: self.wire.on_replay_changed()   # the system message, at once
         return ReplaySpeedState(int(r.speed), before, r.paused, r.finished.is_set(), changed)
+    # ---- S8-2 (ADR 0071): firefighter profiles and who wears which jacket. They block (the commit wait): the routes run them in a worker thread. services/firefighters.py checks and plans, Ingest.write queues the rows. ----
+    _ff_lock = threading.Lock()   # one profile or assignment change at a time: the id is read, then written
+    def list_firefighters(self):
+        """Every profile with its name (the Settings screen only) and the node worn now. Read-only."""
+        from .services import firefighters as F
+        c = connect_db(self.db_path, readonly=True)
+        try: return F.list_firefighters(c, show_names=True)
+        finally: c.close()
+    def add_firefighter(self, profile):
+        """(firefighter_id, alias). FirefighterError (nothing written) for a refused profile; RuntimeError (a 500) if the row could not be committed. The audit row is written by the route."""
+        from .services import firefighters as F
+        with self._ff_lock:
+            now = self.ing.clock.wall_ms(); values = F.check_profile(now_ms=now, **profile)
+            c = connect_db(self.db_path, readonly=True)
+            try: fid = c.execute('SELECT COALESCE(MAX(firefighter_id), 0) + 1 FROM firefighters').fetchone()[0]
+            finally: c.close()
+            if self._done(None, self.ing.write([Stmt(*F.insert_stmt(values, fid, now))], durable=True)) is not True: raise RuntimeError('the firefighter could not be written')
+            return fid, F.alias_of(fid)
+    def assign_firefighter(self, node_id, firefighter_id):
+        """(result, audit reason, alias): result 'assigned', 'ended' or 'unchanged' (nothing written). FirefighterError for a refused request. The audit row is written by the route."""
+        from .services import firefighters as F
+        with self._ff_lock:
+            now = self.ing.clock.wall_ms(); c = connect_db(self.db_path, readonly=True)
+            try: result, stmts, reason, alias = F.plan_assign(c, node_id, firefighter_id, now)
+            finally: c.close()
+            if stmts and self._done(None, self.ing.write([Stmt(s, p) for s, p in stmts], durable=True)) is not True: raise RuntimeError('the assignment could not be written')
+            return result, reason, alias
     def ack_banner(self, kind, operator_id):
         from .api.api_rest import BannerAck
         active, ts = self.banner_state(kind)

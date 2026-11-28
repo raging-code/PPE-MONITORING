@@ -20,13 +20,14 @@ import CardActions from './CardActions.tsx';
 import type { GridProps } from './ComponentGrid.tsx';
 import NodeCard from './NodeCard.tsx'; // P22c-3: the never-heard card
 import NotConnectedCard from './NotConnectedCard.tsx';
+import { useWearers } from '../store/wearers.ts'; // S8-2b: the alias of the firefighter on each jacket
 
 // Node cards, chips of minimized alerts and the tray. The tray is in normal flow, so it pushes the page down and covers no reading (3.3).
 // Layout (3.7): the chips and the tray sit outside the scrolling readings area. The tray is capped at 40% of the window and scrolls inside itself, danger first.
 // The chips render in the top strip when the Shell asks for it (chipsInStrip); on their own, LiveScreen keeps them above the tray.
 export default function LiveScreen({ actions = defaultActions, grid, chipsInStrip = false, fetchFn, saveDeps }: { actions?: Actions; grid?: ComponentType<GridProps>; chipsInStrip?: boolean; fetchFn?: typeof fetch; saveDeps?: SaveDeps }) {
   const alerts = useLive((s) => s.alerts), nodes = useLive((s) => s.nodes), roster = useLive((s) => s.roster), now = useLive((s) => s.lastSrvTs), episodes = useLive((s) => s.episodes), acks = useAcks((s) => s.acks), consts = useLive((s) => s.constants);
-  const monitoring = useLive((s) => s.monitoringActive), selected = useUi((s) => s.selected), minimized = useUi((s) => s.minimized), dismissed = useUi((s) => s.dismissed);
+  const wearers = useWearers((s) => s.byNode), monitoring = useLive((s) => s.monitoringActive), selected = useUi((s) => s.selected), minimized = useUi((s) => s.minimized), dismissed = useUi((s) => s.dismissed);
   const list = useMemo(() => overlayAcks(Object.values(alerts), acks), [alerts, acks]);
   const pending = useMemo(() => pendingIds(acks), [acks]);
   useEffect(() => { const next = pruneAcks(acksStore.getState().acks, alerts); if (next !== acksStore.getState().acks) acksStore.setState({ acks: next }); }, [alerts, acks]);
@@ -47,8 +48,8 @@ export default function LiveScreen({ actions = defaultActions, grid, chipsInStri
       {roster.some((r) => r.active) ? (
         <div className="grid gap-4 md:grid-cols-3">
           {roster.filter((r) => r.active).map((r) => nodes[r.node_id] && nodes[r.node_id].last_rx_ts !== null
-            ? <NodeCard key={r.node_id} node={nodes[r.node_id]} badges={badgesFor(list, r.node_id)} flashing={flashing.has(r.node_id)} selected={current === r.node_id} onSelect={selectNode} now={now} />
-            : <NotConnectedCard key={r.node_id} alias={r.alias} notReady={!monitoring} />)}
+            ? <NodeCard key={r.node_id} node={nodes[r.node_id]} badges={badgesFor(list, r.node_id)} flashing={flashing.has(r.node_id)} selected={current === r.node_id} onSelect={selectNode} now={now} wearer={wearers[r.node_id] ?? null} />
+            : <NotConnectedCard key={r.node_id} alias={r.alias} notReady={!monitoring} wearer={wearers[r.node_id] ?? null} />)}
         </div>
       ) : <p className="text-xl font-semibold text-stale-text">No responders on the roster</p>}
       {current !== null && nodes[current] && (

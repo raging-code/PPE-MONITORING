@@ -7,7 +7,9 @@ Rows are never deleted by software: a person who leaves is set inactive and the 
 import datetime as dt
 
 class FirefighterError(ValueError):
-    """A refused request; the message is shown to the person and nothing was written."""
+    """A refused request; the message is shown to the person and nothing was written. kind is 'invalid' (a value the person must fix), 'missing' (an unknown node or firefighter) or
+    'conflict' (the request is fine but the state refuses it); the REST routes (S8-2) map them to 422, 404 and 409. No message ever holds a name."""
+    def __init__(self, msg, kind='invalid'): super().__init__(msg); self.kind = kind
 
 RANGES = {'age_years': (16, 80), 'height_cm': (120, 230), 'weight_kg': (30, 250), 'resting_hr': (30, 120), 'max_hr': (100, 230), 'years_service': (0, 60)}
 SEX = ('F', 'M', 'X')
@@ -45,21 +47,34 @@ def _txn(conn, fn):
     try: r = fn(); conn.execute('COMMIT'); return r
     except BaseException: conn.execute('ROLLBACK'); raise
 
-def add_firefighter(conn, now_ms, *, full_name, age_years, height_cm, weight_kg, resting_hr, smoker, consent, consent_form_version, consent_witness, consent_date=None, sex=None, max_hr=None, years_service=None):
-    """Returns (firefighter_id, alias). The alias is FFR-NN from the id. Refuses a profile without consent, with a value out of range or with max_hr not above resting_hr."""
-    if consent is not True: raise FirefighterError('consent must be given and recorded before a profile is saved (--consent)')
+def alias_of(firefighter_id): return 'FFR-%02d' % firefighter_id
+
+def check_profile(*, full_name, age_years, height_cm, weight_kg, resting_hr, smoker, consent, consent_form_version, consent_witness, consent_date=None, sex=None, max_hr=None, years_service=None, now_ms):
+    """S8-2: the checks of a new profile, shared by the CLI and the REST route. Returns the row values without the id: (name, sex, age, height, weight, resting_hr, max_hr, smoker 0/1, years_service, consent_ts,
+    form version, witness). Refuses a profile without consent, with a value out of range or with max_hr not above resting_hr. No message holds the name."""
+    if consent is not True: raise FirefighterError('consent must be given and recorded before a profile is saved')
     name = _text('name', full_name, 80); form = _text('consent form version', consent_form_version, 40); witness = _text('consent witness', consent_witness, 80)
     age = _num('age_years', age_years, True, True); h = _num('height_cm', height_cm, True, True); w = _num('weight_kg', weight_kg, True, False); rhr = _num('resting_hr', resting_hr, True, True)
     mhr = _num('max_hr', max_hr, False, True); ys = _num('years_service', years_service, False, False)
     if mhr is not None and mhr <= rhr: raise FirefighterError('max_hr must be above resting_hr')
     if sex is not None and sex not in SEX: raise FirefighterError('sex must be one of %s' % ', '.join(SEX))
     if smoker not in (0, 1, True, False): raise FirefighterError('smoker must be yes or no')
-    cts = consent_ts_of(consent_date, now_ms)
+    return (name, sex, age, h, w, rhr, mhr, int(bool(smoker)), ys, consent_ts_of(consent_date, now_ms), form, witness)
+
+def insert_stmt(values, firefighter_id, now_ms):
+    """(sql, params) of the INSERT for check_profile's values; the alias is FFR-NN from the id."""
+    name, sex, age, h, w, rhr, mhr, smoker, ys, cts, form, witness = values
+    return ('INSERT INTO firefighters(firefighter_id, alias, full_name, sex, age_years, height_cm, weight_kg, resting_hr, max_hr, smoker, years_service, consent_ts, consent_form_version, consent_witness, active, created_ts)'
+            ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)', (firefighter_id, alias_of(firefighter_id), name, sex, age, h, w, rhr, mhr, smoker, ys, cts, form, witness, now_ms))
+
+def add_firefighter(conn, now_ms, *, full_name, age_years, height_cm, weight_kg, resting_hr, smoker, consent, consent_form_version, consent_witness, consent_date=None, sex=None, max_hr=None, years_service=None):
+    """Returns (firefighter_id, alias). The alias is FFR-NN from the id. Refuses what check_profile refuses."""
+    if consent is not True: raise FirefighterError('consent must be given and recorded before a profile is saved (--consent)')
+    v = check_profile(full_name=full_name, age_years=age_years, height_cm=height_cm, weight_kg=weight_kg, resting_hr=resting_hr, smoker=smoker, consent=consent, consent_form_version=consent_form_version,
+                      consent_witness=consent_witness, consent_date=consent_date, sex=sex, max_hr=max_hr, years_service=years_service, now_ms=now_ms)
     def write():
-        fid = conn.execute('SELECT COALESCE(MAX(firefighter_id), 0) + 1 FROM firefighters').fetchone()[0]; alias = 'FFR-%02d' % fid
-        conn.execute('INSERT INTO firefighters(firefighter_id, alias, full_name, sex, age_years, height_cm, weight_kg, resting_hr, max_hr, smoker, years_service, consent_ts, consent_form_version, consent_witness, active, created_ts)'
-                     ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)', (fid, alias, name, sex, age, h, w, rhr, mhr, int(bool(smoker)), ys, cts, form, witness, now_ms))
-        _audit(conn, now_ms, 'FIREFIGHTER_ADDED', 'firefighter_id %d (%s)' % (fid, alias)); return fid, alias
+        fid = conn.execute('SELECT COALESCE(MAX(firefighter_id), 0) + 1 FROM firefighters').fetchone()[0]
+        conn.execute(*insert_stmt(v, fid, now_ms)); _audit(conn, now_ms, 'FIREFIGHTER_ADDED', 'firefighter_id %d (%s)' % (fid, alias_of(fid))); return fid, alias_of(fid)
     return _txn(conn, write)
 
 def list_firefighters(conn, show_names=False):
@@ -74,33 +89,40 @@ def list_firefighters(conn, show_names=False):
         out.append(d)
     return out
 
+def plan_assign(conn, node_id, firefighter_id, now_ms):
+    """S8-2: what assign() would do, without doing it. Returns (outcome, stmts, reason, alias): outcome 'assigned', 'ended' or 'unchanged'; stmts a list of (sql, params) to run in one transaction (empty when unchanged);
+    reason the audit text (the id only, never a name); alias of the firefighter now on the node (None when the assignment ended or there was none). Refusals: a node outside the roster and an unknown firefighter
+    are kind 'missing'; an inactive firefighter and one already on another node are kind 'conflict'."""
+    if conn.execute('SELECT 1 FROM roster WHERE node_id = ?', (node_id,)).fetchone() is None: raise FirefighterError('node %d is not in the roster' % node_id, 'missing')
+    cur = conn.execute('SELECT assignment_id, firefighter_id FROM firefighter_assignments WHERE node_id = ? AND end_ts IS NULL', (node_id,)).fetchone()
+    close = ('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE assignment_id = ?', (now_ms, cur[0])) if cur is not None else None
+    if firefighter_id is None:
+        if cur is None: return 'unchanged', [], None, None
+        return 'ended', [close], 'ended firefighter_id %d' % cur[1], None
+    f = conn.execute('SELECT alias, active FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
+    if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
+    if not f[1]: raise FirefighterError('%s is inactive and cannot be assigned' % f[0], 'conflict')
+    if cur is not None and cur[1] == firefighter_id: return 'unchanged', [], None, f[0]
+    other = conn.execute('SELECT node_id FROM firefighter_assignments WHERE firefighter_id = ? AND end_ts IS NULL', (firefighter_id,)).fetchone()
+    if other is not None: raise FirefighterError('%s is already assigned to node %d; end that assignment first' % (f[0], other[0]), 'conflict')
+    stmts = ([close] if close else []) + [('INSERT INTO firefighter_assignments(node_id, firefighter_id, start_ts) VALUES (?, ?, ?)', (node_id, firefighter_id, now_ms))]
+    return 'assigned', stmts, 'firefighter_id %d' % firefighter_id, f[0]
+
 def assign(conn, now_ms, node_id, firefighter_id=None):
     """Put a firefighter on a node, replacing whoever wore it; firefighter_id None ends the node's assignment. Returns 'assigned', 'ended' or 'unchanged'. A firefighter on another node,
     an inactive or unknown firefighter and a node outside the roster are refused."""
-    if conn.execute('SELECT 1 FROM roster WHERE node_id = ?', (node_id,)).fetchone() is None: raise FirefighterError('node %d is not in the roster' % node_id)
-    cur = conn.execute('SELECT assignment_id, firefighter_id FROM firefighter_assignments WHERE node_id = ? AND end_ts IS NULL', (node_id,)).fetchone()
-    if firefighter_id is None:
-        if cur is None: return 'unchanged'
-    else:
-        f = conn.execute('SELECT alias, active FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
-        if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id)
-        if not f[1]: raise FirefighterError('%s is inactive and cannot be assigned' % f[0])
-        if cur is not None and cur[1] == firefighter_id: return 'unchanged'
-        other = conn.execute('SELECT node_id FROM firefighter_assignments WHERE firefighter_id = ? AND end_ts IS NULL', (firefighter_id,)).fetchone()
-        if other is not None: raise FirefighterError('%s is already assigned to node %d; end that assignment first' % (f[0], other[0]))
+    outcome, stmts, reason, _ = plan_assign(conn, node_id, firefighter_id, now_ms)
+    if outcome == 'unchanged': return outcome
     def write():
-        if cur is not None: conn.execute('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE assignment_id = ?', (now_ms, cur[0]))
-        if firefighter_id is not None:
-            conn.execute('INSERT INTO firefighter_assignments(node_id, firefighter_id, start_ts) VALUES (?, ?, ?)', (node_id, firefighter_id, now_ms))
-            _audit(conn, now_ms, 'FIREFIGHTER_ASSIGNED', 'firefighter_id %d' % firefighter_id, node_id); return 'assigned'
-        _audit(conn, now_ms, 'FIREFIGHTER_ASSIGNED', 'ended firefighter_id %d' % cur[1], node_id); return 'ended'
+        for sql, params in stmts: conn.execute(sql, params)
+        _audit(conn, now_ms, 'FIREFIGHTER_ASSIGNED', reason, node_id); return outcome
     return _txn(conn, write)
 
 def set_roster_active(conn, now_ms, node_id, active):
     """Switch a roster node on or off (the host reads the roster at start-up, so it takes effect at the next start). The last active node cannot be switched off. Switching a node off ends its
     assignment. Returns 'changed' or 'unchanged'."""
     r = conn.execute('SELECT active FROM roster WHERE node_id = ?', (node_id,)).fetchone()
-    if r is None: raise FirefighterError('node %d is not in the roster' % node_id)
+    if r is None: raise FirefighterError('node %d is not in the roster' % node_id, 'missing')
     if active not in (0, 1): raise FirefighterError('active must be 0 or 1')
     if r[0] == active: return 'unchanged'
     if active == 0 and conn.execute('SELECT COUNT(*) FROM roster WHERE active = 1 AND node_id <> ?', (node_id,)).fetchone()[0] == 0:

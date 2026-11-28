@@ -302,3 +302,33 @@ async def replay_speed(body: M.ReplaySpeedReq, request: Request, op: Operator = 
     r = port.replay_set_speed(body.speed)
     if r.changed: port.audit('REPLAY_SPEED', operator_id=op.operator_id, reason='%dx to %dx' % (r.previous, r.speed))
     return M.ReplaySpeedResp(speed=r.speed, paused=r.paused, finished=r.finished)
+
+# ---- S8-2 (ADR 0071): GET /api/firefighters, POST /api/firefighters and POST /api/firefighters/assign (design 3.8 addendum) ----
+# The three port methods block (the commit wait), so the routes call them in a worker thread. The audit rows carry the operator and the alias or id, never a name. A write is refused with 409 RECOVERING while the host recovers.
+def _ff_refused(e):
+    status, code = {'missing': (404, 'NOT_FOUND'), 'conflict': (409, 'STATE_CONFLICT')}.get(e.kind, (422, 'VALIDATION_ERROR'))
+    return ApiError(status, code, str(e))
+
+@router.get('/firefighters', response_model=list[M.FirefighterRow])
+async def firefighters_list(request: Request, op: Operator = Depends(current_operator)):
+    return await run_in_threadpool(request.app.state.port.list_firefighters)      # read-only, no audit row; the full name is for the Settings screen only
+
+@router.post('/firefighters', response_model=M.FirefighterAddResp)
+async def firefighter_add(body: M.FirefighterAddReq, request: Request, op: Operator = Depends(current_operator)):
+    from ..services.firefighters import FirefighterError
+    port = request.app.state.port; retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    try: fid, alias = await run_in_threadpool(port.add_firefighter, body.model_dump())
+    except FirefighterError as e: raise _ff_refused(e) from None
+    port.audit('FIREFIGHTER_ADDED', operator_id=op.operator_id, reason='firefighter_id %d (%s)' % (fid, alias))
+    return M.FirefighterAddResp(firefighter_id=fid, alias=alias)
+
+@router.post('/firefighters/assign', response_model=M.FirefighterAssignResp)
+async def firefighter_assign(body: M.FirefighterAssignReq, request: Request, op: Operator = Depends(current_operator)):
+    from ..services.firefighters import FirefighterError
+    port = request.app.state.port; retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    try: result, reason, alias = await run_in_threadpool(port.assign_firefighter, body.node_id, body.firefighter_id)
+    except FirefighterError as e: raise _ff_refused(e) from None
+    if result != 'unchanged': port.audit('FIREFIGHTER_ASSIGNED', operator_id=op.operator_id, node_id=body.node_id, reason=reason)      # a repeat of the state it already has writes no row
+    return M.FirefighterAssignResp(node_id=body.node_id, firefighter_id=None if result == 'ended' else body.firefighter_id, alias=alias, result=result)

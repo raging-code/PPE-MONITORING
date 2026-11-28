@@ -10,6 +10,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 NOW = 5_000_000
 PENDING = set()                                        # P26-1 added GET /api/export.csv; a route listed but not yet built goes here
 GOOD, EVIL = {'Authorization': 'Bearer good-token'}, 'http://evil.example'
+FF_ROW = dict(firefighter_id=1, alias='FFR-01', full_name='Test Person', sex=None, age_years=30, height_cm=175, weight_kg=75.0, resting_hr=60, max_hr=None, smoker=0, years_service=None, consent_ts=1000, consent_form_version='v1', active=1, node_id=None)      # S8-2
+FF_BODY = dict(full_name='Test Person', sex=None, age_years=30, height_cm=175, weight_kg=75.0, resting_hr=60, max_hr=None, smoker=False, years_service=None, consent=True, consent_form_version='v1', consent_witness='Witness', consent_date=None)
 CODE_OF = {400: 'BAD_REQUEST', 401: 'UNAUTHENTICATED', 403: 'ORIGIN_REJECTED', 404: 'NOT_FOUND', 409: 'STATE_CONFLICT', 422: 'VALIDATION_ERROR'}
 
 def parse_list():
@@ -64,6 +66,16 @@ class Port:
         self.calls.append('replay'); return R.ReplayState(paused, False, True)
     def replay_set_speed(self, speed):        # S7-7a
         self.calls.append('speed'); return R.ReplaySpeedState(speed, 1, False, False, True)
+    def list_firefighters(self): return [dict(FF_ROW)]      # S8-2
+    def add_firefighter(self, p):
+        from ppe_host.services import firefighters as F
+        F.check_profile(now_ms=NOW, **p); self.calls.append('ff_add'); return 2, 'FFR-02'      # the real checks, so a refused profile is a real 422
+    def assign_firefighter(self, node, ff):
+        from ppe_host.services import firefighters as F
+        if node not in (1, 2, 3): raise F.FirefighterError('node %d is not in the roster' % node, 'missing')
+        if ff == 99: raise F.FirefighterError('no firefighter with firefighter_id 99', 'missing')
+        if ff == 5: raise F.FirefighterError('FFR-05 is inactive and cannot be assigned', 'conflict')
+        self.calls.append('ff_assign'); return ('assigned', 'firefighter_id 1', 'FFR-01') if ff else ('ended', 'ended firefighter_id 1', None)
     def ack_banner(self, kind, op):
         if not self.banners[kind]: raise R.ApiError(409, 'STATE_CONFLICT', 'banner is not active')
         return R.BannerAck(kind, 9000)
@@ -81,7 +93,9 @@ VALID = {'POST /api/login': ('/api/login', {'token': 'good-token'}, None), 'POST
          'POST /api/dashboard-outage': ('/api/dashboard-outage', {'started_ts': NOW - 30000, 'ended_ts': NOW - 10000, 'duration_s': 20.0}, None),
          'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0}), 'GET /api/export.csv': ('/api/export.csv', None, None),
          'POST /api/logout': ('/api/logout', None, None), 'POST /api/replay/pause': ('/api/replay/pause', {'paused': True}, None),
-         'POST /api/replay/speed': ('/api/replay/speed', {'speed': 4}, None)}
+         'POST /api/replay/speed': ('/api/replay/speed', {'speed': 4}, None),
+         'GET /api/firefighters': ('/api/firefighters', None, None), 'POST /api/firefighters': ('/api/firefighters', FF_BODY, None),
+         'POST /api/firefighters/assign': ('/api/firefighters/assign', {'node_id': 1, 'firefighter_id': 1}, None)}
 # (key, label, path, body, query, status, setup): one request per listed non-200 code beyond the generated 401 and 403 rows
 EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, None, 401, None),
          ('POST /api/session/end', 'wrong confirm_text', '/api/session/end', {'confirm_text': 'x', 'session_id': 4}, None, 400, None),
@@ -103,7 +117,14 @@ EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, Non
          ('POST /api/replay/pause', 'body without paused', '/api/replay/pause', {}, None, 422, None),
          ('POST /api/replay/speed', 'speed outside 1, 4 and 16', '/api/replay/speed', {'speed': 2}, None, 422, None),
          ('GET /api/events', 'limit out of range', '/api/events', None, {'limit': 0}, 422, None),
-         ('GET /api/sessions', 'limit out of range', '/api/sessions', None, {'limit': 0}, 422, None)]
+         ('GET /api/sessions', 'limit out of range', '/api/sessions', None, {'limit': 0}, 422, None),
+         ('POST /api/firefighters', 'consent not given', '/api/firefighters', {**FF_BODY, 'consent': False}, None, 422, None),
+         ('POST /api/firefighters', 'age out of range', '/api/firefighters', {**FF_BODY, 'age_years': 99}, None, 422, None),
+         ('POST /api/firefighters', 'host recovering', '/api/firefighters', FF_BODY, None, 409, lambda p: setattr(p, 'recovering', 3.0)),
+         ('POST /api/firefighters/assign', 'unknown firefighter', '/api/firefighters/assign', {'node_id': 3, 'firefighter_id': 99}, None, 404, None),
+         ('POST /api/firefighters/assign', 'inactive firefighter', '/api/firefighters/assign', {'node_id': 1, 'firefighter_id': 5}, None, 409, None),
+         ('POST /api/firefighters/assign', 'node id not a number', '/api/firefighters/assign', {'node_id': 'x', 'firefighter_id': 1}, None, 422, None),
+         ('POST /api/firefighters/assign', 'host recovering', '/api/firefighters/assign', {'node_id': 1, 'firefighter_id': 1}, None, 409, lambda p: setattr(p, 'recovering', 3.0))]
 RECOVERING = ('POST /api/session/end', 'host recovering', '/api/session/end', {'confirm_text': 'END', 'session_id': 4}, None, 409, lambda p: setattr(p, 'recovering', 3.0))
 RECOVERING_REPLAY = ('POST /api/replay/pause', 'host recovering', '/api/replay/pause', {'paused': True}, None, 409, lambda p: setattr(p, 'recovering', 3.0))      # S7-5a
 RECOVERING_SPEED = ('POST /api/replay/speed', 'host recovering', '/api/replay/speed', {'speed': 4}, None, 409, lambda p: setattr(p, 'recovering', 3.0))      # S7-7a
@@ -114,8 +135,8 @@ def send(client, key, path, body, query, status, label):
     if label == '403 Origin': headers['Origin'] = EVIL
     return client.request(key.split()[0], path, json=body, params=query, headers=headers)
 
-def test_the_list_parses_to_the_fifteen_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout, S7-5a POST /api/replay/pause, S7-7a POST /api/replay/speed
-    assert len(LIST) == 15 and LIST['POST /api/replay/pause']['keys'] == {'paused', 'finished'} and LIST['POST /api/replay/speed']['keys'] == {'speed', 'paused', 'finished'} and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
+def test_the_list_parses_to_the_eighteen_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout, S7-5a POST /api/replay/pause, S7-7a POST /api/replay/speed, S8-2 the three firefighter routes
+    assert len(LIST) == 18 and LIST['POST /api/firefighters']['keys'] == {'firefighter_id', 'alias'} and LIST['POST /api/firefighters/assign']['keys'] == {'node_id', 'firefighter_id', 'alias', 'result'} and len(LIST['GET /api/firefighters']['keys']) == 15 and LIST['POST /api/replay/pause']['keys'] == {'paused', 'finished'} and LIST['POST /api/replay/speed']['keys'] == {'speed', 'paused', 'finished'} and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
     assert LIST['GET /api/events']['keys'] == {'events', 'last_seq'} and len(LIST['GET /api/sessions']['keys']) == 10 and {400} in LIST['POST /api/system-banners/{kind}/ack']['codes']
 def code_endpoints(app):
     """'METHOD path' of every HTTP route, read from the generated OpenAPI schema (app.openapi() works although /openapi.json is not served), so it does not depend on how FastAPI stores included routers."""

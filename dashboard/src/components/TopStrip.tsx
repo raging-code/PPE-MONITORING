@@ -8,6 +8,7 @@ import { authFetch } from '../api/authfetch.ts';
 import EndShiftDialog from './EndShiftDialog.tsx';
 import Chips from './Chips.tsx';
 import SessionsPanel from './SessionsPanel.tsx';
+import SettingsPanel from './SettingsPanel.tsx'; // S8-2b: firefighters and who wears the jacket
 import ShiftSummary from './ShiftSummary.tsx';
 import { BTN } from './btn.ts';
 
@@ -17,7 +18,7 @@ export const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?
 export default function TopStrip({ fetchFn, onLogout, children }: { fetchFn?: typeof fetch; onLogout?: () => Promise<void>; children?: ReactNode }) {
   const api = useMemo(() => defaultApi(fetchFn), [fetchFn]);
   const session = useLive((s) => s.session), alerts = useLive((s) => s.alerts), episodes = useLive((s) => s.episodes), nodes = useLive((s) => s.nodes);
-  const [sessions, setSessions] = useState(false), [ending, setEnding] = useState(false), [ended, setEnded] = useState<EndBody | null>(null);
+  const [sessions, setSessions] = useState(false), [settings, setSettings] = useState(false), [ending, setEnding] = useState(false), [ended, setEnded] = useState<EndBody | null>(null);
   const [confirmOut, setConfirmOut] = useState(false), [outBusy, setOutBusy] = useState(false); // Log out asks once: it stops monitoring on this screen
   const items = useMemo(() => openItems(alerts, episodes, nodes), [alerts, episodes, nodes]);
   return (
@@ -29,6 +30,7 @@ export default function TopStrip({ fetchFn, onLogout, children }: { fetchFn?: ty
         </span>
         <span className="flex gap-2">
           <button type="button" className={BTN} aria-expanded={sessions} onClick={() => setSessions((v) => !v)}>Sessions</button>
+          <button type="button" className={BTN} aria-expanded={settings} onClick={() => setSettings((v) => !v)}>Settings</button>
           <button type="button" className={BTN} onClick={() => setEnding(true)}>End shift</button>
           {onLogout && !confirmOut && <button type="button" className={BTN} onClick={() => setConfirmOut(true)}>Log out</button>}
           {onLogout && confirmOut && (
@@ -43,6 +45,7 @@ export default function TopStrip({ fetchFn, onLogout, children }: { fetchFn?: ty
       <Chips />
       {children}
       {sessions && <SessionsPanel api={api} onClose={() => setSessions(false)} />}
+      {settings && <SettingsPanel api={api} onClose={() => setSettings(false)} />}
       {ended && <ShiftSummary key={ended.closed_session_id} api={api} closedId={ended.closed_session_id} backupOk={ended.backup_ok} onClose={() => setEnded(null)} />}
       {ending && <EndShiftDialog api={api} sessionId={session?.session_id ?? null} items={items} onClose={() => setEnding(false)} onEnded={(b) => { setEnding(false); setEnded(b); }} />}
     </>
