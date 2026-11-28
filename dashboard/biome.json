@@ -9,7 +9,8 @@
     "rules": {
       "preset": "none",
       "correctness": { "noUnusedVariables": "error", "noUnusedImports": "error", "noUndeclaredVariables": "off", "noConstAssign": "error", "noUnreachable": "error", "noSelfAssign": "error", "noSwitchDeclarations": "error", "useValidForDirection": "error", "useIsNan": "error" },
-      "suspicious": { "noDebugger": "error", "noDoubleEquals": "error", "noDuplicateCase": "error", "noDuplicateObjectKeys": "error", "noSelfCompare": "error", "noCompareNegZero": "error", "noFallthroughSwitchClause": "error", "noRedeclare": "error", "noShadowRestrictedNames": "error", "noAssignInExpressions": "error", "noGlobalIsNan": "error" }
+      "suspicious": { "noDebugger": "error", "noDoubleEquals": "error", "noDuplicateCase": "error", "noDuplicateObjectKeys": "error", "noSelfCompare": "error", "noCompareNegZero": "error", "noFallthroughSwitchClause": "error", "noRedeclare": "error", "noShadowRestrictedNames": "error", "noAssignInExpressions": "error", "noGlobalIsNan": "error" },
+      "a11y": { "useKeyWithClickEvents": "error", "useButtonType": "error", "useAltText": "error" }
     }
   }
 }

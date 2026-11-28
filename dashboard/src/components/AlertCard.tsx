@@ -20,15 +20,21 @@ const BTN = 'min-h-11 rounded-lg bg-slate-800 px-4 text-base font-semibold text-
 export default function AlertCard({ card, nodes, onSelect, onMinimize, onDismiss, actions, pendingIds }: AlertCardProps) {
   const [open, setOpen] = useState(false);
   const node = card.node_id === null ? undefined : nodes[card.node_id];
+  const nodeId = card.node_id;
   const lines = open ? card.lines : card.lines.slice(0, MAX_LINES);
   const more = card.lines.length - lines.length;
   const flash = isFlashing(card), quiet = card.kind !== 'responder', v = levelView(card.level);
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: mouse shortcut only; the keyboard path is the heading button below
     <section data-testid={`card-${card.key}`} data-kind={card.kind} onClick={() => card.node_id !== null && onSelect(card.node_id)}
       style={flash ? ({ '--flash-on': FLASH[card.level] ?? 'var(--color-ink)' } as CSSProperties) : undefined}
       className={cn('rounded-card border-2 bg-white p-4 shadow-sm', quiet ? 'border-dashed border-stale-text' : 'border-card-border', flash && 'flash')}>
       {card.kind === 'responder'
-        ? <h3 className={cn('mb-2 flex items-center gap-2 rounded-lg px-3 py-1 text-xl font-bold', v.box)}><span aria-hidden="true">{v.icon}</span><span>{v.word}</span><span>{node?.alias ?? 'Unknown node'}</span></h3>
+        ? <h3 className={cn('mb-2 rounded-lg text-xl font-bold', v.box)}>
+          {nodeId === null
+            ? <span className="flex min-h-11 items-center gap-2 px-3 py-1"><span aria-hidden="true">{v.icon}</span><span>{v.word}</span><span>{node?.alias ?? 'Unknown node'}</span></span>
+            : <button type="button" className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-1 text-left font-bold" onClick={(e) => { e.stopPropagation(); onSelect(nodeId); }}><span aria-hidden="true">{v.icon}</span><span>{v.word}</span><span>{node?.alias ?? 'Unknown node'}</span></button>}
+        </h3>
         : <p className="mb-2"><span className="rounded bg-stale-fill px-2 py-1 text-sm font-semibold uppercase text-stale-text">{LABEL[card.kind]}</span></p>}
       <ul className="m-0 list-none space-y-1 p-0">
         {lines.map((l) => (
