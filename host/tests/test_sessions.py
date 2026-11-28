@@ -36,7 +36,8 @@ def err(call):
 def test_close_stmts_follow_the_design_order_for_each_kind():
     e = ses.close_stmts('ENDED', 1, 50, 9, operator_id=2, detail='d', new_sid=3)
     assert 'audit_events' in e[0].sql and e[0].params[:5] == (1, 9, 50, 2, 'END_SHIFT') and e[1].sql.startswith('UPDATE sessions SET ended_ts') and e[1].params == (50, 'ENDED', 1)
-    assert e[2].sql.startswith('INSERT INTO sessions') and e[2].params == (3, 50, 1) and len(e) == 3                  # the audit row, then the close, then the new session
+    assert e[2].sql.startswith('INSERT INTO sessions') and e[2].params == (3, 50, 1) and len(e) == 4                  # the audit row, then the close, then the new session, then the end of every open jacket (S8-6)
+    assert e[3].sql.startswith('UPDATE firefighter_assignments SET end_ts') and e[3].params == (50,)
     for kind, row in (('CLEAN_SHUTDOWN', 'CLEAN_SHUTDOWN'), ('ABANDONED', 'SESSION_ABANDONED')):
         s = ses.close_stmts(kind, 1, 50, 9, detail='why')
         assert len(s) == 2 and 'system_events' in s[0].sql and s[0].params == (1, 9, 50, row, 'why') and s[1].params == (50, kind, 1)   # the system row, then the close, no new session
@@ -80,7 +81,7 @@ def test_end_shift_leaves_the_open_alert_and_episode_alone_opens_the_next_sessio
 
 def test_end_shift_with_nothing_open_writes_an_empty_list(tmp_path):
     c, w, clock, ing, p = eport(tmp_path); res = p.end_session(1, 1); assert res.new_session_id == 2
-    d = json.loads(rows(c, "SELECT reason FROM audit_events WHERE action = 'END_SHIFT'")[0]['reason']); assert d == {'open_alerts': [], 'open_episodes': [], 'latched_nodes': []}
+    d = json.loads(rows(c, "SELECT reason FROM audit_events WHERE action = 'END_SHIFT'")[0]['reason']); assert d == {'open_alerts': [], 'open_episodes': [], 'latched_nodes': [], 'ended_assignments': []}
     assert rows(c, 'SELECT monitoring_active FROM sessions WHERE session_id = 2') == [{'monitoring_active': 0}]; w.stop()
 
 def test_a_second_end_shift_with_the_same_session_id_conflicts_and_makes_no_session_and_no_backup(tmp_path):   # End shift conflict test (Rev 3.25)

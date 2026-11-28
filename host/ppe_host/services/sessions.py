@@ -1,7 +1,8 @@
 """services/sessions.py (P25-3, ADR 0037): close_session(kind), the one place that builds the rows that close a sessions row (design 2.3, 2.11, Rev 3.17, 3.27, 3.38, 3.40).
 Every closure is one atomic BEGIN IMMEDIATE transaction, in this order: (a) the END_SHIFT audit row (ENDED), or the CLEAN_SHUTDOWN or SESSION_ABANDONED system row, in the OLD session;
 (b) ended_ts and end_kind of the old session in one UPDATE (the sessions CHECK wants both or neither), before any new row, because idx_sessions_one_open allows one session with ended_ts NULL;
-(c) for ENDED only, the new session (monitoring_active carried; mode, host_build and both hashes copied, because End shift does not change them); (d) commit.
+(c) for ENDED only, the new session (monitoring_active carried; mode, host_build and both hashes copied, because End shift does not change them);
+(c2) for ENDED only (S8-6, ADR 0075), every open firefighter assignment is ended at the same time, so the next shift starts with nobody on a jacket and the operator says who wears what again; (d) commit.
 Alerts and episodes are never touched: they keep their ids and stay open across the change (2.11).
 close_stmts() only builds the statements. Three callers run them:
   ABANDONED  main.begin_session, on its own connection inside the start-up transaction (run_stmts), before the writer exists;
@@ -14,6 +15,7 @@ from ..io.ingest import AUDIT_SQL, SYS_SQL
 KINDS = ('ENDED', 'CLEAN_SHUTDOWN', 'ABANDONED')
 SYS_KIND = {'CLEAN_SHUTDOWN': 'CLEAN_SHUTDOWN', 'ABANDONED': 'SESSION_ABANDONED'}
 CLOSE_SQL = 'UPDATE sessions SET ended_ts = ?, end_kind = ? WHERE session_id = ? AND ended_ts IS NULL'
+END_ASSIGN_SQL = 'UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE end_ts IS NULL'   # S8-6: End shift ends every open jacket assignment in the same transaction
 OPEN_NEXT_SQL = ('INSERT INTO sessions(session_id, started_ts, mode, host_build, constants_hash, settings_hash, monitoring_active) '
                  'SELECT ?, ?, mode, host_build, constants_hash, settings_hash, monitoring_active FROM sessions WHERE session_id = ?')
 
@@ -26,7 +28,7 @@ def close_stmts(kind, sid, ts, event_seq, operator_id=None, detail=None, new_sid
         first = Stmt(AUDIT_SQL, (sid, event_seq, ts, operator_id, 'END_SHIFT', None, None, detail))
     else: first = Stmt(SYS_SQL, (sid, event_seq, ts, SYS_KIND[kind], detail))
     out = [first, Stmt(CLOSE_SQL, (ts, kind, sid))]
-    if kind == 'ENDED': out.append(Stmt(OPEN_NEXT_SQL, (new_sid, ts, sid)))
+    if kind == 'ENDED': out += [Stmt(OPEN_NEXT_SQL, (new_sid, ts, sid)), Stmt(END_ASSIGN_SQL, (ts,))]
     return out
 
 def run_stmts(conn, stmts):
@@ -39,7 +41,9 @@ def next_session_id(q):
 
 def end_shift_detail(q, latched=()):
     """The reason of the END_SHIFT row: what End shift carries into the next session (design D8: 'logs END_SHIFT with the open list').
-    Open alerts [node_id, type], open episodes [episode_id, node_id, state] (every session) and the nodes whose jacket latch is still set."""
+    Open alerts [node_id, type], open episodes [episode_id, node_id, state] (every session), the nodes whose jacket latch is still set and (S8-6) the jackets that End shift ends,
+    [node_id, firefighter_id] (ids only, never a name or an alias)."""
     alerts = [[r[0], r[1]] for r in q('SELECT node_id, type FROM alerts WHERE cleared_ts IS NULL ORDER BY alert_id')]
     episodes = [[r[0], r[1], r[2]] for r in q("SELECT episode_id, node_id, state FROM episodes WHERE state IN ('OPEN', 'ACKNOWLEDGED') ORDER BY episode_id")]
-    return json.dumps({'open_alerts': alerts, 'open_episodes': episodes, 'latched_nodes': sorted(latched)}, separators=(',', ':'))
+    ended = [[r[0], r[1]] for r in q('SELECT node_id, firefighter_id FROM firefighter_assignments WHERE end_ts IS NULL ORDER BY node_id')]
+    return json.dumps({'open_alerts': alerts, 'open_episodes': episodes, 'latched_nodes': sorted(latched), 'ended_assignments': ended}, separators=(',', ':'))

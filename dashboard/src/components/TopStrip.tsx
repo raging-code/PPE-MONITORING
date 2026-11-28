@@ -1,14 +1,16 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Api } from '../api/actions.ts';
 import type { EndBody } from '../api/shift.ts';
 import { openItems } from '../alerts/shift.ts';
 import { useLive } from '../store/live.ts';
 import { readToken } from '../store/token.ts';
+import { loadWearers } from '../store/wearers.ts';
 import { authFetch } from '../api/authfetch.ts';
 import EndShiftDialog from './EndShiftDialog.tsx';
 import Chips from './Chips.tsx';
 import SessionsPanel from './SessionsPanel.tsx';
 import SettingsPanel from './SettingsPanel.tsx'; // S8-2b: firefighters and who wears the jacket
+import NewShiftJackets from './NewShiftJackets.tsx'; // S8-6: who wears each jacket in the new shift
 import ShiftSummary from './ShiftSummary.tsx';
 import { BTN } from './btn.ts';
 
@@ -18,8 +20,9 @@ export const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?
 export default function TopStrip({ fetchFn, onLogout, children }: { fetchFn?: typeof fetch; onLogout?: () => Promise<void>; children?: ReactNode }) {
   const api = useMemo(() => defaultApi(fetchFn), [fetchFn]);
   const session = useLive((s) => s.session), alerts = useLive((s) => s.alerts), episodes = useLive((s) => s.episodes), nodes = useLive((s) => s.nodes);
-  const [sessions, setSessions] = useState(false), [settings, setSettings] = useState(false), [ending, setEnding] = useState(false), [ended, setEnded] = useState<EndBody | null>(null);
+  const [sessions, setSessions] = useState(false), [settings, setSettings] = useState(false), [ending, setEnding] = useState(false), [ended, setEnded] = useState<EndBody | null>(null), [asking, setAsking] = useState(false); // asking: the jacket question of the new shift (S8-6)
   const [confirmOut, setConfirmOut] = useState(false), [outBusy, setOutBusy] = useState(false); // Log out asks once: it stops monitoring on this screen
+  const closeAsking = useCallback(() => setAsking(false), []);
   const items = useMemo(() => openItems(alerts, episodes, nodes), [alerts, episodes, nodes]);
   return (
     <>
@@ -44,10 +47,11 @@ export default function TopStrip({ fetchFn, onLogout, children }: { fetchFn?: ty
       </nav>
       <Chips />
       {children}
+      {asking && <NewShiftJackets api={api} onClose={closeAsking} />}
       {sessions && <SessionsPanel api={api} onClose={() => setSessions(false)} />}
       {settings && <SettingsPanel api={api} onClose={() => setSettings(false)} />}
       {ended && <ShiftSummary key={ended.closed_session_id} api={api} closedId={ended.closed_session_id} backupOk={ended.backup_ok} onClose={() => setEnded(null)} />}
-      {ending && <EndShiftDialog api={api} sessionId={session?.session_id ?? null} items={items} onClose={() => setEnding(false)} onEnded={(b) => { setEnding(false); setEnded(b); }} />}
+      {ending && <EndShiftDialog api={api} sessionId={session?.session_id ?? null} items={items} onClose={() => setEnding(false)} onEnded={(b) => { setEnding(false); setEnded(b); void loadWearers(api).then(() => setAsking(true)); }} />}
     </>
   );
 }
