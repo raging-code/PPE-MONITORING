@@ -84,7 +84,11 @@ class ReplayThread:
     @property
     def paused(self): return self.clock.paused
     def pause(self): self.clock.pause()
-    def resume(self): self.clock.resume()
+    def resume(self):
+        """A finished replay stays frozen (ADR 0059): a resume that races with the end of the data is undone."""
+        if self.finished.is_set(): return
+        self.clock.resume()
+        if self.finished.is_set(): self.clock.pause()
     def start(self): self._thread.start(); return self
     def alive(self): return self._thread.is_alive()
     def stop(self, timeout_s=2): self._stop.set(); self._thread.join(timeout_s)
@@ -102,7 +106,7 @@ class ReplayThread:
                         except Exception as e: self.counters['replay_handler_errors'] += 1; self.last_error = repr(e)
                         else: self.counters['replay_frames' if nxt[1] == 'frame' else 'replay_heartbeats'] += 1
                         nxt = next(it, None)
-                    if nxt is None: self.clock.pause(); self.finished.set(); log.info('replay of session %d finished: %d frames, %d heartbeats', self.session_id, self.counters['replay_frames'], self.counters['replay_heartbeats']); self.polls += 1; return
+                    if nxt is None: self.finished.set(); self.clock.pause(); log.info('replay of session %d finished: %d frames, %d heartbeats', self.session_id, self.counters['replay_frames'], self.counters['replay_heartbeats']); self.polls += 1; return
                 self.polls += 1; self._stop.wait(self.poll_s)
         except Exception as e:
             self.error = repr(e); log.exception('replay stopped by an error')

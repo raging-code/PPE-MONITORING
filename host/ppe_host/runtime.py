@@ -129,6 +129,10 @@ class Runtime:
     def offer_tick(self):
         """One host_tick line to the SerialWriter (never blocks). Runtime.tick() calls this at 1 Hz."""
         if self.serial: self.serial_writer.offer(host_tick_line(self.clock.wall_ms(), self.st.recovering, self.st.mode))
+    def replay_info(self):
+        """S7-5a (ADR 0061): {speed, paused, finished} of the replay, None on a host that is not replaying. Any thread may call it."""
+        r = self.replay
+        return None if r is None else dict(speed=int(self.clock.speed), paused=bool(r.paused), finished=r.finished.is_set())
     def tick(self):
         """The 1 Hz body (step 10): host_tick to the base first, then Health.tick (BASE_OFFLINE, COUNTERS), then the audio feed (a once-a-second safety net next to Wire.on_change), then Wire.tick (engine tick, held messages, unauth repeats, links, system), and last the 'tick' liveness stamp of the OS watchdog (stamped even when a part failed: it says the timer is alive).
         Wire.tick waits for the commit (commit_wait_ms), so the driver runs this in a worker thread, never on the event loop. Each part is guarded: one failure is logged and the others still run."""

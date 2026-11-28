@@ -54,12 +54,13 @@ def episode_body(r, label):
                 man_down_motion_state=None if r['kind'] == 'MAYDAY' or r['state'] == 'RESOLVED' else label)
 
 class Wire:
-    def __init__(self, port, hub, base_offline=None, audio_fault=None, host_power=None, abi_mismatch=None):
+    def __init__(self, port, hub, base_offline=None, audio_fault=None, host_power=None, abi_mismatch=None, replay=None):
         """port: HostPort; hub: anything with publish_reading, publish_alert and publish_episode (api/ws_hub.Hub). The three callables are the sources of the banner flags that
         belong to threads wired in P24-3c (default: the ingest Health object, no audio fault, 'ac')."""
         self.port, self.ing, self.hub = port, port.ing, hub
         self.base_offline = base_offline or (lambda: bool(getattr(self.ing.health, 'offline', False)))
         self.audio_fault, self.host_power = audio_fault or (lambda: False), host_power or (lambda: 'ac')
+        self.replay = replay or (lambda: None)      # S7-5a (ADR 0061): {speed, paused, finished} on a REPLAY host, else None
         self.abi_mismatch = abi_mismatch or (lambda: bool(getattr(self.ing.fw_state, 'mismatch', False)))   # P24-5f (ADR 0051): FwState of P24-5e; false until the base reports an abi
         self.pending, self.unpersisted, self.unauth_sent = deque(), set(), {}
         self.on_change = None   # P24-3c-3: called with no argument as soon as the engine state or a banner changed (the AudioThread feed); a failure is logged and never reaches the caller
@@ -156,10 +157,12 @@ class Wire:
             if s != prev: self.links[nid] = (s, now); self._pub('publish_link', dict(node_id=nid, state=s, since_ts=now, last_state=prev))
     def _sys_body(self, banner=None, ack=None):
         port = self.port; on, got = port.banner_state('host_gap'); g = port.host_gap
-        return dict(base='offline' if self.base_offline() else 'ok', recovering=bool(port.recovering), session_id=self.ing.session_id, session_mode=self.mode,
+        return dict(base='offline' if self.base_offline() else 'ok', recovering=bool(port.recovering), session_id=self.ing.session_id, session_mode=self.mode, replay=self.replay_info(),
                     rejected_frames=self.ing.counters['rejected_frames'], logging_fault=bool(port.writer.logging_fault),
                     host_gap=dict(gap_s=float(g['gap_s']), reason=g['reason']) if on and got is None else None,
                     host_power=str(self.host_power()), audio_fault=bool(self.audio_fault()), abi_mismatch=bool(self.abi_mismatch()), banner=banner, acknowledged_ts=ack)
+    def replay_info(self):
+        r = self.replay(); return None if r is None else dict(speed=int(r['speed']), paused=bool(r['paused']), finished=bool(r['finished']))
     @staticmethod
     def _key(b): return {k: v for k, v in b.items() if k not in ('rejected_frames', 'banner', 'acknowledged_ts')}
     def _system(self, tick=False, banner=None, ack=None):
@@ -167,6 +170,7 @@ class Wire:
         b = self._sys_body(banner, ack)
         if banner is None and self._key(b) == self.sys_key and not (tick and b['rejected_frames'] != self.sys_rej): return
         self.sys_key, self.sys_rej = self._key(b), b['rejected_frames']; self._pub('publish_system', b)
+    def on_replay_changed(self): self._changed(); self._system()       # S7-5a: the new paused state reaches the dashboard now, not with the next tick
     def on_banner_acknowledged(self, kind, ts): self._changed(); self._system(banner=kind, ack=ts)
 
     # ---- snapshot ----
@@ -193,7 +197,7 @@ class Wire:
                    for r in c.execute(EPISODE_SQL + "WHERE state IN ('OPEN', 'ACKNOWLEDGED') ORDER BY episode_id")]
         gap_on, gap_ack = port.banner_state('host_gap'); g = port.host_gap
         return dict(recovering=bool(port.recovering), monitoring_active=bool(port.monitoring_active),
-                    session=dict(session_id=s['session_id'], started_ts=s['started_ts'], mode=s['mode'], session_label=s['session_label']),
+                    session=dict(session_id=s['session_id'], started_ts=s['started_ts'], mode=s['mode'], session_label=s['session_label']), replay=self.replay_info(),
                     roster=[dict(node_id=r['node_id'], alias=r['alias'], active=r['active']) for r in roster], nodes=nodes, open_alerts=alerts, open_episodes=eps, co_history_30m=hist,
                     banners=dict(base_offline=bool(self.base_offline()), logging_fault=bool(port.writer.logging_fault), host_gap=dict(gap_s=float(g['gap_s']), reason=g['reason']) if gap_on and gap_ack is None else None,
                                  host_power=str(self.host_power()), audio_fault=bool(self.audio_fault()), abi_mismatch=bool(self.abi_mismatch())), constants=dict(K.CONSTANTS))

@@ -1396,6 +1396,31 @@
       "title": "ReadingMsg",
       "type": "object"
     },
+    "ReplayInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "speed": {
+          "minimum": 1,
+          "title": "Speed",
+          "type": "integer"
+        },
+        "paused": {
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "finished": {
+          "title": "Finished",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "speed",
+        "paused",
+        "finished"
+      ],
+      "title": "ReplayInfo",
+      "type": "object"
+    },
     "RosterRow": {
       "additionalProperties": false,
       "properties": {
@@ -1525,6 +1550,17 @@
         "session": {
           "$ref": "#/$defs/SessionInfo"
         },
+        "replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "roster": {
           "items": {
             "$ref": "#/$defs/RosterRow"
@@ -1642,6 +1678,17 @@
           ],
           "title": "Session Mode",
           "type": "string"
+        },
+        "replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "rejected_frames": {
           "title": "Rejected Frames",

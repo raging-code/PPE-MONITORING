@@ -107,6 +107,10 @@ class EpisodeBody(_Strict):
 class HostGap(_Strict):
     gap_s: float
     reason: Optional[Literal['db_restored']]
+class ReplayInfo(_Strict):  # S7-5a (ADR 0061): the state of a REPLAY host; null on every other mode
+    speed: int = Field(ge=1)
+    paused: bool
+    finished: bool
 class Banners(_Strict):
     base_offline: bool
     logging_fault: bool
@@ -123,6 +127,7 @@ class SnapshotMsg(_Server):
     recovering: bool
     monitoring_active: bool
     session: SessionInfo
+    replay: Optional[ReplayInfo] = None   # S7-5a (ADR 0061): set on a REPLAY host only
     roster: list[RosterRow]
     nodes: list[NodeSnap]
     open_alerts: list[AlertBody]
@@ -173,6 +178,7 @@ class SystemMsg(_Server):
     recovering: bool
     session_id: int
     session_mode: SessionMode
+    replay: Optional[ReplayInfo] = None   # S7-5a: set on a REPLAY host only; a change of paused or finished sends a system message
     rejected_frames: int
     logging_fault: bool
     host_gap: Optional[HostGap]
@@ -273,6 +279,11 @@ class SessionEndResp(_Strict):
     closed_session_id: int
     new_session_id: int
     backup_ok: bool
+class ReplayPauseReq(_Strict):  # S7-5a: the state wanted, not a toggle, so a retry or a second tab changes nothing more
+    paused: bool
+class ReplayPauseResp(_Strict):
+    paused: bool
+    finished: bool
 class AckAlertResp(_Strict):
     alert_id: int
     acknowledged_ts: int

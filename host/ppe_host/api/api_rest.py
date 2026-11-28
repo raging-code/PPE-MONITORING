@@ -37,6 +37,8 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     # P19c-2
     def set_scba_correction(self, node_id: int, note: Optional[str], operator_id: int) -> Optional['ScbaRecord']: ...  # live state only; None when node_id is not in the roster; the audit row is written by the route
     def ack_banner(self, kind: str, operator_id: int) -> 'BannerAck': ...  # ApiError STATE_CONFLICT when the banner is not active or is already acknowledged (design 3.8 error-code list)
+    # S7-5a (ADR 0061)
+    def replay_set_paused(self, paused: bool) -> 'ReplayState': ...  # ApiError STATE_CONFLICT when this host is not replaying or the replay has finished; idempotent; sends the system message
 
 class ApiError(Exception):
     """Any non-2xx answer. The envelope model refuses a code outside the 3.8 list and a retry_after_s on a code that may not carry one."""
@@ -249,6 +251,10 @@ class ScbaRecord(NamedTuple):
 class BannerAck(NamedTuple):
     kind: str
     acknowledged_ts: int
+class ReplayState(NamedTuple):
+    paused: bool
+    finished: bool
+    changed: bool
 BANNER_KINDS = ('no_live_data', 'base_offline', 'logging_fault', 'host_gap', 'recovering', 'host_power', 'audio_fault', 'abi_mismatch')  # the banners of alert_catalog.json (a test compares)
 
 @router.post('/scba-correction', response_model=M.ScbaCorrection)
@@ -265,3 +271,15 @@ async def ack_banner(kind: str, request: Request, op: Operator = Depends(current
     port = request.app.state.port; r = port.ack_banner(kind, op.operator_id)  # the port raises ApiError STATE_CONFLICT for a banner that is not active or is already acknowledged; a refused call writes no audit row
     port.audit('BANNER_ACK', operator_id=op.operator_id, reason=kind)
     return M.BannerAckResp(kind=r.kind, acknowledged_ts=r.acknowledged_ts)
+
+# ---- S7-5a (ADR 0061): POST /api/replay/pause ----
+@router.post('/replay/pause', response_model=M.ReplayPauseResp)
+async def replay_pause(body: M.ReplayPauseReq, request: Request, op: Operator = Depends(current_operator)):
+    """Sets the paused state of a REPLAY host (not a toggle). Any logged-in operator may press it. 409 RECOVERING before the replay has started, 409 STATE_CONFLICT on a host that is not replaying
+    or whose replay has finished. One audit row (REPLAY_PAUSE or REPLAY_RESUME) when the state changed; a repeat of the state it already has changes nothing and writes no row."""
+    port = request.app.state.port
+    retry = port.recovering_retry_s()
+    if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
+    r = port.replay_set_paused(body.paused)
+    if r.changed: port.audit('REPLAY_PAUSE' if r.paused else 'REPLAY_RESUME', operator_id=op.operator_id)
+    return M.ReplayPauseResp(paused=r.paused, finished=r.finished)

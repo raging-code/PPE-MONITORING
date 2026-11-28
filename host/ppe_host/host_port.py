@@ -14,6 +14,7 @@ BANNERS = ('host_gap', 'logging_fault')   # the two banners an operator may ackn
 
 class HostPort:
     wire = None   # set by wire.Wire.attach() (P24-3b-2a)
+    replay = None   # S7-5a: the ReplayThread of a REPLAY host (serve.build_app sets it), else None
     def __init__(self, ingest, db_path, settings, auth, publish=None, recovering=True, host_gap=None):
         """publish(effects, unit, committed) is called after the commit wait of every operator action (committed: True, False, or None when nothing was written); P24-3b-2 turns it into messages.
         host_gap is None or {'gap_s': float, 'reason': str or None}; P25 sets the real gap with set_host_gap."""
@@ -181,6 +182,19 @@ class HostPort:
         active = self.host_gap is not None if kind == 'host_gap' else bool(self.writer.logging_fault) if kind == 'logging_fault' else False
         if not active: self.banner_ack.pop(kind, None)
         return active, self.banner_ack.get(kind)
+    # ---- REPLAY pause (S7-5a, ADR 0061) ----
+    def replay_set_paused(self, paused):
+        """Pause or resume the replay. Not a toggle: asking for the state it has changes nothing (changed False). STATE_CONFLICT on a host that is not replaying and on a replay that has
+        finished (its clock stays frozen). Runs on the event loop and never blocks; the audit row is written by the route."""
+        from .api.api_rest import ReplayState
+        r = self.replay
+        if r is None: raise self._conflict('this host is not replaying a session')
+        if r.finished.is_set(): raise self._conflict('the replay has finished')
+        paused = bool(paused); changed = r.paused != paused
+        if changed:
+            r.pause() if paused else r.resume()
+            if self.wire is not None: self.wire.on_replay_changed()   # the system message, at once
+        return ReplayState(r.paused, r.finished.is_set(), changed)
     def ack_banner(self, kind, operator_id):
         from .api.api_rest import BannerAck
         active, ts = self.banner_state(kind)

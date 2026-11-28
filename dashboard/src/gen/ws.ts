@@ -185,6 +185,12 @@ export interface ReadingMsg {
   status4: number;
 }
 
+export interface ReplayInfo {
+  speed: number;
+  paused: boolean;
+  finished: boolean;
+}
+
 export interface RosterRow {
   node_id: number;
   alias: string;
@@ -212,6 +218,7 @@ export interface SnapshotMsg {
   recovering: boolean;
   monitoring_active: boolean;
   session: SessionInfo;
+  replay?: ReplayInfo | null;
   roster: RosterRow[];
   nodes: NodeSnap[];
   open_alerts: AlertBody[];
@@ -230,6 +237,7 @@ export interface SystemMsg {
   recovering: boolean;
   session_id: number;
   session_mode: "LIVE" | "SIMULATOR" | "REPLAY";
+  replay?: ReplayInfo | null;
   rejected_frames: number;
   logging_fault: boolean;
   host_gap: HostGap | null;

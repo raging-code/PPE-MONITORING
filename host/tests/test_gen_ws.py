@@ -58,5 +58,5 @@ def test_converter_shapes():
     assert t({'$ref': '#/$defs/Banners'}, 'x') == 'Banners' and t({'const': 1, 'type': 'integer'}, 'x') == '1'
     assert t({'type': 'object', 'properties': {'a': {'type': 'string'}, 'b': {'type': 'boolean'}}, 'required': ['a']}, 'x') == '{\n  a: string;\n  b?: boolean;\n}'
 def test_converter_refuses_a_keyword_it_does_not_know():
-    for bad in ({'type': 'string', 'pattern': '^x$'}, {'oneOf': [{'type': 'string'}], 'type': 'string', 'default': 1}):
+    for bad in ({'type': 'string', 'pattern': '^x$'}, {'oneOf': [{'type': 'string'}], 'type': 'string', 'examples': ['x']}):
         with pytest.raises(ValueError, match='unsupported JSON Schema keyword'): gen.ts_type(bad, 'x')

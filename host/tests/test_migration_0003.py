@@ -17,7 +17,7 @@ def rejects(fn):
     with pytest.raises(sqlite3.IntegrityError): fn()
 
 def test_fresh_database_gets_0001_0002_0003_and_the_description_names_0003(tmp_path):
-    c = fresh(tmp_path); assert applied_versions(c) == [1, 2, 3]
+    c = fresh(tmp_path); assert applied_versions(c) == [1, 2, 3, 4]          # S7-5a added 0004
     assert c.execute('SELECT description FROM schema_version WHERE version = 3').fetchone()[0].startswith('Migration 0003')
     assert run_migrations(c, str(MIG), 2000) == []                       # a second run applies nothing
 
@@ -30,7 +30,7 @@ def test_an_existing_version_2_database_is_upgraded_and_keeps_its_operator_and_t
     d = tmp_path / 'm2'; d.mkdir(); shutil.copy(MIG / '0001.sql', d / '0001.sql'); shutil.copy(MIG / '0002.sql', d / '0002.sql')
     c = connect_db(tmp_path / 'old.db'); assert run_migrations(c, str(d), 1) == [1, 2] and 'pin_hash' not in cols(c, 'operators')
     c.execute("INSERT INTO operators(operator_id, display_name, token_hash, created_ts, token_issued_ts) VALUES (7, 'Old', 'tokhash', 5, 6)")
-    assert run_migrations(c, str(MIG), 2) == [3] and applied_versions(c) == [1, 2, 3]
+    assert run_migrations(c, str(MIG), 2) == [3, 4] and applied_versions(c) == [1, 2, 3, 4]
     assert c.execute('SELECT display_name, token_hash, active, created_ts, token_issued_ts, pin_hash, pin_fails FROM operators').fetchall() == [('Old', 'tokhash', 1, 5, 6, None, 0)]
 
 def test_login_sessions_table_shape_and_keys(tmp_path):
@@ -45,7 +45,7 @@ def test_login_sessions_table_shape_and_keys(tmp_path):
 
 def test_three_new_audit_actions_and_the_old_eighteen_are_all_accepted(tmp_path):
     c = fresh(tmp_path); a = {r[0] for r in c.execute('SELECT action FROM audit_actions')}
-    assert len(a) == 21 and {'PIN_SET', 'LOGOUT', 'LOGIN_LOCKED', 'LOGIN_OK', 'LOGIN_REJECTED', 'TOKEN_ROTATED', 'OPERATOR_DISABLED'} <= a
+    assert len(a) == 23 and {'PIN_SET', 'LOGOUT', 'LOGIN_LOCKED', 'LOGIN_OK', 'LOGIN_REJECTED', 'TOKEN_ROTATED', 'OPERATOR_DISABLED'} <= a
     operator(c)
     for i, act in enumerate(('PIN_SET', 'LOGOUT', 'LOGIN_LOCKED')): c.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action) VALUES (NULL, 0, ?, 1, ?)', (i + 1, act))
     rejects(lambda: c.execute("INSERT INTO audit_events(session_id, event_seq, ts, action) VALUES (NULL, 0, 9, 'PIN_RESET')"))   # not a frozen action
