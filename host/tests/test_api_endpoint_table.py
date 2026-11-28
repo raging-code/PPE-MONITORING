@@ -81,7 +81,7 @@ class Port:
         if ff == 99: raise F.FirefighterError('no firefighter with firefighter_id 99', 'missing')
         if ff == 5: raise F.FirefighterError('FFR-05 withdrew consent and the profile cannot be edited', 'conflict')
         self.calls.append('ff_edit'); return 'changed', 'firefighter_id %d (FFR-%02d) changed: %s' % (ff, ff, ', '.join(changes)), 'FFR-%02d' % ff, sorted(changes)
-    def withdraw_firefighter(self, ff, withdrawal_date=None):      # S8-5, S8-7
+    def withdraw_firefighter(self, ff, withdrawal_date=None, form_ref=None, witness=None):      # S8-5, S8-7, S8-8
         from ppe_host.services import firefighters as F
         if ff == 99: raise F.FirefighterError('no firefighter with firefighter_id 99', 'missing')
         self.calls.append('ff_withdraw'); return 'withdrawn', 'firefighter_id %d (FFR-%02d) consent withdrawn' % (ff, ff), 'FFR-%02d' % ff
@@ -112,7 +112,7 @@ VALID = {'POST /api/login': ('/api/login', {'token': 'good-token'}, None), 'POST
          'POST /api/firefighters/assign': ('/api/firefighters/assign', {'node_id': 1, 'firefighter_id': 1}, None),
          'POST /api/firefighters/active': ('/api/firefighters/active', {'firefighter_id': 1, 'active': False}, None),
          'POST /api/firefighters/edit': ('/api/firefighters/edit', {'firefighter_id': 1, 'weight_kg': 80.0}, None),      # S8-5
-         'POST /api/firefighters/withdraw': ('/api/firefighters/withdraw', {'firefighter_id': 1}, None)}
+         'POST /api/firefighters/withdraw': ('/api/firefighters/withdraw', {'firefighter_id': 1, 'withdrawal_form_ref': 'WF-1', 'withdrawal_witness': 'Witness Two'}, None)}
 # (key, label, path, body, query, status, setup): one request per listed non-200 code beyond the generated 401 and 403 rows
 EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, None, 401, None),
          ('POST /api/session/end', 'wrong confirm_text', '/api/session/end', {'confirm_text': 'x', 'session_id': 4}, None, 400, None),
@@ -149,9 +149,9 @@ EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, Non
          ('POST /api/firefighters/edit', 'withdrawn firefighter', '/api/firefighters/edit', {'firefighter_id': 5, 'weight_kg': 80.0}, None, 409, None),
          ('POST /api/firefighters/edit', 'weight is not a number', '/api/firefighters/edit', {'firefighter_id': 1, 'weight_kg': 'heavy'}, None, 422, None),
          ('POST /api/firefighters/edit', 'host recovering', '/api/firefighters/edit', {'firefighter_id': 1, 'weight_kg': 80.0}, None, 409, lambda p: setattr(p, 'recovering', 3.0)),
-         ('POST /api/firefighters/withdraw', 'unknown firefighter', '/api/firefighters/withdraw', {'firefighter_id': 99}, None, 404, None),
+         ('POST /api/firefighters/withdraw', 'unknown firefighter', '/api/firefighters/withdraw', {'firefighter_id': 99, 'withdrawal_form_ref': 'WF-1', 'withdrawal_witness': 'Witness Two'}, None, 404, None),
          ('POST /api/firefighters/withdraw', 'id is not a number', '/api/firefighters/withdraw', {'firefighter_id': 'x'}, None, 422, None),
-         ('POST /api/firefighters/withdraw', 'host recovering', '/api/firefighters/withdraw', {'firefighter_id': 1}, None, 409, lambda p: setattr(p, 'recovering', 3.0))]
+         ('POST /api/firefighters/withdraw', 'host recovering', '/api/firefighters/withdraw', {'firefighter_id': 1, 'withdrawal_form_ref': 'WF-1', 'withdrawal_witness': 'Witness Two'}, None, 409, lambda p: setattr(p, 'recovering', 3.0))]
 RECOVERING = ('POST /api/session/end', 'host recovering', '/api/session/end', {'confirm_text': 'END', 'session_id': 4}, None, 409, lambda p: setattr(p, 'recovering', 3.0))
 RECOVERING_REPLAY = ('POST /api/replay/pause', 'host recovering', '/api/replay/pause', {'paused': True}, None, 409, lambda p: setattr(p, 'recovering', 3.0))      # S7-5a
 RECOVERING_SPEED = ('POST /api/replay/speed', 'host recovering', '/api/replay/speed', {'speed': 4}, None, 409, lambda p: setattr(p, 'recovering', 3.0))      # S7-7a

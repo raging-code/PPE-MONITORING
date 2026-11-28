@@ -20,7 +20,7 @@ def add(c, **over): return F.add_firefighter(c, NOW, **{**GOOD, **over})
 def audit(c): return c.execute('SELECT action, node_id, reason FROM audit_events ORDER BY audit_id').fetchall()
 
 def test_migration_0006_adds_the_tables_and_three_audit_actions(db):
-    assert applied_versions(db) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert applied_versions(db) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type IN ('table','index')")}
     assert {'firefighters', 'firefighter_assignments', 'uq_assignment_open_node', 'uq_assignment_open_firefighter', 'idx_assignment_firefighter'} <= names
     a = {r[0] for r in db.execute('SELECT action FROM audit_actions')}

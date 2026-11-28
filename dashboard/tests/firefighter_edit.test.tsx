@@ -98,8 +98,8 @@ describe('Withdraw consent in Settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw consent for FFR-01' }));
     const dlg = screen.getByRole('alertdialog', { name: 'Withdraw consent for FFR-01' }); expect(dlg.textContent).toContain('cannot be undone'); expect(dlg.textContent).not.toContain('Sam');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' })); expect(screen.queryByRole('alertdialog')).toBeNull(); expect(posts(h)).toEqual([]);
-    fireEvent.click(screen.getByRole('button', { name: 'Withdraw consent for FFR-01' })); fireEvent.click(screen.getByRole('button', { name: 'Yes, withdraw consent' }));
-    expect((await screen.findByRole('status')).textContent).toContain('Consent withdrawn for FFR-01'); expect(posts(h)).toEqual([{ url: '/api/firefighters/withdraw', method: 'POST', body: { firefighter_id: 1 } }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw consent for FFR-01' })); fireEvent.change(screen.getByLabelText('Withdrawal form reference'), { target: { value: 'WF-1' } }); fireEvent.change(screen.getByLabelText('Witness to the withdrawal'), { target: { value: 'Witness Two' } }); fireEvent.click(screen.getByRole('button', { name: 'Yes, withdraw consent' }));
+    expect((await screen.findByRole('status')).textContent).toContain('Consent withdrawn for FFR-01'); expect(posts(h)).toEqual([{ url: '/api/firefighters/withdraw', method: 'POST', body: { firefighter_id: 1, withdrawal_form_ref: 'WF-1', withdrawal_witness: 'Witness Two' } }]);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit FFR-01' })).toBeNull());
     expect(screen.queryByRole('button', { name: 'Set FFR-01 active' })).toBeNull(); expect(screen.getAllByText('Consent withdrawn').length).toBeGreaterThan(0);
   });
@@ -112,7 +112,7 @@ describe('Withdraw consent in Settings', () => {
     const h = host([ROW], (u) => (u === '/api/firefighters/withdraw' ? { status: 409, body: { error_code: 'RECOVERING', detail: 'x', retry_after_s: 3 } } : undefined));
     render(<SettingsPanel api={h.api} onClose={() => {}} />); await screen.findByText('Sam Example');
     expect(screen.getByText(/people who withdrew consent are left out/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Withdraw consent for FFR-01' })); fireEvent.click(screen.getByRole('button', { name: 'Yes, withdraw consent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw consent for FFR-01' })); fireEvent.change(screen.getByLabelText('Withdrawal form reference'), { target: { value: 'WF-1' } }); fireEvent.change(screen.getByLabelText('Witness to the withdrawal'), { target: { value: 'Witness Two' } }); fireEvent.click(screen.getByRole('button', { name: 'Yes, withdraw consent' }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('recovering')); expect(screen.getByRole('alertdialog')).toBeTruthy();
   });
 });

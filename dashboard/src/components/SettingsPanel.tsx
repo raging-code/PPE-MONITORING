@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { Api } from '../api/actions.ts';
-import { activeMessage, addMessage, assignMessage, checkEdit, checkForm, checkWithdrawalDate, downloadReadings, editFormOf, editMessage, emptyForm, getFirefighters, isWithdrawn, postActive, postAssign, postEdit, postFirefighter, postWithdraw, readingsMessage, withdrawMessage, type EditForm, type FirefighterRow, type Form } from '../api/firefighters.ts';
+import { activeMessage, addMessage, assignMessage, checkEdit, checkForm, checkWithdrawalDate, checkWithdrawalProof, downloadReadings, editFormOf, editMessage, emptyForm, getFirefighters, isWithdrawn, postActive, postAssign, postEdit, postFirefighter, postWithdraw, readingsMessage, withdrawMessage, type EditForm, type FirefighterRow, type Form } from '../api/firefighters.ts';
 import { realSaveDeps, type SaveDeps } from '../api/shift.ts';
 import { useLive } from '../store/live.ts';
 import { setWearers } from '../store/wearers.ts';
@@ -17,7 +17,7 @@ export default function SettingsPanel({ api, onClose, saveDeps }: { api: Api; on
   const roster = useLive((s) => s.roster);
   const [load, setLoad] = useState<Load>({ kind: 'loading' }), [rows, setRows] = useState<FirefighterRow[]>([]);
   const [open, setOpen] = useState(false), [form, setForm] = useState<Form>(() => emptyForm(localToday())), [formError, setFormError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ row: FirefighterRow; form: EditForm } | null>(null), [editError, setEditError] = useState<string | null>(null), [confirming, setConfirming] = useState<FirefighterRow | null>(null), [withdrawDate, setWithdrawDate] = useState('');      // ADR 0076
+  const [editing, setEditing] = useState<{ row: FirefighterRow; form: EditForm } | null>(null), [editError, setEditError] = useState<string | null>(null), [confirming, setConfirming] = useState<FirefighterRow | null>(null), [withdrawDate, setWithdrawDate] = useState(''), [withdrawForm, setWithdrawForm] = useState(''), [withdrawWitness, setWithdrawWitness] = useState('');      // ADR 0076
   const [busy, setBusy] = useState(false), [note, setNote] = useState<string | null>(null), [pick, setPick] = useState<Record<number, string>>({});
   const run = useCallback(async () => {
     const r = await getFirefighters(api);
@@ -61,9 +61,11 @@ export default function SettingsPanel({ api, onClose, saveDeps }: { api: Api; on
   };
   const withdraw = async (r: FirefighterRow) => {      // ADR 0074: asked first; it cannot be undone here
     setBusy(true); setNote(null);
+    const noProof = checkWithdrawalProof(withdrawForm, withdrawWitness);      // ADR 0077: the form reference and the witness come first
+    if (noProof) { setBusy(false); setNote(noProof); return; }
     const bad = checkWithdrawalDate(withdrawDate, localToday(), r.consent_ts);      // ADR 0076: the same checks as the host, so a wrong date is said before anything is sent
     if (bad) { setBusy(false); setNote(bad); return; }
-    const res = await postWithdraw(api, r.firefighter_id, withdrawDate);
+    const res = await postWithdraw(api, r.firefighter_id, { formRef: withdrawForm, witness: withdrawWitness }, withdrawDate);
     setBusy(false); setNote(withdrawMessage(res, r.alias, withdrawDate));
     if (res.kind === 'ok') { setConfirming(null); setEditing(null); await run(); }
   };
@@ -90,7 +92,7 @@ export default function SettingsPanel({ api, onClose, saveDeps }: { api: Api; on
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-base">
                   <thead><tr><th className="p-1">Alias</th><th className="p-1">Name</th><th className="p-1">Age</th><th className="p-1">Weight (kg)</th><th className="p-1">Resting HR</th><th className="p-1">Smoker</th><th className="p-1">Wears</th><th className="p-1">Status</th><th className="p-1">Profile</th></tr></thead>
-                  <tbody>{rows.map((r) => <tr key={r.firefighter_id} className="border-t border-card-border"><td className="p-1">{r.alias}</td><td className="p-1">{r.full_name}</td><td className="p-1">{r.age_years}</td><td className="p-1">{r.weight_kg}</td><td className="p-1">{r.resting_hr}</td><td className="p-1">{r.smoker ? 'Yes' : 'No'}</td><td className="p-1">{isWithdrawn(r) ? 'consent withdrawn' : r.active ? nodeAlias(r.node_id) : 'inactive'}</td><td className="p-1">{isWithdrawn(r) ? 'Consent withdrawn' : <button type="button" className={BTN} disabled={busy} aria-label={r.active ? `Set ${r.alias} inactive` : `Set ${r.alias} active`} onClick={() => { void toggle(r); }}>{r.active ? 'Set inactive' : 'Set active'}</button>}</td><td className="p-1">{isWithdrawn(r) ? '' : <span className="flex flex-wrap gap-1"><button type="button" className={BTN} disabled={busy} aria-label={`Edit ${r.alias}`} onClick={() => startEdit(r)}>Edit</button><button type="button" className={BTN} disabled={busy} aria-label={`Withdraw consent for ${r.alias}`} onClick={() => { setEditing(null); setWithdrawDate(''); setConfirming(r); }}>Withdraw consent</button></span>}</td></tr>)}</tbody>
+                  <tbody>{rows.map((r) => <tr key={r.firefighter_id} className="border-t border-card-border"><td className="p-1">{r.alias}</td><td className="p-1">{r.full_name}</td><td className="p-1">{r.age_years}</td><td className="p-1">{r.weight_kg}</td><td className="p-1">{r.resting_hr}</td><td className="p-1">{r.smoker ? 'Yes' : 'No'}</td><td className="p-1">{isWithdrawn(r) ? 'consent withdrawn' : r.active ? nodeAlias(r.node_id) : 'inactive'}</td><td className="p-1">{isWithdrawn(r) ? 'Consent withdrawn' : <button type="button" className={BTN} disabled={busy} aria-label={r.active ? `Set ${r.alias} inactive` : `Set ${r.alias} active`} onClick={() => { void toggle(r); }}>{r.active ? 'Set inactive' : 'Set active'}</button>}</td><td className="p-1">{isWithdrawn(r) ? '' : <span className="flex flex-wrap gap-1"><button type="button" className={BTN} disabled={busy} aria-label={`Edit ${r.alias}`} onClick={() => startEdit(r)}>Edit</button><button type="button" className={BTN} disabled={busy} aria-label={`Withdraw consent for ${r.alias}`} onClick={() => { setEditing(null); setWithdrawDate(''); setWithdrawForm(''); setWithdrawWitness(''); setConfirming(r); }}>Withdraw consent</button></span>}</td></tr>)}</tbody>
                 </table>
               </div>
             )}
@@ -98,6 +100,8 @@ export default function SettingsPanel({ api, onClose, saveDeps }: { api: Api; on
               <div role="alertdialog" aria-label={`Withdraw consent for ${confirming.alias}`} className="space-y-2 rounded border-2 border-card-border p-2">
                 <p className="text-base font-semibold">Withdraw consent for {confirming.alias}? {confirming.alias} is set inactive, stops wearing a jacket and is left out of the readings download. The profile stays as the record. This cannot be undone here.</p>
                 <label className="block text-base">Date consent was withdrawn (leave empty for today)<input type="date" className={FIELD} value={withdrawDate} max={localToday()} min={new Date(confirming.consent_ts).toISOString().slice(0, 10)} disabled={busy} onChange={(e) => setWithdrawDate(e.target.value)} /></label>
+                <label className="block text-base">Withdrawal form reference<input type="text" className={FIELD} value={withdrawForm} maxLength={40} disabled={busy} onChange={(e) => setWithdrawForm(e.target.value)} /></label>
+                <label className="block text-base">Witness to the withdrawal<input type="text" className={FIELD} value={withdrawWitness} maxLength={80} disabled={busy} onChange={(e) => setWithdrawWitness(e.target.value)} /></label>
                 <div className="flex flex-wrap gap-2"><button type="button" className={BTN} disabled={busy} onClick={() => { void withdraw(confirming); }}>Yes, withdraw consent</button><button type="button" className={BTN} disabled={busy} onClick={() => setConfirming(null)}>Cancel</button></div>
               </div>
             )}

@@ -39,6 +39,11 @@ def consent_ts_of(date_text, now_ms):
     if ts > now_ms + 86_400_000: raise FirefighterError('the consent date is in the future')
     return ts
 
+def check_withdrawal_proof(form_ref, witness):
+    """S8-8 (ADR 0077): the reference of the paper withdrawal form and the witness, both required like the form version and the witness of the consent. Returns (form_ref, witness) trimmed.
+    No message holds either value."""
+    return _text('withdrawal form reference', form_ref, 40), _text('withdrawal witness', witness, 80)
+
 def withdrawal_ts_of(date_text, now_ms, consent_ts):
     """S8-7 (ADR 0076): the withdrawal date as (ms, YYYY-MM-DD), or (now, None) when none is given. The checks are those of the consent date: YYYY-MM-DD, not later than tomorrow (time zones),
     and a withdrawal cannot come before the day of the consent it withdraws."""
@@ -165,19 +170,22 @@ def plan_edit(conn, firefighter_id, changes, now_ms):
     stmts = [('UPDATE firefighters SET ' + ', '.join('%s = ?' % k for k in changed) + ' WHERE firefighter_id = ?', tuple(new[k] for k in changed) + (firefighter_id,))]
     return 'changed', stmts, 'firefighter_id %d (%s) changed: %s' % (firefighter_id, row[0], ', '.join(changed)), row[0], changed
 
-def plan_withdraw(conn, firefighter_id, now_ms, withdrawal_date=None):
+def plan_withdraw(conn, firefighter_id, now_ms, withdrawal_date=None, *, form_ref=None, witness=None):
     """S8-5 (ADR 0074): what withdrawing a person's consent would do, without doing it. Returns (outcome, stmts, reason, alias): outcome 'withdrawn' or 'unchanged' (already withdrawn, nothing to write).
     The date of the withdrawal is stored (consent_withdrawn_ts), the person is set inactive and the jacket they wear is ended. Nothing is deleted: the profile and the consent record stay as the record of what was agreed
     and when it was withdrawn. Their readings are left out of the per-firefighter export (services/firefighter_export.py). It cannot be undone through the software: a person who agrees again gets a new profile
     with a new consent. An unknown firefighter is kind 'missing'.
     S8-7 (ADR 0076): withdrawal_date (YYYY-MM-DD, optional) is the day the person withdrew, for a paper withdrawal from an earlier day; it is stored in consent_withdrawn_ts (00:00 UTC of that day)
     and checked like the consent date (not in the future, not before the consent day). Without it the stored time is now. The jacket is still ended now, because the person wore it until the operator
-    recorded the withdrawal; only the legal date moves. A repeat of an already withdrawn person writes nothing and its date is not looked at. A refused date is kind 'invalid' and writes nothing."""
+    recorded the withdrawal; only the legal date moves. A repeat of an already withdrawn person writes nothing and its date is not looked at. A refused date is kind 'invalid' and writes nothing.
+    S8-8 (ADR 0077): form_ref and witness are required to withdraw (a person already withdrawn is 'unchanged' without them). They are stored in consent_withdrawal_form and consent_withdrawal_witness and
+    are in no audit row, response, log or export."""
     f = conn.execute('SELECT alias, consent_withdrawn_ts, consent_ts FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
     if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
     if f[1] is not None: return 'unchanged', [], None, f[0]
+    form, wit = check_withdrawal_proof(form_ref, witness)
     ts, label = withdrawal_ts_of(withdrawal_date, now_ms, f[2])
-    stmts = [('UPDATE firefighters SET consent_withdrawn_ts = ?, active = 0 WHERE firefighter_id = ?', (ts, firefighter_id)),
+    stmts = [('UPDATE firefighters SET consent_withdrawn_ts = ?, consent_withdrawal_form = ?, consent_withdrawal_witness = ?, active = 0 WHERE firefighter_id = ?', (ts, form, wit, firefighter_id)),
              ('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE firefighter_id = ? AND end_ts IS NULL', (now_ms, firefighter_id))]
     return 'withdrawn', stmts, 'firefighter_id %d (%s) consent withdrawn%s' % (firefighter_id, f[0], '' if label is None else ' (withdrawal dated %s)' % label), f[0]
 

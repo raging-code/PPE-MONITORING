@@ -29,7 +29,18 @@ export interface EditedBody { firefighter_id: number; alias: string; result: 'ch
 export interface WithdrawnBody { firefighter_id: number; alias: string; result: 'withdrawn' | 'unchanged' }
 export const postEdit = (api: Api, body: EditBody): Promise<ActionResult<EditedBody>> => request<EditedBody>(api, 'POST', '/api/firefighters/edit', body);
 // ADR 0076: the optional date of the withdrawal (YYYY-MM-DD). It is sent only when filled in, so a plain withdrawal sends exactly {firefighter_id}.
-export const postWithdraw = (api: Api, firefighterId: number, withdrawalDate?: string): Promise<ActionResult<WithdrawnBody>> => request<WithdrawnBody>(api, 'POST', '/api/firefighters/withdraw', withdrawalDate ? { firefighter_id: firefighterId, withdrawal_date: withdrawalDate } : { firefighter_id: firefighterId });
+// ADR 0077: the reference of the paper withdrawal form and its witness are required, like the form version and the witness of the consent. Both are sent trimmed.
+export interface WithdrawProof { formRef: string; witness: string }
+export const postWithdraw = (api: Api, firefighterId: number, proof: WithdrawProof, withdrawalDate?: string): Promise<ActionResult<WithdrawnBody>> =>
+  request<WithdrawnBody>(api, 'POST', '/api/firefighters/withdraw', { firefighter_id: firefighterId, withdrawal_form_ref: proof.formRef.trim(), withdrawal_witness: proof.witness.trim(), ...(withdrawalDate ? { withdrawal_date: withdrawalDate } : {}) });
+// The first problem with the proof of a withdrawal as a sentence, or null. The limits are those of the host (40 and 80 characters).
+export function checkWithdrawalProof(formRef: string, witness: string): string | null {
+  if (formRef.trim() === '') return 'Enter the reference of the withdrawal form.';
+  if (witness.trim() === '') return 'Enter the name of the witness.';
+  if (formRef.trim().length > 40) return 'The form reference is at most 40 characters.';
+  if (witness.trim().length > 80) return 'The witness name is at most 80 characters.';
+  return null;
+}
 // The first problem with the date of a withdrawal as a sentence, or null. '' means today. today is YYYY-MM-DD in this screen's local date; the consent day is read as UTC like the host does.
 export function checkWithdrawalDate(date: string, today: string, consentTs: number): string | null {
   if (date === '') return null;

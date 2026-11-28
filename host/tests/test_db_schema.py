@@ -21,7 +21,7 @@ def rejects(fn):
 
 def test_schema_dump_equals_the_migration_files(tmp_path):
     ref = sqlite3.connect(':memory:'); [ref.executescript(f.read_text(encoding='utf8')) for f in sorted(MIG.glob('0*.sql'))]
-    c = new_db(tmp_path); assert master(c) == master(ref) and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8]
+    c = new_db(tmp_path); assert master(c) == master(ref) and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     assert c.execute('SELECT description FROM schema_version').fetchone()[0].startswith('Migration 0001')
 
 def test_roster_trigger_rejects_ok_frame_with_unknown_node_but_not_bad_mac(tmp_path):
@@ -43,7 +43,7 @@ def test_fresh_and_upgraded_databases_have_the_same_schema_and_a_backup_hook_run
     assert run_migrations(b, str(d), 3, lambda: calls.append(1)) == [] and calls == [1]
 
 def test_a_database_newer_than_the_code_is_refused_and_a_failed_migration_rolls_back(tmp_path):
-    c = new_db(tmp_path); c.execute("INSERT INTO schema_version VALUES (9, 1, 'future')")
+    c = new_db(tmp_path); c.execute("INSERT INTO schema_version VALUES (10, 1, 'future')")
     with pytest.raises(DatabaseTooNewError): run_migrations(c, str(MIG), 1)
     d = tmp_path / 'm'; d.mkdir(); (d / '0001.sql').write_text('CREATE TABLE ok (x INTEGER);\nCREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_ts INTEGER NOT NULL, description TEXT NOT NULL);', encoding='utf8')
     (d / '0002.sql').write_text('CREATE TABLE half (x INTEGER);\nTHIS IS NOT SQL;', encoding='utf8')

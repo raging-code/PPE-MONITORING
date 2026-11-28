@@ -46,10 +46,10 @@ class DbPort:
             if stmts: F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
             return result, reason, alias, changed
         finally: c.close()
-    def withdraw_firefighter(self, firefighter_id, withdrawal_date=None):      # S8-5, S8-7
+    def withdraw_firefighter(self, firefighter_id, withdrawal_date=None, form_ref=None, witness=None):      # S8-5, S8-7, S8-8
         c = self._conn()
         try:
-            result, stmts, reason, alias = F.plan_withdraw(c, firefighter_id, NOW, withdrawal_date)
+            result, stmts, reason, alias = F.plan_withdraw(c, firefighter_id, NOW, withdrawal_date, form_ref=form_ref, witness=witness)
             if stmts: F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
             return result, reason, alias
         finally: c.close()

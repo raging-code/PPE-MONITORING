@@ -17,7 +17,7 @@ def rejects(fn):
     with pytest.raises(sqlite3.IntegrityError): fn()
 
 def test_fresh_database_gets_0001_0002_0003_and_the_description_names_0003(tmp_path):
-    c = fresh(tmp_path); assert applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8]          # S7-5a added 0004, S7-7a 0005, S8-1 0006, S8-3a 0007, S8-5 0008
+    c = fresh(tmp_path); assert applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8, 9]          # S7-5a added 0004, S7-7a 0005, S8-1 0006, S8-3a 0007, S8-5 0008, S8-8 0009
     assert c.execute('SELECT description FROM schema_version WHERE version = 3').fetchone()[0].startswith('Migration 0003')
     assert run_migrations(c, str(MIG), 2000) == []                       # a second run applies nothing
 
@@ -30,7 +30,7 @@ def test_an_existing_version_2_database_is_upgraded_and_keeps_its_operator_and_t
     d = tmp_path / 'm2'; d.mkdir(); shutil.copy(MIG / '0001.sql', d / '0001.sql'); shutil.copy(MIG / '0002.sql', d / '0002.sql')
     c = connect_db(tmp_path / 'old.db'); assert run_migrations(c, str(d), 1) == [1, 2] and 'pin_hash' not in cols(c, 'operators')
     c.execute("INSERT INTO operators(operator_id, display_name, token_hash, created_ts, token_issued_ts) VALUES (7, 'Old', 'tokhash', 5, 6)")
-    assert run_migrations(c, str(MIG), 2) == [3, 4, 5, 6, 7, 8] and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert run_migrations(c, str(MIG), 2) == [3, 4, 5, 6, 7, 8, 9] and applied_versions(c) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     assert c.execute('SELECT display_name, token_hash, active, created_ts, token_issued_ts, pin_hash, pin_fails FROM operators').fetchall() == [('Old', 'tokhash', 1, 5, 6, None, 0)]
 
 def test_login_sessions_table_shape_and_keys(tmp_path):

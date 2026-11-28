@@ -18,7 +18,7 @@ def rig(tmp_path):
     p = tmp_path / 'live.db'; assert cli.main(['seed-roster', '--db', str(p)]) == 0; port = DbPort(p)
     return TestClient(R.create_app(port, p), base_url='http://127.0.0.1:8420', raise_server_exceptions=False), port, p
 
-def withdraw(client, ff, **extra): return client.post('/api/firefighters/withdraw', json={'firefighter_id': ff, **extra}, headers=GOOD)
+def withdraw(client, ff, **extra): return client.post('/api/firefighters/withdraw', json={'firefighter_id': ff, 'withdrawal_form_ref': 'WF-1', 'withdrawal_witness': 'Witness Two', **extra}, headers=GOOD)      # S8-8: the proof is required
 def row(client, n=0): return client.get('/api/firefighters', headers=GOOD).json()[n]
 
 def test_a_past_date_is_stored_as_midnight_utc_and_the_jacket_still_ends_now(rig):
@@ -69,7 +69,7 @@ def test_a_repeat_ignores_the_date_and_keeps_the_first_one(rig):
 def test_the_service_returns_the_label_and_the_withdrawal_date_checks_directly(tmp_path):
     p = tmp_path / 'live.db'; assert cli.main(['seed-roster', '--db', str(p)]) == 0
     c = connect_db(p); F.add_firefighter(c, NOW, full_name='Sam Example', age_years=30, height_cm=180, weight_kg=80, resting_hr=60, smoker=False, consent=True, consent_form_version='v1', consent_witness='W', consent_date='2027-01-01')
-    outcome, stmts, reason, alias = F.plan_withdraw(c, 1, NOW, '2027-01-03'); assert (outcome, alias) == ('withdrawn', 'FFR-01') and reason.endswith('(withdrawal dated 2027-01-03)') and stmts[0][1][0] == day_ms('2027-01-03') and stmts[1][1][0] == NOW
+    outcome, stmts, reason, alias = F.plan_withdraw(c, 1, NOW, '2027-01-03', form_ref='WF-1', witness='W'); assert (outcome, alias) == ('withdrawn', 'FFR-01') and reason.endswith('(withdrawal dated 2027-01-03)') and stmts[0][1][0] == day_ms('2027-01-03') and stmts[1][1][0] == NOW
     assert F.withdrawal_ts_of(None, NOW, 0) == (NOW, None) and F.withdrawal_ts_of('', NOW, 0) == (NOW, None)
     with pytest.raises(F.FirefighterError): F.withdrawal_ts_of('2027-01-17', NOW, day_ms('2027-01-01'))      # two days ahead is the future
     assert F.withdrawal_ts_of('2027-01-16', NOW, day_ms('2027-01-01'))[0] == day_ms('2027-01-16')      # tomorrow is the allowed slack

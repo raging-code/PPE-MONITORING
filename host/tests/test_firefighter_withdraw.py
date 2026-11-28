@@ -18,7 +18,7 @@ def rig(tmp_path):
     return TestClient(R.create_app(port, p), base_url='http://127.0.0.1:8420', raise_server_exceptions=False), port
 
 def edit(client, ff, **fields): return client.post('/api/firefighters/edit', json={'firefighter_id': ff, **fields}, headers=GOOD)
-def withdraw(client, ff): return client.post('/api/firefighters/withdraw', json={'firefighter_id': ff}, headers=GOOD)
+def withdraw(client, ff): return client.post('/api/firefighters/withdraw', json={'firefighter_id': ff, 'withdrawal_form_ref': 'WF-1', 'withdrawal_witness': 'Witness Two'}, headers=GOOD)      # S8-8: the proof is required
 def row(client, n=0): return client.get('/api/firefighters', headers=GOOD).json()[n]
 
 # ---- edit ----
@@ -95,7 +95,7 @@ def test_withdraw_refusals_and_recovering_and_no_token(rig):
 def test_the_export_leaves_out_every_reading_of_a_person_who_withdrew_before_and_after_and_keeps_the_rest(tmp_path):
     c, db = db_with_people(tmp_path); F.assign(c, 1000, 1, 1); F.assign(c, 1000, 2, 2)
     frame(c, 1, 1, rx_ts=1500); frame(c, 2, 2, rx_ts=1500); frame(c, 3, 3, rx_ts=1500)      # Sam, Pat, a node nobody wears
-    outcome, stmts, _, _ = F.plan_withdraw(c, 1, 2000); assert outcome == 'withdrawn'; F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
+    outcome, stmts, _, _ = F.plan_withdraw(c, 1, 2000, form_ref='WF-1', witness='W'); assert outcome == 'withdrawn'; F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
     frame(c, 4, 1, rx_ts=2500); frame(c, 5, 2, rx_ts=2500)      # after: node 1 is unassigned now, node 2 is still Pat
     _, rows = parse(FX.iter_csv(db)); assert who(rows) == [(2, 'FFR-02'), (3, ''), (4, ''), (5, 'FFR-02')]      # Sam's reading 1 is gone, the unassigned stretch after it stays
     assert c.execute('SELECT full_name, consent_ts, consent_withdrawn_ts FROM firefighters WHERE firefighter_id = 1').fetchone()[2] == 2000      # the record stays in the database
@@ -103,7 +103,7 @@ def test_the_export_leaves_out_every_reading_of_a_person_who_withdrew_before_and
 def test_the_export_of_one_session_leaves_the_withdrawn_person_out_too_and_the_columns_are_the_same(tmp_path):
     c, db = db_with_people(tmp_path); F.assign(c, 1000, 1, 1)
     frame(c, 1, 1, rx_ts=1500, session_id=2)
-    _, stmts, _, _ = F.plan_withdraw(c, 1, 2000); F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
+    _, stmts, _, _ = F.plan_withdraw(c, 1, 2000, form_ref='WF-1', witness='W'); F._txn(c, lambda: [c.execute(s, p) for s, p in stmts])
     head, rows = parse(FX.iter_csv(db, 2)); assert rows == [] and head == list(FX.COLUMNS)
 
 def test_the_row_keeps_its_place_when_nobody_withdrew_and_an_edit_does_not_change_the_export(tmp_path):

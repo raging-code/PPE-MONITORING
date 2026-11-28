@@ -409,6 +409,8 @@ class FirefighterEditResp(_Strict):
 class FirefighterWithdrawReq(_Strict):
     firefighter_id: int = Field(ge=1)
     withdrawal_date: Optional[str] = Field(default=None, max_length=10)      # S8-7 (ADR 0076): YYYY-MM-DD, null or absent = now
+    withdrawal_form_ref: str = Field(min_length=1, max_length=40)            # S8-8 (ADR 0077): the reference of the paper withdrawal form, required
+    withdrawal_witness: str = Field(min_length=1, max_length=80)             # S8-8 (ADR 0077): the witness of the withdrawal, required
 class FirefighterWithdrawResp(_Strict):
     firefighter_id: int
     alias: str

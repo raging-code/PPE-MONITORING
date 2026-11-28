@@ -37,7 +37,9 @@ afterEach(cleanup);
 async function openDialog(h: ReturnType<typeof host>) {
   render(<SettingsPanel api={h.api} onClose={() => {}} />); await screen.findByText('Sam Example');
   fireEvent.click(screen.getByRole('button', { name: 'Withdraw consent for FFR-01' }));
-  return screen.getByRole('alertdialog', { name: 'Withdraw consent for FFR-01' });
+  const dlg = screen.getByRole('alertdialog', { name: 'Withdraw consent for FFR-01' });
+  fireEvent.change(within(dlg).getByLabelText('Withdrawal form reference'), { target: { value: 'WF-1' } }); fireEvent.change(within(dlg).getByLabelText('Witness to the withdrawal'), { target: { value: 'Witness Two' } });      // ADR 0077
+  return dlg;
 }
 
 describe('checkWithdrawalDate and withdrawMessage', () => {
@@ -54,17 +56,17 @@ describe('checkWithdrawalDate and withdrawMessage', () => {
 });
 
 describe('the Withdraw consent dialog', () => {
-  it('has an empty date field limited to the days from the consent to today, and a plain Yes sends exactly {firefighter_id}', async () => {
+  it('has an empty date field limited to the days from the consent to today, and a plain Yes sends no date', async () => {
     const h = host(); const dlg = await openDialog(h); const input = within(dlg).getByLabelText(LABEL) as HTMLInputElement;
     expect(input.type).toBe('date'); expect(input.value).toBe(''); expect(input.max).toBe(localToday()); expect(input.min).toBe('2020-01-01'); expect(dlg.textContent).not.toContain('Sam');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Yes, withdraw consent' }));
-    expect((await screen.findByRole('status')).textContent).not.toContain('dated'); expect(posts(h)).toEqual([{ url: '/api/firefighters/withdraw', method: 'POST', body: { firefighter_id: 1 } }]);
+    expect((await screen.findByRole('status')).textContent).not.toContain('dated'); expect(posts(h)).toEqual([{ url: '/api/firefighters/withdraw', method: 'POST', body: { firefighter_id: 1, withdrawal_form_ref: 'WF-1', withdrawal_witness: 'Witness Two' } }]);
   });
   it('a date is sent as withdrawal_date and named in the sentence', async () => {
     const h = host(); const dlg = await openDialog(h);
     fireEvent.change(within(dlg).getByLabelText(LABEL), { target: { value: '2025-06-15' } }); fireEvent.click(within(dlg).getByRole('button', { name: 'Yes, withdraw consent' }));
     expect((await screen.findByRole('status')).textContent).toContain('Consent withdrawn for FFR-01 (dated 2025-06-15)');
-    expect(posts(h)).toEqual([{ url: '/api/firefighters/withdraw', method: 'POST', body: { firefighter_id: 1, withdrawal_date: '2025-06-15' } }]);
+    expect(posts(h)).toEqual([{ url: '/api/firefighters/withdraw', method: 'POST', body: { firefighter_id: 1, withdrawal_form_ref: 'WF-1', withdrawal_witness: 'Witness Two', withdrawal_date: '2025-06-15' } }]);
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   });
   it('a date in the future or before the consent is said on the screen, nothing is sent and the dialog stays open', async () => {
