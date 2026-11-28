@@ -1,5 +1,5 @@
 """services/doctor.py (P24-5b, ADR 0047): `python -m ppe_host.cli doctor`, the pre-shift check of design 1 (Release bundle and doctor, Rev 3.43).
-One line per check, PASS, FAIL or SKIP: release version, host ABI, settings, base serial device, sound files, audio device, free disk, port, prebuilt dashboard, secrets.json, database quick_check, operator PINs, base ABI, lockfile.
+One line per check, PASS, WARN, FAIL or SKIP: release version, host ABI, settings, base serial device, sound files, audio device, free disk, port, prebuilt dashboard, secrets.json, database quick_check, operator PINs, base ABI, lockfile.
 It changes nothing: the database is opened read-only, the serial port is only looked up in the list of the system (never opened, so no DTR or RTS pulse reaches the ESP32), the port is only connected to, and the only
 sound is the 100 ms silent probe WAV. Everything that touches the machine is a parameter of run_checks(), so the tests need no serial device, sound card or open port."""
 import json, socket, sqlite3, sys
@@ -10,7 +10,7 @@ from . import abi_check
 from ..io.audio_watchdog import SOUNDS_DIR, check_sounds
 from ..io.health import disk_free_gb
 
-PASS, FAIL, SKIP = 'PASS', 'FAIL', 'SKIP'
+PASS, WARN, FAIL, SKIP = 'PASS', 'WARN', 'FAIL', 'SKIP'
 
 def default_comports():
     from serial.tools import list_ports                  # pyserial is a runtime dependency; ImportError is reported as a FAIL
@@ -114,7 +114,7 @@ def check_host_abi(root):
     return PASS, 'host ABI', 'abi.py matches abi.json (beacon abi %d)' % host_abi.BEACON_ABI_VER
 
 def check_operator_pins(db):
-    """P28-6 (ADR 0056): which active operators have no PIN. Never a FAIL: the operator token stays the admin and break-glass login, so an operator who signs in with the token only is allowed.
+    """P28-6 (ADR 0056): which active operators have no PIN (P28-7: a WARN, so the summary line counts it). Never a FAIL: the operator token stays the admin and break-glass login, so an operator who signs in with the token only is allowed.
     The row names the operators without a PIN so the administrator can run `cli set-pin --operator-id N` before the shift. SKIP without a database, without an active operator, or with a database that is not at migration 0003 yet."""
     name = 'operator PINs'
     if not Path(db).exists(): return SKIP, name, 'no database yet'
@@ -129,7 +129,7 @@ def check_operator_pins(db):
     if not ops: return SKIP, name, 'no active operator yet'
     missing = ['%s (id %d)' % (n, i) for i, n, has in ops if not has]
     if not missing: return PASS, name, '%d active operator(s), every one has a PIN' % len(ops)
-    return PASS, name, 'no PIN for %d of %d active operator(s): %s%s; they sign in with the token only (cli set-pin --operator-id N gives a PIN)' % (len(missing), len(ops), ', '.join(missing[:4]), ' ...' if len(missing) > 4 else '')
+    return WARN, name, 'no PIN for %d of %d active operator(s): %s%s; they sign in with the token only (cli set-pin --operator-id N gives a PIN)' % (len(missing), len(ops), ', '.join(missing[:4]), ' ...' if len(missing) > 4 else '')
 
 def check_base_abi(db):
     """P24-5h (ADR 0053): the last thing the base reported about its ABI. doctor never opens the serial port, so it reads the database: the newest ABI_MISMATCH or ABI_OK row of the newest session.
@@ -169,6 +169,6 @@ def run_checks(home=None, db=None, root=REPO_ROOT, sounds_dir=SOUNDS_DIR, compor
 
 def format_rows(rows):
     lines = ['doctor: %-4s %s: %s' % r for r in rows]
-    n = {k: sum(1 for r in rows if r[0] == k) for k in (PASS, FAIL, SKIP)}
-    lines.append('doctor: %d passed, %d failed, %d skipped' % (n[PASS], n[FAIL], n[SKIP]))
+    n = {k: sum(1 for r in rows if r[0] == k) for k in (PASS, WARN, FAIL, SKIP)}
+    lines.append('doctor: %d passed, %d failed, %d skipped' % (n[PASS], n[FAIL], n[SKIP]) + (', %d warned' % n[WARN] if n[WARN] else ''))      # a WARN never fails the run; the word appears only when something warned
     return lines, n[FAIL] == 0

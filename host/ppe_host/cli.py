@@ -200,6 +200,23 @@ def cmd_doctor(a):
     lines, ok = D.format_rows(D.run_checks(a.home, a.db))
     print('\n'.join(lines)); return 0 if ok else 1
 COMMANDS['doctor'] = (cmd_doctor, list(OPERATOR_FLAGS))
+# ---- P28-7: purge-login-sessions (ADR 0056). Offline only (the host writes login_sessions). Exit 0 done or nothing to do, 1 refused or cannot run ----
+def cmd_purge_login_sessions(a):
+    from .services import login_purge as L
+    from .main import LOCK_NAME, Lockfile                       # imported here: main imports this module
+    cmd = 'purge-login-sessions'
+    try: s = load_settings(a.home); db = Path(a.db) if a.db else s.path('db_path')
+    except SettingsError as e: return _fail(cmd, str(e))
+    if a.older_than_days < 0: return _fail(cmd, '--older-than-days must be 0 or more')
+    lock = s.home / LOCK_NAME
+    if Lockfile.holder_alive(lock): return _fail(cmd, 'the host is running (lockfile %s): stop it first' % lock)
+    if not db.exists(): return _fail(cmd, 'database file not found: %s' % db)
+    try: n, kept = L.purge_old(db, int(time.time() * 1000), a.older_than_days, a.dry_run)
+    except LookupError as e: return _fail(cmd, str(e))
+    except sqlite3.Error as e: return _fail(cmd, 'failed and rolled back: %s: %s' % (type(e).__name__, e))
+    print('%s: %s %d login session(s) dead for more than %d day(s); %d row(s) remain%s' % (cmd, 'would delete' if a.dry_run else 'deleted', n, a.older_than_days, kept, ' (dry run, nothing changed)' if a.dry_run else '')); return 0
+COMMANDS['purge-login-sessions'] = (cmd_purge_login_sessions, [('--older-than-days', {'type': int, 'default': 30, 'help': 'delete sessions that have been expired or revoked for more than this many days (default 30; live sessions are never deleted)'}),
+    ('--dry-run', {'action': 'store_true', 'help': 'count only, change nothing'})] + OPERATOR_FLAGS)
 # ---- P24-5c: ack --node N, the CLI stop test of design 8 (ADR 0048). Needs the running host: it calls POST /api/alerts/{id}/ack for each open alert of the node, with the token in PPE_TOKEN ----
 def cmd_ack(a):
     import os

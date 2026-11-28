@@ -194,7 +194,7 @@ def test_the_operator_pin_row_passes_when_every_active_operator_has_a_pin(tmp_pa
 def test_the_operator_pin_row_names_who_has_no_pin_and_is_never_a_fail(tmp_path):
     home, root = make(tmp_path); add_operators(abi_db(home, []), ('Ana', True), ('Ben', False), ('Cy', False), ('Old', False, 0))      # Old is disabled: not named
     rows = run(tmp_path, home, root); r = by(rows, 'operator PINs')
-    assert r[0] == 'PASS' and 'no PIN for 2 of 3 active operator(s): Ben (id 2), Cy (id 3)' in r[2] and 'Old' not in r[2] and 'set-pin' in r[2] and 'token only' in r[2]
+    assert r[0] == 'WARN' and 'no PIN for 2 of 3 active operator(s): Ben (id 2), Cy (id 3)' in r[2] and 'Old' not in r[2] and 'set-pin' in r[2] and 'token only' in r[2]
     assert D.format_rows(rows)[1] is True                                                                                                # the exit code stays 0
 
 def test_the_operator_pin_row_lists_four_names_and_then_dots(tmp_path):
@@ -213,9 +213,24 @@ def test_the_operator_pin_row_is_skipped_without_a_database_an_operator_or_migra
 
 def test_the_operator_pin_row_changes_nothing(tmp_path):
     home, root = make(tmp_path); add_operators(abi_db(home, [[]]), ('Ana', False)); before = tree(tmp_path)
-    assert status(run(tmp_path, home, root), 'operator PINs') == 'PASS' and tree(tmp_path) == before
+    assert status(run(tmp_path, home, root), 'operator PINs') == 'WARN' and tree(tmp_path) == before
 
 def test_a_settings_problem_skips_the_operator_pin_row_with_the_others(tmp_path):
     home, root = make(tmp_path); (home / 'config' / 'settings.local.json').write_text('{"session_hours": 0}')
     assert status(run(tmp_path, home, root), 'operator PINs') == 'SKIP'
 
+def test_the_operator_pin_row_is_a_warn_that_counts_and_never_fails_the_run(tmp_path):
+    home, root = make(tmp_path); add_operators(abi_db(home, [[]]), ('Ana', True), ('Ben', False)); rows = run(tmp_path, home, root)
+    assert status(rows, 'operator PINs') == 'WARN'
+    lines, ok = D.format_rows(rows); assert ok is True
+    assert any(l.startswith('doctor: WARN operator PINs: no PIN for 1 of 2 active operator(s): Ben (id 2)') for l in lines) and lines[-1] == 'doctor: 13 passed, 0 failed, 0 skipped, 1 warned'
+
+def test_the_summary_line_names_warned_only_when_a_check_warned():
+    lines, ok = D.format_rows([('PASS', 'a', 'x'), ('WARN', 'b', 'y'), ('WARN', 'c', 'z'), ('SKIP', 'd', 'w')])
+    assert ok and lines[-1] == 'doctor: 1 passed, 0 failed, 1 skipped, 2 warned'
+    lines, ok = D.format_rows([('PASS', 'a', 'x'), ('FAIL', 'b', 'y'), ('WARN', 'c', 'z')]); assert not ok and lines[-1] == 'doctor: 1 passed, 1 failed, 0 skipped, 1 warned'
+    lines, ok = D.format_rows([('PASS', 'a', 'x')]); assert ok and lines[-1] == 'doctor: 1 passed, 0 failed, 0 skipped'
+
+def test_cli_doctor_exits_0_on_a_warn(capsys, monkeypatch):
+    monkeypatch.setattr(D, 'run_checks', lambda home=None, db=None: [('PASS', 'a', 'fine'), ('WARN', 'b', 'check this')])
+    assert cli.main(['doctor']) == 0; out = capsys.readouterr().out; assert 'doctor: WARN b: check this' in out and out.rstrip().endswith('doctor: 1 passed, 0 failed, 0 skipped, 1 warned')
