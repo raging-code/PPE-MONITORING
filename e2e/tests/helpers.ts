@@ -22,7 +22,7 @@ export async function signIn(page: Page): Promise<number> {
   await page.getByRole('button', { name: 'Use the admin token instead' }).click();
   await page.getByLabel('Token').fill('e2e-token');
   const t = Date.now();
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();   // exact: the token form also has the link 'Sign in with name and PIN'
   return t;
 }
 
@@ -39,7 +39,7 @@ export async function signInWithPin(page: Page, opts: { remember?: boolean } = {
   await page.getByLabel('PIN', { exact: true }).fill(PIN);
   if (opts.remember) await page.getByLabel('Remember me on this browser').check();
   const t = Date.now();
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   return t;
 }
 

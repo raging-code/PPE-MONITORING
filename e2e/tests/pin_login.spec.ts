@@ -8,7 +8,7 @@ test.beforeEach(async ({ request }) => { await control(request, { mode: 'live', 
 
 const loginScreen = (page: Page) => page.getByRole('heading', { name: 'PPE Monitoring' });
 const pinField = (page: Page) => page.getByLabel('PIN', { exact: true });
-const signInButton = (page: Page) => page.getByRole('button', { name: 'Sign in' });
+const signInButton = (page: Page) => page.getByRole('button', { name: 'Sign in', exact: true });   // exact: the token form also has the link 'Sign in with name and PIN'
 
 test('name and PIN reach the live screen, a wrong PIN is refused and the PIN field is emptied', async ({ page, request }) => {
   await page.goto('/');
