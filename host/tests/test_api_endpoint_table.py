@@ -96,6 +96,7 @@ VALID = {'POST /api/login': ('/api/login', {'token': 'good-token'}, None), 'POST
          'POST /api/system-banners/{kind}/ack': ('/api/system-banners/host_gap/ack', {}, None), 'POST /api/scba-correction': ('/api/scba-correction', {'node_id': 1}, None),
          'POST /api/dashboard-outage': ('/api/dashboard-outage', {'started_ts': NOW - 30000, 'ended_ts': NOW - 10000, 'duration_s': 20.0}, None),
          'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0}), 'GET /api/export.csv': ('/api/export.csv', None, None),
+         'GET /api/firefighters/readings.csv': ('/api/firefighters/readings.csv', None, None),      # S8-4a
          'POST /api/logout': ('/api/logout', None, None), 'POST /api/replay/pause': ('/api/replay/pause', {'paused': True}, None),
          'POST /api/replay/speed': ('/api/replay/speed', {'speed': 4}, None),
          'GET /api/firefighters': ('/api/firefighters', None, None), 'POST /api/firefighters': ('/api/firefighters', FF_BODY, None),
@@ -143,8 +144,8 @@ def send(client, key, path, body, query, status, label):
     if label == '403 Origin': headers['Origin'] = EVIL
     return client.request(key.split()[0], path, json=body, params=query, headers=headers)
 
-def test_the_list_parses_to_the_eighteen_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout, S7-5a POST /api/replay/pause, S7-7a POST /api/replay/speed, S8-2 the three firefighter routes, S8-3a POST /api/firefighters/active
-    assert len(LIST) == 19 and LIST['POST /api/firefighters/active']['keys'] == {'firefighter_id', 'alias', 'active', 'result'} and LIST['POST /api/firefighters']['keys'] == {'firefighter_id', 'alias'} and LIST['POST /api/firefighters/assign']['keys'] == {'node_id', 'firefighter_id', 'alias', 'result'} and len(LIST['GET /api/firefighters']['keys']) == 15 and LIST['POST /api/replay/pause']['keys'] == {'paused', 'finished'} and LIST['POST /api/replay/speed']['keys'] == {'speed', 'paused', 'finished'} and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
+def test_the_list_parses_to_the_twenty_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout, S7-5a POST /api/replay/pause, S7-7a POST /api/replay/speed, S8-2 the three firefighter routes, S8-3a POST /api/firefighters/active, S8-4a GET /api/firefighters/readings.csv
+    assert len(LIST) == 20 and LIST['POST /api/firefighters/active']['keys'] == {'firefighter_id', 'alias', 'active', 'result'} and LIST['POST /api/firefighters']['keys'] == {'firefighter_id', 'alias'} and LIST['POST /api/firefighters/assign']['keys'] == {'node_id', 'firefighter_id', 'alias', 'result'} and len(LIST['GET /api/firefighters']['keys']) == 15 and LIST['POST /api/replay/pause']['keys'] == {'paused', 'finished'} and LIST['POST /api/replay/speed']['keys'] == {'speed', 'paused', 'finished'} and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k in ('GET /api/export.csv', 'GET /api/firefighters/readings.csv') for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
     assert LIST['GET /api/events']['keys'] == {'events', 'last_seq'} and len(LIST['GET /api/sessions']['keys']) == 10 and {400} in LIST['POST /api/system-banners/{kind}/ack']['codes']
 def code_endpoints(app):
     """'METHOD path' of every HTTP route, read from the generated OpenAPI schema (app.openapi() works although /openapi.json is not served), so it does not depend on how FastAPI stores included routers."""
@@ -156,7 +157,7 @@ def test_no_endpoint_is_missing_and_none_is_extra(rig):
 def test_the_pending_endpoint_is_still_pending():
     code = {'%s %s' % (m, r.path) for r in R.router.routes for m in r.methods}      # R.router holds plain APIRoute objects
     assert PENDING <= set(LIST) and not (PENDING & code), 'a pending route now exists: add its rows to VALID and empty PENDING'
-    assert 'GET /api/export.csv' in code           # P26-1: the last frozen route is built
+    assert 'GET /api/export.csv' in code and 'GET /api/firefighters/readings.csv' in code           # P26-1: the last frozen route is built; S8-4a the export of the firefighters' readings
 def test_every_listed_code_has_a_request_in_the_table():
     covered = {}
     for key, _, _, _, _, status, _ in CASES: covered.setdefault(key, set()).add(status)
@@ -173,6 +174,8 @@ def test_endpoint_table(rig, key, label, path, body, query, status, setup):
     r = send(client, key, path, body, query, status, label); assert r.status_code == status, r.text
     if status == 200 and key == 'GET /api/export.csv':      # a streamed body: the list names no JSON keys (P26-1)
         assert r.headers['content-type'].startswith('text/csv') and r.text.startswith('session_id,event_seq,log_ts,record_type'); return
+    if status == 200 and key == 'GET /api/firefighters/readings.csv':      # S8-4a: a streamed body too
+        assert r.headers['content-type'].startswith('text/csv') and r.text.startswith('session_id,event_seq,rx_ts,firefighter,node_id'); return
     if status == 200:
         rows = r.json() if isinstance(r.json(), list) else [r.json()]
         assert rows and all(set(x) == LIST[key]['keys'] for x in rows), '%s: body keys %s differ from the list %s' % (key, sorted(rows[0]), sorted(LIST[key]['keys']))

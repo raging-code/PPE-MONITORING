@@ -1,6 +1,7 @@
 // REST calls and form checks of the Settings screen (ADR 0071, design 3.8 FIREFIGHTER addendum): the firefighter list, Add firefighter and who wears which jacket.
 // Same outcomes as api/actions.ts; nothing here throws. The ranges are the host's (services/firefighters.py RANGES), checked here only to save a round trip: the host decides.
 import { request, type ActionResult, type Api } from './actions.ts';
+import { realSaveDeps, type SaveDeps } from './shift.ts';
 
 export type Sex = 'F' | 'M' | 'X';
 export interface FirefighterRow {
@@ -93,3 +94,17 @@ export function checkForm(f: Form, today: string): { error: string } | { body: A
   return { body: { full_name: name, sex: f.sex === '' ? null : f.sex, age_years: a.value, height_cm: h.value, weight_kg: w.value, resting_hr: r.value, max_hr: m.value, smoker: f.smoker === 'yes', years_service: y.value,
     consent: true, consent_form_version: form, consent_witness: witness, consent_date: f.date === '' ? null : f.date } };
 }
+// ADR 0073: the readings of each firefighter as a CSV. The same authenticated fetch, blob and object URL as the other CSV files (a plain link carries no Authorization header); the file holds the alias, never the name.
+export async function downloadReadings(api: Api, deps: SaveDeps = realSaveDeps()): Promise<'saved' | 'auth' | 'failed'> {
+  let res: Response;
+  try { res = await api.fetchFn('/api/firefighters/readings.csv', { method: 'GET', headers: { Authorization: `Bearer ${api.getToken() ?? ''}` } }); } catch { return 'failed'; }
+  if (res.status === 401 || res.status === 403) return 'auth';
+  if (res.status !== 200) return 'failed';
+  let blob: Blob;
+  try { blob = await res.blob(); } catch { return 'failed'; }
+  const url = deps.createObjectURL(blob);
+  deps.click(url, 'firefighter-readings.csv');
+  deps.revokeObjectURL(url);
+  return 'saved';
+}
+export const readingsMessage = (r: 'saved' | 'auth' | 'failed'): string => (r === 'saved' ? 'Saved firefighter-readings.csv. It shows the alias, not the name.' : r === 'auth' ? 'Not signed in. Log in again.' : 'The host did not send the file. Try again.');

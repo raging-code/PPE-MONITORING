@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { Api } from '../api/actions.ts';
-import { activeMessage, addMessage, assignMessage, checkForm, emptyForm, getFirefighters, postActive, postAssign, postFirefighter, type FirefighterRow, type Form } from '../api/firefighters.ts';
+import { activeMessage, addMessage, assignMessage, checkForm, downloadReadings, emptyForm, getFirefighters, postActive, postAssign, postFirefighter, readingsMessage, type FirefighterRow, type Form } from '../api/firefighters.ts';
+import { realSaveDeps, type SaveDeps } from '../api/shift.ts';
 import { useLive } from '../store/live.ts';
 import { setWearers } from '../store/wearers.ts';
 import { BTN } from './btn.ts';
@@ -12,7 +13,7 @@ type Load = { kind: 'loading' } | { kind: 'ok' } | { kind: 'failed'; text: strin
 
 // Settings (ADR 0071): who the firefighters are and who wears which jacket. It opens from the top strip like the Sessions list, sits in normal flow and scrolls inside itself.
 // The full name is shown on this screen only; the node cards, the alerts and the log carry the alias (FFR-01). Adding a firefighter needs the consent record.
-export default function SettingsPanel({ api, onClose }: { api: Api; onClose: () => void }) {
+export default function SettingsPanel({ api, onClose, saveDeps }: { api: Api; onClose: () => void; saveDeps?: SaveDeps }) {
   const roster = useLive((s) => s.roster);
   const [load, setLoad] = useState<Load>({ kind: 'loading' }), [rows, setRows] = useState<FirefighterRow[]>([]);
   const [open, setOpen] = useState(false), [form, setForm] = useState<Form>(() => emptyForm(localToday())), [formError, setFormError] = useState<string | null>(null);
@@ -46,6 +47,11 @@ export default function SettingsPanel({ api, onClose }: { api: Api; onClose: () 
     setBusy(false); setNote(activeMessage(res, r.alias));
     if (res.kind === 'ok') await run();
   };
+  const download = async () => {      // ADR 0073: the readings of each firefighter, alias only
+    setBusy(true); setNote(null);
+    const r = await downloadReadings(api, saveDeps ?? realSaveDeps());
+    setBusy(false); setNote(readingsMessage(r));
+  };
   const nodeAlias = (id: number | null) => (id === null ? 'none' : roster.find((r) => r.node_id === id)?.alias ?? `node ${id}`);
   const active = rows.filter((r) => r.active), nodes = roster.filter((r) => r.active);
 
@@ -68,6 +74,10 @@ export default function SettingsPanel({ api, onClose }: { api: Api; onClose: () 
                 </table>
               </div>
             )}
+            <div className="space-y-1">
+              <button type="button" className={BTN} disabled={busy} onClick={() => { void download(); }}>Download readings by firefighter</button>
+              <p className="text-base">One row per reading with the alias of who wore the jacket then. The name is not in the file.</p>
+            </div>
           </section>
 
           <section aria-label="Who wears the jacket" className="space-y-2">

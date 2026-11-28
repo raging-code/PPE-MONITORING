@@ -343,3 +343,13 @@ async def firefighter_active(body: M.FirefighterActiveReq, request: Request, op:
     except FirefighterError as e: raise _ff_refused(e) from None
     if result != 'unchanged': port.audit('FIREFIGHTER_ACTIVE_SET', operator_id=op.operator_id, reason=reason)      # a repeat of the state it already has writes no row
     return M.FirefighterActiveResp(firefighter_id=body.firefighter_id, alias=alias, active=body.active, result=result)
+
+# ---- S8-4 (ADR 0073): GET /api/firefighters/readings.csv ----
+@router.get('/firefighters/readings.csv')
+async def firefighter_readings_csv(request: Request, session_id: Optional[int] = Query(None, ge=0), op: Operator = Depends(current_operator)):
+    """The readings of each firefighter as text/csv: every verified, non-duplicate frame joined to the alias of the firefighter who wore its node at that moment (services/firefighter_export.py). The whole database or one
+    session. Audited like the full export (CSV_EXPORT, with a reason that says which file) before the first byte; the file holds the alias only, never a name. A session_id that does not exist gives the header row only."""
+    from ..services import firefighter_export
+    port = request.app.state.port; port.audit('CSV_EXPORT', operator_id=op.operator_id, reason='firefighter readings, all' if session_id is None else 'firefighter readings, session %d' % session_id)
+    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(_now_ms() / 1000)); name = 'firefighter_readings_%s_%s.csv' % ('all' if session_id is None else 'session_%d' % session_id, stamp)
+    return StreamingResponse(iterate_in_threadpool(firefighter_export.iter_csv(request.app.state.db_path, session_id)), media_type='text/csv', headers={'Content-Disposition': 'attachment; filename="%s"' % name, 'Cache-Control': 'no-store'})
