@@ -4,7 +4,7 @@ Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME] [-
 S7-3 (ADR 0059): --mode REPLAY needs --session N (a session of db_path) and takes --speed 1, 4 or 16 (default 1); both are refused with any other mode (exit 2). The session is replayed from db_path, read-only, into a new REPLAY session of test_db_path.
 S7-1 (ADR 0057): --scenario and --seed are accepted only with --mode SIMULATOR (exit 2 otherwise); SIMULATOR without them runs the rehearsal scenario with seed 1. LIVE and REPLAY never start a simulator.
 A rehearsal needs an operator in the TEST database: python -m ppe_host.cli create-operator --name NAME --db data/ppe_test.db (operators are per database)."""
-import argparse, asyncio, json, logging, os, shutil, stat, sys, time, uuid
+import argparse, asyncio, contextlib, json, logging, os, shutil, signal, stat, sys, threading, time, uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -234,6 +234,25 @@ def check_replay(st, session_id):
 def watchdog_exit(code): os._exit(code)                      # the OSWatchdogThread's exit (tests replace it with a recorder, tests/conftest.py)
 def make_audio_backend(): return WinsoundBackend()          # tests replace this with a silent fake (tests/conftest.py)
 
+@contextlib.contextmanager
+def stop_signals():
+    """S7-4 (ADR 0060): yields the list of stop signals received while the server runs; the process is not killed or interrupted by them.
+    Uvicorn stops on SIGINT and SIGTERM (SIGBREAK on Windows), and when it has stopped it puts the old handlers back and sends the same signal again, to get "the expected behaviour".
+    With Python's default handler that is a KeyboardInterrupt (exit -2) and with the system default for SIGTERM it ends the process at once (exit -15): in both main() never reached rt.stop(clean=True), so no CLEAN_SHUTDOWN row and the session stayed open.
+    Our handler only records the signal, so the second delivery is harmless. Handlers are set only in the main thread and are put back on exit."""
+    got, old = [], {}
+    if threading.current_thread() is threading.main_thread():
+        for name in ('SIGINT', 'SIGTERM', 'SIGBREAK'):
+            sig = getattr(signal, name, None)
+            if sig is None: continue
+            try: old[sig] = signal.signal(sig, lambda s, f: got.append(s))
+            except (ValueError, OSError): pass
+    try: yield got
+    finally:
+        for sig, h in old.items():
+            try: signal.signal(sig, h)
+            except (ValueError, OSError, TypeError): pass
+
 def main(argv=None, serve=run_server):
     """serve(rt, host, port) is the coroutine function of step 10; tests pass a fake that returns at once."""
     p = argparse.ArgumentParser(prog='ppe_host.main'); p.add_argument('--mode', choices=MODES, default='LIVE'); p.add_argument('--home')
@@ -257,7 +276,11 @@ def main(argv=None, serve=run_server):
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
     print('start-up steps 1 to 9 done: %s, session %d%s, database %s%s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path, ', scenario %s seed %d' % sim if sim else '') + (', replaying session %d at %dx (%d frames)' % (a.session, speed, info.frames) if info else ''))
     clean = False                                                                                              # P25-3: only a server that stopped by itself (SIGINT, SIGTERM) is a clean shutdown
-    try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port'])); clean = True                                 # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
+    try:
+        with stop_signals() as got: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port']))                          # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
+        clean = True
+        if got: LOG.info('stopped by signal %s', ', '.join(signal.Signals(g).name for g in got))
+    except KeyboardInterrupt: LOG.info('stopped by Ctrl+C'); clean = True                                                              # S7-4 (ADR 0060): an operator's stop, not a crash (belt and braces; stop_signals normally catches it first)
     except ServeError as e: print('step 10 failed: %s' % e, file=sys.stderr); return EXIT_CONFIG
     except Exception: LOG.exception('step 10 failed'); return EXIT_CRASH
     finally: rt.stop(clean=clean); st.close()
