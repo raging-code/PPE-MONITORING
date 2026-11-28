@@ -1,6 +1,8 @@
 """main.py (P24-1): start-up steps 1 to 5 of design 14.5 and the start-up failure policy (a to d). P24-2 added steps 6 and 7 (begin_session); step 8 (threads, P24-3c-1), step 9 (open state, P24-3c-2), step 10 (Uvicorn and the 1 Hz driver, serve.py, P24-3c-3).
 Exit codes: 0 = clean exit or another host already runs (the supervisor does not respawn), 1 = unexpected crash, 2 = configuration or database failure, or Uvicorn cannot bind its port (counts toward the crash-loop guard).
-Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME]"""
+Run: python -m ppe_host.main [--mode LIVE|SIMULATOR|REPLAY] [--home PPE_HOME] [--scenario quiet|co_ramp|man_down|link_loss|rehearsal] [--seed N]
+S7-1 (ADR 0057): --scenario and --seed are accepted only with --mode SIMULATOR (exit 2 otherwise); SIMULATOR without them runs the rehearsal scenario with seed 1. LIVE and REPLAY never start a simulator.
+A rehearsal needs an operator in the TEST database: python -m ppe_host.cli create-operator --name NAME --db data/ppe_test.db (operators are per database)."""
 import argparse, asyncio, json, logging, os, shutil, stat, sys, time, uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +16,7 @@ from .io.audio_watchdog import WinsoundBackend
 from .io.os_watchdog import consume_marker
 from .services import abi_check, sessions as ses
 from .runtime import Runtime
+from .services.simulator import DEFAULT_SCENARIO, DEFAULT_SEED, SCENARIOS
 from .serve import ServeError, run_server
 
 LOG = logging.getLogger('ppe_host')
@@ -225,14 +228,18 @@ def make_audio_backend(): return WinsoundBackend()          # tests replace this
 def main(argv=None, serve=run_server):
     """serve(rt, host, port) is the coroutine function of step 10; tests pass a fake that returns at once."""
     p = argparse.ArgumentParser(prog='ppe_host.main'); p.add_argument('--mode', choices=MODES, default='LIVE'); p.add_argument('--home')
-    a = p.parse_args(argv); logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    p.add_argument('--scenario', choices=tuple(SCENARIOS), help='SIMULATOR only (default %s)' % DEFAULT_SCENARIO); p.add_argument('--seed', type=int, help='SIMULATOR only (default %d)' % DEFAULT_SEED)
+    a = p.parse_args(argv)
+    if a.mode != 'SIMULATOR' and (a.scenario is not None or a.seed is not None): print('--scenario and --seed need --mode SIMULATOR', file=sys.stderr); return EXIT_CONFIG
+    sim = (a.scenario or DEFAULT_SCENARIO, DEFAULT_SEED if a.seed is None else a.seed) if a.mode == 'SIMULATOR' else None
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
         st = startup(a.home, a.mode)
-        try: begin_session(st); rt = Runtime(st, audio_backend=make_audio_backend(), watchdog_exit=lambda c: watchdog_exit(c)).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
+        try: begin_session(st); rt = Runtime(st, audio_backend=make_audio_backend(), watchdog_exit=lambda c: watchdog_exit(c), simulator=sim).start(); rt.load_open()                                           # steps 6 and 7, step 8 (P24-3c-1), step 9 (P24-3c-2)
         except BaseException: st.close(); raise
     except StartupExit as e: print(e.message, file=sys.stdout if e.code == EXIT_OK else sys.stderr); return e.code
     except Exception: LOG.exception('start-up crashed'); return EXIT_CRASH
-    print('start-up steps 1 to 9 done: %s, session %d%s, database %s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path))
+    print('start-up steps 1 to 9 done: %s, session %d%s, database %s%s' % (st.mode, st.session_id, ' (resumed)' if st.resumed else '', st.db_path, ', scenario %s seed %d' % sim if sim else ''))
     clean = False                                                                                              # P25-3: only a server that stopped by itself (SIGINT, SIGTERM) is a clean shutdown
     try: asyncio.run(serve(rt, st.settings['bind_host'], st.settings['bind_port'])); clean = True                                 # step 10 (P24-3c-3); steps 11 to 13 run as a task of run_server (Runtime.recover, P25-2)
     except ServeError as e: print('step 10 failed: %s' % e, file=sys.stderr); return EXIT_CONFIG
