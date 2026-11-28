@@ -408,6 +408,7 @@ class FirefighterEditResp(_Strict):
     changed: list[str]                                       # the names of the fields that changed, never their values
 class FirefighterWithdrawReq(_Strict):
     firefighter_id: int = Field(ge=1)
+    withdrawal_date: Optional[str] = Field(default=None, max_length=10)      # S8-7 (ADR 0076): YYYY-MM-DD, null or absent = now
 class FirefighterWithdrawResp(_Strict):
     firefighter_id: int
     alias: str

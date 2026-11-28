@@ -81,7 +81,7 @@ class Port:
         if ff == 99: raise F.FirefighterError('no firefighter with firefighter_id 99', 'missing')
         if ff == 5: raise F.FirefighterError('FFR-05 withdrew consent and the profile cannot be edited', 'conflict')
         self.calls.append('ff_edit'); return 'changed', 'firefighter_id %d (FFR-%02d) changed: %s' % (ff, ff, ', '.join(changes)), 'FFR-%02d' % ff, sorted(changes)
-    def withdraw_firefighter(self, ff):      # S8-5
+    def withdraw_firefighter(self, ff, withdrawal_date=None):      # S8-5, S8-7
         from ppe_host.services import firefighters as F
         if ff == 99: raise F.FirefighterError('no firefighter with firefighter_id 99', 'missing')
         self.calls.append('ff_withdraw'); return 'withdrawn', 'firefighter_id %d (FFR-%02d) consent withdrawn' % (ff, ff), 'FFR-%02d' % ff

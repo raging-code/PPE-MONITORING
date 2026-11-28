@@ -252,12 +252,12 @@ class HostPort:
             finally: c.close()
             if stmts and self._done(None, self.ing.write([Stmt(s, p) for s, p in stmts], durable=True)) is not True: raise RuntimeError('the change could not be written')
             return result, reason, alias, changed
-    def withdraw_firefighter(self, firefighter_id):
+    def withdraw_firefighter(self, firefighter_id, withdrawal_date=None):
         """(result, audit reason, alias): result 'withdrawn' or 'unchanged' (nothing written). Withdrawing also sets the person inactive and ends the jacket (ADR 0074). The audit row is written by the route."""
         from .services import firefighters as F
         with self._ff_lock:
             now = self.ing.clock.wall_ms(); c = connect_db(self.db_path, readonly=True)
-            try: result, stmts, reason, alias = F.plan_withdraw(c, firefighter_id, now)
+            try: result, stmts, reason, alias = F.plan_withdraw(c, firefighter_id, now, withdrawal_date)
             finally: c.close()
             if stmts and self._done(None, self.ing.write([Stmt(s, p) for s, p in stmts], durable=True)) is not True: raise RuntimeError('the withdrawal could not be written')
             return result, reason, alias

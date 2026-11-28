@@ -361,7 +361,7 @@ async def firefighter_withdraw(body: M.FirefighterWithdrawReq, request: Request,
     from ..services.firefighters import FirefighterError
     port = request.app.state.port; retry = port.recovering_retry_s()
     if retry is not None: raise ApiError(409, 'RECOVERING', 'host is recovering, try again shortly', retry)
-    try: result, reason, alias = await run_in_threadpool(port.withdraw_firefighter, body.firefighter_id)
+    try: result, reason, alias = await run_in_threadpool(port.withdraw_firefighter, body.firefighter_id, body.withdrawal_date)
     except FirefighterError as e: raise _ff_refused(e) from None
     if result != 'unchanged': port.audit('CONSENT_WITHDRAWN', operator_id=op.operator_id, reason=reason)      # a repeat writes no row
     return M.FirefighterWithdrawResp(firefighter_id=body.firefighter_id, alias=alias, result=result)

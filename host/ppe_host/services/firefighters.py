@@ -39,6 +39,17 @@ def consent_ts_of(date_text, now_ms):
     if ts > now_ms + 86_400_000: raise FirefighterError('the consent date is in the future')
     return ts
 
+def withdrawal_ts_of(date_text, now_ms, consent_ts):
+    """S8-7 (ADR 0076): the withdrawal date as (ms, YYYY-MM-DD), or (now, None) when none is given. The checks are those of the consent date: YYYY-MM-DD, not later than tomorrow (time zones),
+    and a withdrawal cannot come before the day of the consent it withdraws."""
+    if not date_text: return now_ms, None
+    try: d = dt.datetime.strptime(date_text, '%Y-%m-%d').replace(tzinfo=dt.timezone.utc)
+    except ValueError: raise FirefighterError('the withdrawal date must be YYYY-MM-DD') from None
+    ts = int(d.timestamp() * 1000)
+    if ts > now_ms + 86_400_000: raise FirefighterError('the withdrawal date is in the future')
+    if ts < consent_ts - consent_ts % 86_400_000: raise FirefighterError('the withdrawal date is before the consent date')
+    return ts, d.strftime('%Y-%m-%d')
+
 def _audit(conn, now_ms, action, reason, node_id=None):
     conn.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action, node_id, reason) VALUES (NULL, 0, ?, NULL, ?, ?, ?)', (now_ms, action, node_id, reason))
 
@@ -154,17 +165,21 @@ def plan_edit(conn, firefighter_id, changes, now_ms):
     stmts = [('UPDATE firefighters SET ' + ', '.join('%s = ?' % k for k in changed) + ' WHERE firefighter_id = ?', tuple(new[k] for k in changed) + (firefighter_id,))]
     return 'changed', stmts, 'firefighter_id %d (%s) changed: %s' % (firefighter_id, row[0], ', '.join(changed)), row[0], changed
 
-def plan_withdraw(conn, firefighter_id, now_ms):
+def plan_withdraw(conn, firefighter_id, now_ms, withdrawal_date=None):
     """S8-5 (ADR 0074): what withdrawing a person's consent would do, without doing it. Returns (outcome, stmts, reason, alias): outcome 'withdrawn' or 'unchanged' (already withdrawn, nothing to write).
     The date of the withdrawal is stored (consent_withdrawn_ts), the person is set inactive and the jacket they wear is ended. Nothing is deleted: the profile and the consent record stay as the record of what was agreed
     and when it was withdrawn. Their readings are left out of the per-firefighter export (services/firefighter_export.py). It cannot be undone through the software: a person who agrees again gets a new profile
-    with a new consent. An unknown firefighter is kind 'missing'."""
-    f = conn.execute('SELECT alias, consent_withdrawn_ts FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
+    with a new consent. An unknown firefighter is kind 'missing'.
+    S8-7 (ADR 0076): withdrawal_date (YYYY-MM-DD, optional) is the day the person withdrew, for a paper withdrawal from an earlier day; it is stored in consent_withdrawn_ts (00:00 UTC of that day)
+    and checked like the consent date (not in the future, not before the consent day). Without it the stored time is now. The jacket is still ended now, because the person wore it until the operator
+    recorded the withdrawal; only the legal date moves. A repeat of an already withdrawn person writes nothing and its date is not looked at. A refused date is kind 'invalid' and writes nothing."""
+    f = conn.execute('SELECT alias, consent_withdrawn_ts, consent_ts FROM firefighters WHERE firefighter_id = ?', (firefighter_id,)).fetchone()
     if f is None: raise FirefighterError('no firefighter with firefighter_id %d' % firefighter_id, 'missing')
     if f[1] is not None: return 'unchanged', [], None, f[0]
-    stmts = [('UPDATE firefighters SET consent_withdrawn_ts = ?, active = 0 WHERE firefighter_id = ?', (now_ms, firefighter_id)),
+    ts, label = withdrawal_ts_of(withdrawal_date, now_ms, f[2])
+    stmts = [('UPDATE firefighters SET consent_withdrawn_ts = ?, active = 0 WHERE firefighter_id = ?', (ts, firefighter_id)),
              ('UPDATE firefighter_assignments SET end_ts = MAX(?, start_ts) WHERE firefighter_id = ? AND end_ts IS NULL', (now_ms, firefighter_id))]
-    return 'withdrawn', stmts, 'firefighter_id %d (%s) consent withdrawn' % (firefighter_id, f[0]), f[0]
+    return 'withdrawn', stmts, 'firefighter_id %d (%s) consent withdrawn%s' % (firefighter_id, f[0], '' if label is None else ' (withdrawal dated %s)' % label), f[0]
 
 def assign(conn, now_ms, node_id, firefighter_id=None):
     """Put a firefighter on a node, replacing whoever wore it; firefighter_id None ends the node's assignment. Returns 'assigned', 'ended' or 'unchanged'. A firefighter on another node,

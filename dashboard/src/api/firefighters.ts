@@ -28,7 +28,15 @@ export type EditBody = { firefighter_id: number } & Partial<{ full_name: string;
 export interface EditedBody { firefighter_id: number; alias: string; result: 'changed' | 'unchanged'; changed: string[] }
 export interface WithdrawnBody { firefighter_id: number; alias: string; result: 'withdrawn' | 'unchanged' }
 export const postEdit = (api: Api, body: EditBody): Promise<ActionResult<EditedBody>> => request<EditedBody>(api, 'POST', '/api/firefighters/edit', body);
-export const postWithdraw = (api: Api, firefighterId: number): Promise<ActionResult<WithdrawnBody>> => request<WithdrawnBody>(api, 'POST', '/api/firefighters/withdraw', { firefighter_id: firefighterId });
+// ADR 0076: the optional date of the withdrawal (YYYY-MM-DD). It is sent only when filled in, so a plain withdrawal sends exactly {firefighter_id}.
+export const postWithdraw = (api: Api, firefighterId: number, withdrawalDate?: string): Promise<ActionResult<WithdrawnBody>> => request<WithdrawnBody>(api, 'POST', '/api/firefighters/withdraw', withdrawalDate ? { firefighter_id: firefighterId, withdrawal_date: withdrawalDate } : { firefighter_id: firefighterId });
+// The first problem with the date of a withdrawal as a sentence, or null. '' means today. today is YYYY-MM-DD in this screen's local date; the consent day is read as UTC like the host does.
+export function checkWithdrawalDate(date: string, today: string, consentTs: number): string | null {
+  if (date === '') return null;
+  if (date > today) return 'The withdrawal date cannot be in the future.';
+  if (Number.isFinite(consentTs) && date < new Date(consentTs).toISOString().slice(0, 10)) return 'The withdrawal date cannot be before the consent date.';
+  return null;
+}
 const recovering = (r: { retryAfterS?: number | null }) => `The host is recovering. Try again${r.retryAfterS ? ` in ${Math.ceil(r.retryAfterS)} s` : ' in a moment'}.`;
 export function addMessage(r: ActionResult<AddedBody>): string {
   switch (r.kind) {
@@ -71,9 +79,9 @@ export function editMessage(r: ActionResult<EditedBody>, alias: string): string 
     case 'bad': return `Not accepted: ${r.detail}`;
   }
 }
-export function withdrawMessage(r: ActionResult<WithdrawnBody>, alias: string): string {
+export function withdrawMessage(r: ActionResult<WithdrawnBody>, alias: string, date = ''): string {
   switch (r.kind) {
-    case 'ok': return r.body.result === 'unchanged' ? `Consent was already withdrawn for ${alias}.` : `Consent withdrawn for ${alias}. ${alias} is inactive, wears no jacket and is left out of the readings download.`;
+    case 'ok': return r.body.result === 'unchanged' ? `Consent was already withdrawn for ${alias}.` : `Consent withdrawn for ${alias}${date ? ` (dated ${date})` : ''}. ${alias} is inactive, wears no jacket and is left out of the readings download.`;
     case 'conflict': return r.code === 'RECOVERING' ? recovering(r) : 'The host refused the change.';
     case 'auth': return 'Not signed in. Log in again.';
     case 'retry': return 'The host did not answer. Nothing was changed. Try again.';
