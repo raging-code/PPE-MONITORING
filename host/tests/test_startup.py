@@ -27,7 +27,7 @@ def make_db(path, operators=False):
 
 def test_clean_start_creates_a_migrated_database_with_the_roster_and_a_lockfile(tmp_path):
     h = home(tmp_path); st = run(h)
-    assert st.db_path == h / 'data' / 'ppe.db' and st.event_seq == 1 and st.recovery is None and st.applied == [1, 2]
+    assert st.db_path == h / 'data' / 'ppe.db' and st.event_seq == 1 and st.recovery is None and st.applied == REAL
     assert [r[0] for r in st.conn.execute('SELECT node_id FROM roster ORDER BY 1')] == [1, 2, 3]
     assert M.Lockfile.read(h / M.LOCK_NAME) == (FAKE_PID, 1); assert (h / 'config' / 'secrets.json').read_text().count('server_salt') == 1       # the salt is created when no operator exists
     st.close(); assert not (h / M.LOCK_NAME).exists()
@@ -99,15 +99,18 @@ def test_failed_quick_check_quarantines_with_wal_and_shm_and_restores_the_newest
 
 def test_failed_quick_check_with_no_good_backup_creates_a_fresh_seeded_database(tmp_path):
     h = home(tmp_path, salt=True); db = h / 'data' / 'ppe.db'; db.parent.mkdir(); corrupt(db); (h / 'backups').mkdir(); (h / 'backups' / 'x.db').write_bytes(b'junk')
-    st = run(h); assert st.recovery['backup'] is None and st.applied == [1, 2] and st.conn.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 3; st.close()
+    st = run(h); assert st.recovery['backup'] is None and st.applied == REAL and st.conn.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 3; st.close()
 
 def test_failed_quick_check_in_simulator_restores_no_backup(tmp_path):
     h = home(tmp_path, salt=True); good_backup(h, 'g.db', 100); t = h / 'data' / 'ppe_test.db'; corrupt(t)
     st = run(h, 'SIMULATOR'); assert st.recovery['backup'] is None and st.conn.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 3 and not (h / 'data' / 'ppe.db').exists(); st.close()
 
 # ---- (c) migrations ----
+REAL = [int(p.stem) for p in sorted(MIGRATIONS_DIR.glob('0*.sql'))]      # the real migrations (P28-2 added 0003); a test migration is numbered after them
 def two_migrations(tmp_path, second_sql):
-    d = tmp_path / 'mig'; d.mkdir(); shutil.copy(MIGRATIONS_DIR / '0001.sql', d / '0001.sql'); shutil.copy(MIGRATIONS_DIR / '0002.sql', d / '0002.sql'); (d / '0003.sql').write_text(second_sql); return d   # the test migration comes after every real one
+    d = tmp_path / 'mig'; d.mkdir()
+    for p in MIGRATIONS_DIR.glob('0*.sql'): shutil.copy(p, d / p.name)
+    (d / ('%04d.sql' % (REAL[-1] + 1))).write_text(second_sql); return d   # the test migration comes after every real one
 
 def test_failed_migration_restores_the_pre_migration_backup_and_exits_2(tmp_path):
     h = home(tmp_path, salt=True); (h / 'data').mkdir(); make_db(h / 'data' / 'ppe.db')
@@ -115,7 +118,7 @@ def test_failed_migration_restores_the_pre_migration_backup_and_exits_2(tmp_path
     with pytest.raises(M.StartupExit) as e: run(h, migrations_dir=d)
     assert e.value.code == 2 and 'restored' in e.value.message and not (h / M.LOCK_NAME).exists()
     assert list((h / 'backups').glob('pre-migration-*.db'))
-    c = sqlite3.connect(str(h / 'data' / 'ppe.db')); assert c.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 1 and c.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 2
+    c = sqlite3.connect(str(h / 'data' / 'ppe.db')); assert c.execute('SELECT COUNT(*) FROM roster').fetchone()[0] == 1 and c.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == REAL[-1]
 
 def test_a_database_newer_than_the_code_exits_2(tmp_path):
     h = home(tmp_path, salt=True); (h / 'data').mkdir(); c = connect_db(h / 'data' / 'ppe.db'); run_migrations(c, str(two_migrations(tmp_path, 'CREATE TABLE t(x);')), NOW); c.close()
@@ -124,7 +127,7 @@ def test_a_database_newer_than_the_code_exits_2(tmp_path):
 
 def test_pending_migration_runs_after_an_online_backup(tmp_path):
     h = home(tmp_path, salt=True); (h / 'data').mkdir(); make_db(h / 'data' / 'ppe.db'); st = run(h, migrations_dir=two_migrations(tmp_path, '-- add t\nCREATE TABLE t(x);'))
-    assert st.applied == [3] and list((h / 'backups').glob('pre-migration-*.db')); st.close()
+    assert st.applied == [REAL[-1] + 1] and list((h / 'backups').glob('pre-migration-*.db')); st.close()
 
 # ---- main() exit codes ----
 async def no_serve(rt, host, port): return         # step 10 (P24-3c-3) would block on Uvicorn; test_serve.py covers it

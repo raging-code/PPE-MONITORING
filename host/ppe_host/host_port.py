@@ -5,7 +5,7 @@ short indexed look-ups on a read-only connection. Acknowledge and Resolve go thr
 The snapshot and the WebSocket messages are wire.py (P24-3b-2a), which plugs into publish. Loading open alerts and episodes into the engine is Runtime.load_open (P24-3c); close_session is services/sessions.py (P25-3)."""
 import threading
 from pathlib import Path
-from .api import security as sec
+from .api import pin_auth, security as sec
 from .core.rule_engine import AckAlertEvent, AckEpisodeEvent, AlertAcknowledged, EpisodeAcknowledged, EpisodeResolved, ResolveEpisodeEvent
 from .io.db_writer import Stmt, connect_db, load_scba_corrections
 
@@ -31,7 +31,7 @@ class HostPort:
         """The Port of a started host (main.Startup after begin_session). A restored database shows the host_gap banner with reason db_restored; its gap_s is 0.0 until P25 measures it."""
         salt = sec.load_or_create_salt(st.settings.home, True)   # start-up step 5 already created or checked it
         gap = {'gap_s': 0.0, 'reason': st.host_gap_reason} if st.host_gap_reason else None
-        return cls(ingest, st.db_path, st.settings, sec.Authenticator(st.db_path, salt, st.settings['login_backoff_cap_s']), host_gap=gap, recovering=st.recovering, **kw)
+        return cls(ingest, st.db_path, st.settings, sec.Authenticator(st.db_path, salt, st.settings['login_backoff_cap_s'], now_ms=ingest.clock.wall_ms), host_gap=gap, recovering=st.recovering, **kw)
 
     def _q(self, sql, args=()):
         c = connect_db(self.db_path, readonly=True)
@@ -49,6 +49,22 @@ class HostPort:
     def authenticate(self, token): return self.auth.authenticate(token)
     def login_failed(self): return self.auth.login_failed()
     def login_ok(self): self.auth.login_ok()
+    # ---- P28-4a (ADR 0056): PIN login, login sessions, logout. They block (scrypt, the commit wait): the routes run them in a worker thread. api/pin_auth.py plans the statements, Ingest.write queues them in order. ----
+    def pin_login(self, display_name, pin):
+        """The PinResult for display name + PIN. The failure count and the lock go through the writer as one durable unit that is committed before the answer, so a restart does not forget a failure."""
+        row = self._q(pin_auth.LOGIN_SQL, (display_name,)) if isinstance(display_name, str) else []
+        r, stmts = pin_auth.plan_login(row[0] if row else None, pin, self.ing.clock.wall_ms())
+        if stmts: self._done(None, self.ing.write([Stmt(s, p) for s, p in stmts], durable=True))   # a failed write is counted by the writer (write_rejected); the answer stands
+        return r
+    def start_login_session(self, operator_id, remember):
+        """(session_token, expires_ts). The row is committed before the token leaves the host, so the next request with it is accepted; RuntimeError (a 500) if it could not be written."""
+        token, expires, stmt = pin_auth.plan_session(self.auth.salt, operator_id, remember, self.ing.clock.wall_ms())
+        if self._done(None, self.ing.write([Stmt(*stmt)], durable=True)) is not True: raise RuntimeError('the login session could not be written')
+        return token, expires
+    def logout(self, token):
+        """True if a login session was revoked; False for an operator token, an unknown token or a session that is already revoked (nothing is written then)."""
+        if not self._q('SELECT 1 FROM login_sessions WHERE token_hash = ? AND revoked_ts IS NULL', (sec.hash_token(self.auth.salt, token),)): return False
+        self._done(None, self.ing.write([Stmt(*pin_auth.revoke_stmt(self.auth.salt, token, self.ing.clock.wall_ms()))], durable=True)); return True
     def session_id(self): return self.ing.session_id
     def snapshot(self):
         """The hub's Source.snapshot (P24-3b-2a): built by wire.Wire, which attach() plugs in."""

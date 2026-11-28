@@ -46,6 +46,7 @@ class Port:
     def session_id(self): return self.sid
     def login_failed(self): return None
     def login_ok(self): pass
+    def logout(self, t): self.calls.append('logout'); return True      # P28-4a
     def recovering_retry_s(self): return self.recovering
     def start_monitoring(self, op, label): ch = not self.monitoring; self.monitoring = True; self.calls.append('start'); return R.SessionRow(self.sid, 1000, 'LIVE'), ch
     def end_session(self, sid, op): self.calls.append('end'); return R.EndResult(sid, sid + 1, True)
@@ -74,7 +75,8 @@ VALID = {'POST /api/login': ('/api/login', {'token': 'good-token'}, None), 'POST
          'POST /api/episodes/{episode_id}/ack': ('/api/episodes/3/ack', {}, None), 'POST /api/episodes/{episode_id}/resolve': ('/api/episodes/3/resolve', {'reason': 'rescued'}, None),
          'POST /api/system-banners/{kind}/ack': ('/api/system-banners/host_gap/ack', {}, None), 'POST /api/scba-correction': ('/api/scba-correction', {'node_id': 1}, None),
          'POST /api/dashboard-outage': ('/api/dashboard-outage', {'started_ts': NOW - 30000, 'ended_ts': NOW - 10000, 'duration_s': 20.0}, None),
-         'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0}), 'GET /api/export.csv': ('/api/export.csv', None, None)}
+         'GET /api/sessions': ('/api/sessions', None, None), 'GET /api/events': ('/api/events', None, {'after_seq': 0}), 'GET /api/export.csv': ('/api/export.csv', None, None),
+         'POST /api/logout': ('/api/logout', None, None)}
 # (key, label, path, body, query, status, setup): one request per listed non-200 code beyond the generated 401 and 403 rows
 EXTRA = [('POST /api/login', 'wrong token', '/api/login', {'token': 'nope'}, None, 401, None),
          ('POST /api/session/end', 'wrong confirm_text', '/api/session/end', {'confirm_text': 'x', 'session_id': 4}, None, 400, None),
@@ -103,8 +105,8 @@ def send(client, key, path, body, query, status, label):
     if label == '403 Origin': headers['Origin'] = EVIL
     return client.request(key.split()[0], path, json=body, params=query, headers=headers)
 
-def test_the_list_parses_to_the_twelve_endpoints_with_their_codes_and_keys():
-    assert len(LIST) == 12 and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
+def test_the_list_parses_to_the_thirteen_endpoints_with_their_codes_and_keys():      # P28-4a added POST /api/logout
+    assert len(LIST) == 13 and LIST['POST /api/logout']['keys'] == {'logged_out'} and all(v['keys'] or k == 'GET /api/export.csv' for k, v in LIST.items()) and LIST['POST /api/login']['keys'] == {'operator_id', 'display_name', 'session_id'}
     assert LIST['GET /api/events']['keys'] == {'events', 'last_seq'} and len(LIST['GET /api/sessions']['keys']) == 10 and {400} in LIST['POST /api/system-banners/{kind}/ack']['codes']
 def code_endpoints(app):
     """'METHOD path' of every HTTP route, read from the generated OpenAPI schema (app.openapi() works although /openapi.json is not served), so it does not depend on how FastAPI stores included routers."""

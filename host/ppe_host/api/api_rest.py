@@ -23,6 +23,10 @@ class Port(Protocol):  # implemented by the host process (P24); tests use a fake
     def session_id(self) -> int: ...
     def login_failed(self) -> Optional[float]: ...  # P19b: the delay for this failed login (retry_after_s), None for no delay
     def login_ok(self) -> None: ...  # P19b: a successful login resets the delay
+    # P28-4a (ADR 0056). The three methods block (scrypt, the commit wait), so the routes call them in a worker thread.
+    def pin_login(self, display_name: str, pin: str) -> 'PinResult': ...  # the scrypt check, then the failure count and the lock through the writer
+    def start_login_session(self, operator_id: int, remember: bool) -> tuple: ...  # (session_token, expires_ts); the row is committed before this returns
+    def logout(self, token: str) -> bool: ...  # revokes the login session of this token; False when there is nothing to revoke (an operator token)
     # P19-2. A method raises ApiError for a conflict and returns None for an unknown id. The host owns every write and every event_seq.
     def recovering_retry_s(self) -> Optional[float]: ...  # recovering_target_s while recovering, else None
     def start_monitoring(self, operator_id: int, session_label: Optional[str]) -> tuple: ...  # (SessionRow, changed); idempotent: sets operator_id only while NULL, never changes label or a second START_MONITORING
@@ -71,15 +75,39 @@ async def current_operator(request: Request, authorization: Optional[str] = Head
     if op is None: request.app.state.port.audit('LOGIN_REJECTED'); raise ApiError(401, 'UNAUTHENTICATED', 'missing, invalid or disabled token')
     return op
 
-@router.post('/login', response_model=M.LoginResp)
+@router.post('/login', response_model=None)  # the token form answers M.LoginResp and the PIN form M.PinLoginResp: two key sets, so no single response model
 async def login(body: M.LoginReq, request: Request):
-    port = request.app.state.port; op = port.authenticate(body.token)
+    port = request.app.state.port
+    if body.token is None: return await _pin_login(port, body)
+    op = port.authenticate(body.token)
     if op is None:
         port.audit('LOGIN_REJECTED'); delay = port.login_failed()
         if delay: await _sleep(delay)  # slows guessing without locking a valid token out
         raise ApiError(401, 'UNAUTHENTICATED', 'invalid token', delay)
     port.login_ok(); port.audit('LOGIN_OK', operator_id=op.operator_id)
     return M.LoginResp(operator_id=op.operator_id, display_name=op.display_name, session_id=port.session_id())
+
+async def _pin_login(port, body):
+    """P28-4a (ADR 0056): display name + PIN. The scrypt check and the lock write run in a worker thread, and the session is committed before its token is returned.
+    An unknown name, a wrong PIN, an operator without a PIN and a disabled operator give the same 401 with the same growing delay; only a locked operator answers differently (no delay, retry_after_s is the seconds left)."""
+    r = await run_in_threadpool(port.pin_login, body.display_name, body.pin)
+    if r.status == 'ok':
+        token, expires = await run_in_threadpool(port.start_login_session, r.operator.operator_id, body.remember)
+        port.login_ok(); port.audit('LOGIN_OK', operator_id=r.operator.operator_id, reason='pin')
+        return M.PinLoginResp(operator_id=r.operator.operator_id, display_name=r.operator.display_name, session_id=port.session_id(), session_token=token, expires_ts=expires)
+    if r.newly_locked: port.audit('LOGIN_LOCKED', operator_id=r.operator_id, reason='pin')
+    port.audit('LOGIN_REJECTED', reason='pin')
+    if r.status == 'locked': raise ApiError(401, 'UNAUTHENTICATED', 'PIN login is locked for this operator: use the operator token or wait', r.retry_after_s)
+    delay = port.login_failed()
+    if delay: await _sleep(delay)
+    raise ApiError(401, 'UNAUTHENTICATED', 'invalid name or PIN', delay)
+
+@router.post('/logout', response_model=M.LogoutResp)
+async def logout(request: Request, authorization: Optional[str] = Header(None), op: Operator = Depends(current_operator)):
+    """P28-4a: revokes the login session of the bearer token. An operator token has no session: nothing is revoked and the answer is still 200 with logged_out false."""
+    port = request.app.state.port; revoked = await run_in_threadpool(port.logout, authorization.partition(' ')[2].strip())
+    port.audit('LOGOUT', operator_id=op.operator_id, reason='session' if revoked else 'operator token')
+    return M.LogoutResp(logged_out=revoked)
 
 EV_COLS = 'event_seq, log_ts, record_type, node_id, level, code, detail, operator_id'
 EVENTS_SQL = 'SELECT %s FROM v_events WHERE event_seq > ? ORDER BY event_seq, log_ts LIMIT ?' % EV_COLS

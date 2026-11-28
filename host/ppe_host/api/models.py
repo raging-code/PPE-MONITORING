@@ -221,12 +221,28 @@ def parse_client(raw):  # str, bytes or dict; raises pydantic.ValidationError fo
 def parse_server(raw):
     return SERVER_ADAPTER.validate_json(raw) if isinstance(raw, (str, bytes)) else SERVER_ADAPTER.validate_python(raw)
 # ---- REST bodies (P19-1; the rest of the frozen endpoint list follows in P19-2 and P19c) ----
-class LoginReq(_Strict):
-    token: str = Field(min_length=1)
+class LoginReq(_Strict):  # P28-4a (ADR 0056): the token form {token} or the PIN form {display_name, pin, remember}; exactly one of them
+    token: Optional[str] = Field(None, min_length=1)
+    display_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    pin: Optional[str] = Field(None, min_length=1, max_length=64)   # a PIN is 6 to 12 digits (security.valid_pin); the cap only bounds the scrypt input
+    remember: bool = False
+    @model_validator(mode='after')
+    def _one_form(self):
+        if self.token is not None and (self.display_name is not None or self.pin is not None): raise ValueError('send either token, or display_name and pin')
+        if self.token is None and (self.display_name is None or self.pin is None): raise ValueError('send token, or display_name and pin')
+        return self
 class LoginResp(_Strict):
     operator_id: int
     display_name: str
     session_id: int
+class PinLoginResp(_Strict):  # P28-4a: the answer of the PIN form; the token form keeps LoginResp
+    operator_id: int
+    display_name: str
+    session_id: int
+    session_token: str
+    expires_ts: int
+class LogoutResp(_Strict):
+    logged_out: bool
 EventRecordType = Literal['alert_raised', 'alert_cleared', 'audit', 'system', 'advisory']
 class EventRow(_Strict):  # one row of v_events (11 DDL): never a frame row, no raw_hex, no measurement column
     event_seq: int
