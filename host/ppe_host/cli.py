@@ -229,6 +229,44 @@ def cmd_ack(a):
     return code
 COMMANDS['ack'] = (cmd_ack, [('--node', {'type': int, 'required': True, 'help': 'node id whose open alerts are acknowledged (the operator token is read from the PPE_TOKEN variable)'}),
     ('--mode', {'choices': ['LIVE', 'SIMULATOR', 'REPLAY'], 'default': 'LIVE', 'help': 'the mode the host was started with (python -m ppe_host.main --mode); it decides which database the host writes'})] + OPERATOR_FLAGS)
+# ---- S8-1 (ADR 0070): who wears the PPE (offline; firefighter profiles with consent, the node assignment, the roster on/off switch) ----
+def _ff_run(a, cmd, fn):
+    from .services import firefighters as ffs
+    try:
+        home, conn = _open(a, False)
+        try: return fn(ffs, conn, int(time.time() * 1000))
+        finally: conn.close()
+    except (SettingsError, ffs.FirefighterError) as e: return _fail(cmd, str(e))
+def cmd_add_firefighter(a):
+    def go(ffs, conn, now):
+        fid, alias = ffs.add_firefighter(conn, now, full_name=a.name, age_years=a.age, height_cm=a.height_cm, weight_kg=a.weight_kg, resting_hr=a.resting_hr, smoker=a.smoker == 'yes', consent=a.consent,
+                                         consent_form_version=a.consent_form_version, consent_witness=a.consent_witness, consent_date=a.consent_date, sex=a.sex, max_hr=a.max_hr, years_service=a.years_service)
+        print('add-firefighter: firefighter_id %d, alias %s (the name is stored for the Settings screen and is not shown anywhere else)' % (fid, alias)); return 0
+    return _ff_run(a, 'add-firefighter', go)
+def cmd_list_firefighters(a):
+    def go(ffs, conn, now):
+        rows = ffs.list_firefighters(conn, a.show_names)
+        if not rows: print('list-firefighters: none'); return 0
+        for r in rows: print(' '.join('%s=%s' % (k, '' if v is None else v) for k, v in r.items()))
+        return 0
+    return _ff_run(a, 'list-firefighters', go)
+def cmd_assign_firefighter(a):
+    def go(ffs, conn, now):
+        r = ffs.assign(conn, now, a.node, a.firefighter_id); print('assign-firefighter: node %d, %s' % (a.node, r)); return 0
+    return _ff_run(a, 'assign-firefighter', go)
+def cmd_set_roster(a):
+    def go(ffs, conn, now):
+        r = ffs.set_roster_active(conn, now, a.node, a.active); print('set-roster: node %d active=%d, %s (takes effect at the next host start)' % (a.node, a.active, r)); return 0
+    return _ff_run(a, 'set-roster', go)
+COMMANDS.update({
+    'add-firefighter': (cmd_add_firefighter, [('--name', {'required': True, 'help': 'full name, stored for the Settings screen only; the alias FFR-NN is what everything else shows'}), ('--age', {'type': int, 'required': True}), ('--height-cm', {'type': int, 'required': True}),
+        ('--weight-kg', {'type': float, 'required': True}), ('--resting-hr', {'type': int, 'required': True, 'help': 'resting heart rate in beats per minute'}), ('--smoker', {'choices': ['yes', 'no'], 'required': True}),
+        ('--sex', {'choices': ['F', 'M', 'X']}), ('--max-hr', {'type': int, 'help': 'measured maximum heart rate (optional)'}), ('--years-service', {'type': float, 'help': 'years as a firefighter (optional)'}),
+        ('--consent', {'action': 'store_true', 'help': 'the person has agreed; required'}), ('--consent-date', {'help': 'YYYY-MM-DD (default today)'}), ('--consent-form-version', {'required': True}), ('--consent-witness', {'required': True})] + OPERATOR_FLAGS),
+    'list-firefighters': (cmd_list_firefighters, [('--show-names', {'action': 'store_true', 'help': 'also print the full names'})] + OPERATOR_FLAGS),
+    'assign-firefighter': (cmd_assign_firefighter, [('--node', {'type': int, 'required': True}), ('--firefighter-id', {'type': int, 'help': 'leave out to end the node\'s assignment'})] + OPERATOR_FLAGS),
+    'set-roster': (cmd_set_roster, [('--node', {'type': int, 'required': True}), ('--active', {'type': int, 'choices': [0, 1], 'required': True})] + OPERATOR_FLAGS),
+})
 def main(argv=None):
     p = argparse.ArgumentParser(prog='ppe_host.cli'); sub = p.add_subparsers(dest='command', required=True)
     for name, (_, flags) in COMMANDS.items():

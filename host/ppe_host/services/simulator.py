@@ -93,6 +93,13 @@ SCENARIOS = {                                       # name: {node: (script, shif
     'rehearsal': {1: (co_ramp, 0), 2: (man_down, 60), 3: (link_loss, 120)},       # CO warning near 26 s and danger near 65 s, man-down near 112 s, link loss from 140 s; all back to normal by about 215 s
 }
 
+SINGLE_PHASES = ((0, co_ramp), (150, man_down), (260, link_loss))      # (start_s, script): one responder alone, the three events one after the other (S8-1, ADR 0070)
+def single(node, t, rng):
+    """The CO ramp from 0 s, the man-down sequence from 150 s and the link loss from 260 s, all on the same node (the roster has one active node for the trial)."""
+    t0, script = [p for p in SINGLE_PHASES if t >= p[0]][-1]
+    return script(node, t - t0, rng)
+SCENARIOS['single'] = {1: (single, 0)}
+
 def _rng(seed, *parts): return random.Random(':'.join(str(p) for p in (seed,) + parts))     # a str seed is hashed with SHA-512: the same on every run and every machine
 
 class Schedule:
@@ -138,9 +145,9 @@ class Schedule:
 class SimulatorThread:
     """Polls a Schedule against the injected Clock (its mono_ms, so a FakeClock steps it and a REPLAY-style clock could scale it) and gives every item to on_item(kind, payload), the SerialReader callback.
     time 0 is the first poll. A failing handler is counted and never stops the thread. polls counts finished passes (a test steps the clock and waits for it to move). stop() ends it before the writer is stopped."""
-    def __init__(self, clock, on_item, key, sys_id, scenario=DEFAULT_SCENARIO, seed=DEFAULT_SEED, base_id=1, poll_s=0.1, on_alive=None):
+    def __init__(self, clock, on_item, key, sys_id, scenario=DEFAULT_SCENARIO, seed=DEFAULT_SEED, base_id=1, poll_s=0.1, on_alive=None, nodes=NODES):
         self.clock, self.on_item, self.poll_s, self.on_alive = clock, on_item, poll_s, on_alive or (lambda: None)
-        self.schedule = Schedule(scenario, seed, key, sys_id, base_id)
+        self.schedule = Schedule(scenario, seed, key, sys_id, base_id, nodes=nodes)
         self.counters = {'sim_frames': 0, 'sim_heartbeats': 0, 'sim_handler_errors': 0}
         self.polls, self.last_error, self._t0 = 0, None, None
         self._stop = threading.Event(); self._thread = threading.Thread(target=self._run, name='SimulatorThread', daemon=True)

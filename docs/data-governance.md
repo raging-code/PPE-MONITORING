@@ -15,7 +15,7 @@ Status: DRAFT, to be filled in and signed at the pre-trial sign-off. Nothing her
 | the browser on the operator laptop | the dashboard login token (tab storage, or browser storage if "Remember me" is ticked) | No responder data; a stolen token is access to the dashboard |
 | `logs/` | host log lines and the crash marker | Not checked line by line for aliases or readings: [FILL IN: someone reads one real log before the trial] |
 
-The software stores aliases only (for example FF-01). Dashboard users are stored by display name, a token hash and, if set, a salted PIN hash. No responder name is stored anywhere in the software.
+The dashboard, the audit log, the logs and the exports show aliases only (for example FF-01 for the node, FFR-01 for the firefighter). Dashboard users are stored by display name, a token hash and, if set, a salted PIN hash. Since S8-1 (ADR 0070) the database also holds firefighter profiles (`firefighters`): the full name, age, height, weight, resting and maximum heart rate, smoker, years of service and the consent record (date, form version, witness), and `firefighter_assignments` (which firefighter wore which node, from when to when). The full name is shown only by `cli list-firefighters --show-names` and the Settings screen. All of it is personal data, is in every backup and in a whole-database export, and is not encrypted by the software: rule 4 is what protects it. Complete the [FILL IN] fields of sections 2 and 3 before the first real firefighter is added.
 
 ## 2. Who does what (names and dates are filled in at sign-off)
 
@@ -31,7 +31,7 @@ The software stores aliases only (for example FF-01). Dashboard users are stored
 ## 3. Rules
 
 1. **Consent.** No responder is wired to a node before they have been told what is recorded (the readings in section 1), who can see it and for how long it is kept, and have agreed. The record of that consent is kept at [FILL IN: where, held by whom]. A person who withdraws is removed from the roster for later shifts, and their sessions are handled under section 5.
-2. **Aliases only.** The alias map (section 2) is the only link between a person and a node. Nobody types a responder's name into a session label, a Resolve reason, a log note or an export file name.
+2. **Aliases only.** The link between a person and a node is the firefighter profile and its assignment history (ADR 0070; the name is shown only on the Settings screen and by `list-firefighters --show-names`) together with the alias map (section 2). Nobody types a responder's name into a session label, a Resolve reason, a log note or an export file name.
 3. **Access.** Only the named dashboard users sign in, each under their own name. A user who leaves, or a lost token or PIN, is handled the same day with `disable-operator`, `rotate-token` or `set-pin`. The laptop is locked when unattended.
 4. **Encryption.** The laptop drive is BitLocker or Device Encryption (or an encrypted VeraCrypt volume). Every USB backup drive and the second drive are BitLocker To Go (or VeraCrypt). Backups and CSV exports go only to encrypted locations. `cli doctor` does not check encryption: it is checked by a person before every trial day and recorded: [FILL IN: where].
 5. **Export.** CSV leaves the host only through the dashboard or `GET /api/export.csv`, which writes a `CSV_EXPORT` audit row. The person who downloads it moves it to the encrypted `exports/` area or deletes it. Files in a Downloads folder are removed by [FILL IN: who, when].

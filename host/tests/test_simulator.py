@@ -102,7 +102,7 @@ def test_scenario_and_seed_are_checked():
         with pytest.raises(ValueError): S.Schedule(bad, 1, KEY, SYS)
     for bad in (1.5, '1', None, True):
         with pytest.raises(ValueError): S.Schedule('quiet', bad, KEY, SYS)
-    assert set(S.SCENARIOS) == {'quiet', 'co_ramp', 'man_down', 'link_loss', 'rehearsal'} and S.DEFAULT_SCENARIO in S.SCENARIOS
+    assert set(S.SCENARIOS) == {'quiet', 'co_ramp', 'man_down', 'link_loss', 'rehearsal', 'single'} and S.DEFAULT_SCENARIO in S.SCENARIOS
 
 def test_each_node_sends_every_two_seconds_with_seq_plus_one_and_all_three_nodes_are_heard():
     items = poll_all(S.Schedule('quiet', 1, KEY, SYS), 60, 100)
@@ -317,5 +317,5 @@ def test_main_in_live_mode_prints_no_scenario_and_starts_no_simulator(tmp_path, 
 # ---- docs ----
 def test_adr_0057_exists_is_proposed_and_progress_points_to_it():
     adr = (ROOT / 'docs' / 'adr' / '0057.md').read_text(encoding='utf8'); assert adr.startswith('# ADR 0057') and ('Status: Proposed' in adr or 'Status: Decided' in adr)
-    assert all(name in adr for name in S.SCENARIOS) and '--scenario' in adr and 'create-operator' in adr and 'Ctrl+C' in adr
+    assert all(name in adr for name in S.SCENARIOS if name != 'single') and '--scenario' in adr and 'create-operator' in adr and 'Ctrl+C' in adr
     assert 'Part S7-1 done (ADR 0057' in (ROOT / 'docs' / 'PROGRESS.md').read_text(encoding='utf8')

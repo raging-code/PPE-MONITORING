@@ -101,7 +101,7 @@ class Runtime:
         self.liveness = Liveness(self.real_clock)
         self.reader = SerialReader(port, self.gate.on_item, self.link.on_link, on_alive=self.liveness.stamper('serial'))
         self.serial_writer = SerialWriter(lambda: None if self.reader.lost else self.reader.port, self.link)
-        self.sim = None if simulator is None else SimulatorThread(self.clock, self.gate.on_item, s.cmac_key(), s['sys_id'], simulator[0], simulator[1], base_id=s['base_id'], on_alive=self.liveness.stamper('serial'))   # the same stamp the SerialReader gives the OS watchdog
+        self.sim = None if simulator is None else SimulatorThread(self.clock, self.gate.on_item, s.cmac_key(), s['sys_id'], simulator[0], simulator[1], base_id=s['base_id'], on_alive=self.liveness.stamper('serial'), nodes=tuple(roster))   # the same stamp the SerialReader gives the OS watchdog
         self.detector = self.drain = None
         if drain:       # nothing from the drain reaches the gate, Ingest or the writer except the one system_event row; it never writes to the port and its link events are only logged
             self.detector = LiveTrafficDetector(self.clock, self.ingest.system_event, s.cmac_key(), s['sys_id'])

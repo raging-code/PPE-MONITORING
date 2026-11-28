@@ -11,7 +11,7 @@ from ppe_host.clock import FakeClock, ScaledClock
 from ppe_host.io.db_writer import applied_versions, connect_db, run_migrations
 from ppe_host.services import replay as RP
 from test_host_port import port as host_port, settle
-from test_migration_0003 import MIG, fresh, operator, rejects
+from test_migration_0003 import MIG, operator, rejects
 from test_replay import replay_runtime, wait_for, wait_polls, rows
 from test_replay_pause import FakePort as PausePort, FakeReplay as PauseReplay, Rec, URL, GOOD, idle_thread
 from test_wire import got
@@ -159,11 +159,13 @@ def test_a_speed_change_is_one_system_message_at_once_and_a_repeat_is_none(tmp_p
 def test_0005_adds_exactly_one_audit_action_and_changes_no_table(tmp_path):
     old = tmp_path / 'm4'; old.mkdir()
     for n in ('0001', '0002', '0003', '0004'): shutil.copy(MIG / (n + '.sql'), old / (n + '.sql'))
-    a = connect_db(tmp_path / 'a.db'); run_migrations(a, str(old), 1); b = fresh(tmp_path, 'b.db')
+    a = connect_db(tmp_path / 'a.db'); run_migrations(a, str(old), 1)
+    m5 = tmp_path / 'm5'; m5.mkdir(); [shutil.copy(MIG / (n + '.sql'), m5 / (n + '.sql')) for n in ('0001', '0002', '0003', '0004', '0005')]     # S8-1 added 0006: this test is about 0005 only
+    b = connect_db(tmp_path / 'b.db'); run_migrations(b, str(m5), 1)
     sql = lambda c: sorted(r[0] or '' for r in c.execute('SELECT sql FROM sqlite_master'))
     assert sql(a) == sql(b) and applied_versions(b) == [1, 2, 3, 4, 5] and b.execute('SELECT description FROM schema_version WHERE version = 5').fetchone()[0].startswith('Migration 0005')
     new = {r[0] for r in b.execute('SELECT action FROM audit_actions')} - {r[0] for r in a.execute('SELECT action FROM audit_actions')}
-    assert new == {'REPLAY_SPEED'} and b.execute('SELECT COUNT(*) FROM audit_actions').fetchone()[0] == 24 and run_migrations(b, str(MIG), 9) == []
+    assert new == {'REPLAY_SPEED'} and b.execute('SELECT COUNT(*) FROM audit_actions').fetchone()[0] == 24 and run_migrations(b, str(m5), 9) == []
 
 def test_a_version_4_database_is_upgraded_keeps_its_rows_and_then_accepts_the_new_action(tmp_path):
     old = tmp_path / 'm4'; old.mkdir()
@@ -171,7 +173,7 @@ def test_a_version_4_database_is_upgraded_keeps_its_rows_and_then_accepts_the_ne
     c = connect_db(tmp_path / 'old.db'); assert run_migrations(c, str(old), 1) == [1, 2, 3, 4]; operator(c)
     ins = lambda act, ts: c.execute('INSERT INTO audit_events(session_id, event_seq, ts, operator_id, action) VALUES (NULL, 0, ?, 1, ?)', (ts, act))
     ins('REPLAY_PAUSE', 5); rejects(lambda: ins('REPLAY_SPEED', 6))                                # not an action yet
-    assert run_migrations(c, str(MIG), 2) == [5] and applied_versions(c) == [1, 2, 3, 4, 5]
+    assert run_migrations(c, str(MIG), 2) == [5, 6] and applied_versions(c) == [1, 2, 3, 4, 5, 6]
     ins('REPLAY_SPEED', 7); assert [r[0] for r in c.execute('SELECT action FROM audit_events ORDER BY ts')] == ['REPLAY_PAUSE', 'REPLAY_SPEED'] and c.execute('SELECT display_name FROM operators').fetchone()[0] == 'Ana'
 
 # ---- a real REPLAY host: speed changed through the real route, running and paused ----
