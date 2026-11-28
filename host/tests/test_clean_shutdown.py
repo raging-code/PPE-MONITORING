@@ -114,3 +114,26 @@ def test_a_real_host_stops_with_exit_0_and_a_clean_shutdown_row_on_a_real_signal
         if p.poll() is None: p.kill(); p.wait()
     assert code == 0, (code, ''.join(err)[-800:])
     assert ended_cleanly(h / 'data' / 'ppe_test.db') and 'Traceback' not in ''.join(err)
+    assert 'host stopped, exit code 0' in ''.join(err)                                                      # S7-6: main() finished and finish() ran
+
+# ---- S7-6 (ADR 0063): the last step of `python -m ppe_host.main` ----
+def test_finish_ignores_further_ctrl_c_flushes_and_leaves_with_the_code_of_main(monkeypatch, caplog):
+    seen = {}
+    class Left(Exception): pass
+    def fake_exit(code): seen['code'] = code; seen['sigint'] = signal.getsignal(signal.SIGINT); raise Left()
+    monkeypatch.setattr(M.os, '_exit', fake_exit); before = signal.getsignal(signal.SIGINT)
+    caplog.set_level('INFO', logger='ppe_host')
+    try:
+        with pytest.raises(Left): M.finish(0)
+        assert seen == {'code': 0, 'sigint': signal.SIG_IGN} and 'host stopped, exit code 0' in caplog.text
+    finally: signal.signal(signal.SIGINT, before)
+
+@pytest.mark.parametrize('code', [1, 2])
+def test_finish_passes_a_crash_or_a_bind_failure_code_through(monkeypatch, code):
+    seen = []
+    monkeypatch.setattr(M.os, '_exit', lambda c: seen.append(c)); before = signal.getsignal(signal.SIGINT)
+    try: M.finish(code); assert seen == [code]
+    finally: signal.signal(signal.SIGINT, before)
+
+def test_finish_is_what_the_module_entry_point_calls():
+    assert "finish(main())" in (HOST_DIR / 'ppe_host' / 'main.py').read_text(encoding='utf-8')

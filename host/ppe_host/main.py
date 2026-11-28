@@ -286,4 +286,21 @@ def main(argv=None, serve=run_server):
     finally: rt.stop(clean=clean); st.close()
     return EXIT_OK
 
-if __name__ == '__main__': sys.exit(main())
+def finish(code):
+    """S7-6 (ADR 0063): the last step of `python -m ppe_host.main`. main() has already stopped everything and written CLEAN_SHUTDOWN, but on Windows the process still ended with exit code
+    -1073741510 (0xC000013A, STATUS_CONTROL_C_EXIT, "ended by Ctrl+C") after a single Ctrl+C: Windows treated the console event as unhandled somewhere between the end of main() and the end of the interpreter,
+    and a supervisor reads a non-zero code as a crash and restarts the host. So: ignore further Ctrl+C and Ctrl+Break (the work is done), log one line, flush, and leave with os._exit(code) so that the code is the one main() chose.
+    os._exit skips the interpreter's own teardown only; the runtime, the writer and the database were closed by main()."""
+    for name in ('SIGINT', 'SIGBREAK'):
+        sig = getattr(signal, name, None)
+        if sig is None: continue
+        try: signal.signal(sig, signal.SIG_IGN)
+        except (ValueError, OSError): pass
+    LOG.info('host stopped, exit code %d', code)
+    logging.shutdown()
+    for f in (sys.stdout, sys.stderr):
+        try: f.flush()
+        except (OSError, ValueError): pass
+    os._exit(code)
+
+if __name__ == '__main__': finish(main())

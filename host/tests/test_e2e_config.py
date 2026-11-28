@@ -1,6 +1,6 @@
 """P27-3 (ADR 0042): the Playwright tests of design 8 under e2e/ are wired in: the files exist, the dependencies are pinned and locked, the justfile and CI run them
 after a dashboard build, the specs name the two behaviours design 8 asks for and use no fixed sleeps, and the mock host sends messages the host's own Pydantic models accept.
-The browser run itself is not done here: it needs Chromium (just test-e2e, and the e2e job of CI). Requirements: REQ-UI-002."""
+The browser run itself is not done here: it needs Chromium (just test-e2e, and the e2e job of CI). Requirements: REQ-UI-002, REQ-API-007 (S7-5b: the REPLAY mock messages)."""
 import json, re, shutil, subprocess
 from pathlib import Path
 import pytest
@@ -89,7 +89,7 @@ def test_the_mock_host_sends_messages_the_host_models_accept():
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node is not installed')
 def test_the_mock_host_replay_messages_are_ones_the_host_models_accept():
-    """S7-5b (ADR 0062): the snapshot and the system message of a REPLAY mock host carry a replay block the host's models accept, and the spec for it exists and uses no fixed sleeps. Requirements: REQ-API-007."""
+    """S7-5b (ADR 0062): the snapshot and the system message of a REPLAY mock host carry a replay block the host's models accept, and the spec for it exists and uses no fixed sleeps."""
     from ppe_host.api.models import SERVER_ADAPTER
     out = subprocess.run(['node', str(E2E / 'mock_host.mjs'), '--print-replay'], capture_output=True, text=True, timeout=60, cwd=str(ROOT))
     assert out.returncode == 0, out.stderr
