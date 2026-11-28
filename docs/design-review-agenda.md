@@ -10,7 +10,7 @@ Meeting: [FILL IN: date, place, who attends, who writes the minutes.]
 
 These are checks, not decisions; several ADRs below rest on them.
 
-- [ ] S7-6 Ctrl+C exit code: `python -m ppe_host.main --mode SIMULATOR`, Ctrl+C once, then `echo $LASTEXITCODE` (ADR 0060 and 0063).
+- [x] S7-6 Ctrl+C exit code: `python -m ppe_host.main --mode SIMULATOR`, Ctrl+C once, then `echo $LASTEXITCODE` (ADR 0060 and 0063). Done 2026-11-28: exit code 0 and the log line `host stopped, exit code 0`.
 - [ ] The Pause and speed controls against a real REPLAY host in a browser (ADR 0062, 0065).
 - [ ] The alert-card heading button by keyboard: Tab to it, Enter, the matching node card highlights (ADR 0068).
 - [ ] Unplug the charger on the field laptop and wait a minute: the host-on-battery notice and a HOST_BATTERY row appear (ADR 0069).
