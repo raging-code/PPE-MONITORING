@@ -11,7 +11,7 @@ CONSTANTS_PATH = REPO_ROOT / 'shared' / 'constants.json'
 PATH_KEYS = ('db_path', 'test_db_path', 'backup_dir', 'second_drive_dir', 'log_dir')   # resolved against PPE_HOME; second_drive_dir is '' (off) unless the operator names the USB folder (P26-3)
 HASH_EXCLUDED = ('serial_port', 'db_path', 'test_db_path', 'backup_dir', 'second_drive_dir', 'log_dir', 'bind_host', 'bind_port',                         # connection and path keys (Rev 3.41)
                  'host_alarm_budget_ms', 'checkpoint_interval_s', 'checkpoint_max_bytes', 'host_budget_ms', 'dashboard_budget_ms',     # the nine rows marked
-                 'recovering_target_s', 'host_bat_warn_pct', 'host_disk_min_gb', 'supervisor_restart_target_s')                        # 'Not in settings_hash' (Rev 3.42)
+                 'recovering_target_s', 'host_bat_warn_pct', 'host_disk_min_gb', 'supervisor_restart_target_s', 'session_hours')                        # 'Not in settings_hash' (Rev 3.42)
 
 class SettingsError(ValueError): pass
 
@@ -58,6 +58,8 @@ def load_settings(ppe_home=None, defaults_path=DEFAULTS_PATH, env=None):
             if k not in values: raise SettingsError('unknown key in settings.local.json: %s' % k)
             if not _same_kind(values[k], v): raise SettingsError('settings.local.json: %s must be of type %s' % (k, type(values[k]).__name__))
             values[k] = v
+    h = values.get('session_hours')      # P28-4b (ADR 0056): hours a PIN login session lasts
+    if h is not None and not (0 < h <= 168): raise SettingsError('session_hours must be above 0 and at most 168')
     sec = home / 'config' / 'secrets.json'
     secrets = _read_json(sec, 'secrets.json') if sec.exists() else {}
     if not isinstance(secrets, dict): raise SettingsError('secrets.json must be a JSON object')

@@ -6,6 +6,7 @@ Host-only settings (Rev 3.21, Proposed). These keys live in config/settings.json
 | ws_send_queue_max | 64 | Length of each dashboard connection's bounded send queue, in messages. |
 | ws_send_timeout_s | 1 | A client that cannot accept a message within this time is closed with code 4408 and CLIENT_DROPPED is logged. |
 | login_backoff_cap_s | 5 | Upper limit of the growing delay after failed logins (section 4). |
+| session_hours | 12 | Hours a PIN login session lasts (ADR 0056, Proposed); above 0 and at most 168. A session also ends at once on log out, on a new PIN, on rotate-token and on disable-operator. Not in settings_hash. |
 | zero_socket_alarm_s (deleted) | 10 | Deleted (Rev 3.30, Proposed, confirm with the adviser): the host alarm is primary (3.12), so no rule starts a laptop alarm from a missing dashboard tab; a real alert sounds on the host regardless and the CLI ack stops it, and the base panel shows LAPTOP OFFLINE if the host stops. Remove this key from settings.json. |
 | no_audio_alarm_s | 5 | Deleted (Rev 3.27): the host alarm no longer depends on browser audio (3.12). Remove this key from settings.json. |
 | replay_chunk_rows | 2000 | Rows per asynchronous chunk during recovery, with a liveness heartbeat after each chunk. |

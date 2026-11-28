@@ -78,29 +78,59 @@ def _existing(a, cmd):
     if row is None: conn.close(); raise SettingsError('no operator with operator_id %d' % a.operator_id)
     return home, conn, row
 def cmd_rotate_token(a):
-    from .api import security as sec
+    from .api import pin_auth, security as sec
     try:
         home, conn, (name, active) = _existing(a, 'rotate-token')
         try:
             if not active: raise SettingsError('operator %d (%s) is disabled; a disabled operator gets no new token' % (a.operator_id, name))
             salt, token, now = _salt(home, conn), sec.new_token(), int(time.time() * 1000)
-            def write(): conn.execute('UPDATE operators SET token_hash = ?, token_issued_ts = ? WHERE operator_id = ?', (sec.hash_token(salt, token), now, a.operator_id)); return a.operator_id
+            ended = []      # P28-4b: the login sessions of the operator end with the old token
+            def write(): conn.execute('UPDATE operators SET token_hash = ?, token_issued_ts = ? WHERE operator_id = ?', (sec.hash_token(salt, token), now, a.operator_id)); ended.append(pin_auth.revoke_operator_sessions(conn, a.operator_id, now)); return a.operator_id
             _write_with_audit(conn, 'TOKEN_ROTATED', write)
         finally: conn.close()
     except SettingsError as e: return _fail('rotate-token', str(e))
-    print('rotate-token: operator_id %d (%s), the old token no longer works\nTOKEN (shown once, only its hash is stored): %s' % (a.operator_id, name, token)); return 0
+    print('rotate-token: operator_id %d (%s), the old token no longer works\n%sTOKEN (shown once, only its hash is stored): %s' % (a.operator_id, name, '%d login session(s) ended\n' % ended[0] if ended[0] else '', token)); return 0
 def cmd_disable_operator(a):
+    from .api import pin_auth
     try:
         home, conn, (name, active) = _existing(a, 'disable-operator')
         try:
             if active:
-                def write(): conn.execute('UPDATE operators SET active = 0 WHERE operator_id = ?', (a.operator_id,)); return a.operator_id
+                def write(): conn.execute('UPDATE operators SET active = 0 WHERE operator_id = ?', (a.operator_id,)); pin_auth.revoke_operator_sessions(conn, a.operator_id, int(time.time() * 1000)); return a.operator_id      # P28-4b: and its login sessions
                 _write_with_audit(conn, 'OPERATOR_DISABLED', write)
         finally: conn.close()
     except SettingsError as e: return _fail('disable-operator', str(e))
     print('disable-operator: operator_id %d (%s) %s' % (a.operator_id, name, 'is disabled' if active else 'was already disabled, nothing changed')); return 0
 
+def cmd_set_pin(a):
+    """P28-4b (ADR 0056): set or reset the PIN of an operator. The PIN is random (--length digits, 6 by default) and shown once, or typed twice and hidden with --prompt. It is never an argument, never logged and never stored: only its scrypt hash is.
+    The failure count and the lock are cleared, the operator's login sessions end, and PIN_SET is written (offline row: session_id NULL, event_seq 0)."""
+    import secrets
+    from .api import pin_auth, security as sec
+    cmd = 'set-pin'
+    try:
+        if a.prompt:
+            import getpass
+            pin = getpass.getpass('new PIN (6 to 12 digits): ')
+            if getpass.getpass('repeat the PIN: ') != pin: raise SettingsError('the two PINs differ; nothing changed')
+        else:
+            if not 6 <= a.length <= 12: raise SettingsError('--length must be 6 to 12')
+            pin = ''.join(secrets.choice('0123456789') for _ in range(a.length))
+        if not sec.valid_pin(pin): raise SettingsError('a PIN is 6 to 12 digits; nothing changed')
+        home, conn, (name, active) = _existing(a, cmd)
+        try:
+            if not active: raise SettingsError('operator %d (%s) is disabled; a disabled operator gets no PIN' % (a.operator_id, name))
+            now, ended = int(time.time() * 1000), []
+            def write():
+                first, second = pin_auth.plan_set_pin(a.operator_id, pin, now); conn.execute(*first); ended.append(conn.execute(*second).rowcount); return a.operator_id
+            _write_with_audit(conn, 'PIN_SET', write)
+        finally: conn.close()
+    except SettingsError as e: return _fail(cmd, str(e))
+    note = '%d login session(s) ended\n' % ended[0] if ended[0] else ''
+    print('set-pin: operator_id %d (%s)\n%s' % (a.operator_id, name, note) + ('PIN set (typed by you, not shown)' if a.prompt else 'PIN (shown once, only its hash is stored): %s' % pin)); return 0
+
 COMMANDS.update({
+    'set-pin': (cmd_set_pin, [('--operator-id', {'type': int, 'required': True}), ('--length', {'type': int, 'default': 6, 'help': 'digits of the random PIN, 6 to 12'}), ('--prompt', {'action': 'store_true', 'help': 'type the PIN twice (hidden) instead of a random one'})] + OPERATOR_FLAGS),
     'create-operator': (cmd_create_operator, [('--name', {'required': True, 'help': 'display name shown in the audit log'})] + OPERATOR_FLAGS),
     'rotate-token': (cmd_rotate_token, [('--operator-id', {'type': int, 'required': True})] + OPERATOR_FLAGS),
     'disable-operator': (cmd_disable_operator, [('--operator-id', {'type': int, 'required': True})] + OPERATOR_FLAGS),

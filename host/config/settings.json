@@ -13,6 +13,7 @@
   "ws_send_queue_max": 64,
   "ws_send_timeout_s": 1,
   "login_backoff_cap_s": 5,
+  "session_hours": 12,
   "replay_chunk_rows": 2000,
   "pre_replay_queue_max": 500,
   "counters_interval_s": 60,

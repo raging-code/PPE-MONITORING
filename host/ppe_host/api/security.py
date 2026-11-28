@@ -12,7 +12,7 @@ BACKOFF_BASE_S = 1.0   # first failed-login delay; it doubles up to login_backof
 def new_token(): return secrets.token_urlsafe(24)
 def hash_token(salt_hex, token): return hmac.new(bytes.fromhex(salt_hex), token.encode('utf8'), hashlib.sha256).hexdigest()
 
-DEFAULT_SESSION_HOURS = 12   # login session lifetime (ADR 0056, decision 1); the session_hours setting is added in P28-4
+DEFAULT_SESSION_HOURS = 12   # login session lifetime (ADR 0056, decision 1); the session_hours setting overrides it (this is the fallback for a settings dict without the key)
 PIN_RE = re.compile(r'[0-9]{6,12}')
 SCRYPT = dict(n=16384, r=8, p=1, dklen=32)   # about 16 MB and 50 ms per check
 SESSION_SQL = 'SELECT o.operator_id, o.display_name, s.token_hash FROM login_sessions s JOIN operators o ON o.operator_id = s.operator_id WHERE s.revoked_ts IS NULL AND s.expires_ts > ? AND o.active = 1'

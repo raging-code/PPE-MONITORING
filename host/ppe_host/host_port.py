@@ -58,7 +58,7 @@ class HostPort:
         return r
     def start_login_session(self, operator_id, remember):
         """(session_token, expires_ts). The row is committed before the token leaves the host, so the next request with it is accepted; RuntimeError (a 500) if it could not be written."""
-        token, expires, stmt = pin_auth.plan_session(self.auth.salt, operator_id, remember, self.ing.clock.wall_ms())
+        token, expires, stmt = pin_auth.plan_session(self.auth.salt, operator_id, remember, self.ing.clock.wall_ms(), self.settings.get('session_hours', sec.DEFAULT_SESSION_HOURS))
         if self._done(None, self.ing.write([Stmt(*stmt)], durable=True)) is not True: raise RuntimeError('the login session could not be written')
         return token, expires
     def logout(self, token):

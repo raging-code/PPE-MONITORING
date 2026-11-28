@@ -50,7 +50,7 @@ def test_validate_rejects_a_deleted_key_in_settings():
 def test_generated_files_match_the_generator():  # the CI "regenerate, git diff is empty" check
     for rel, text in gen.render_all(C, S).items(): assert (ROOT / rel).read_text(encoding='utf8') == text, rel + ' is stale: run python tools/gen_constants.py'
 def test_generated_key_counts_equal_the_files():
-    assert (len(C), len(S)) == (78, 36)        # settings.json 35 keys + second_drive_dir (P26-3, ADR 0040; the design line for it is still to be written)
+    assert (len(C), len(S)) == (78, 37)        # settings.json 35 keys + second_drive_dir (P26-3, ADR 0040; the design line for it is still to be written)
     assert len(K.CONSTANTS) == len(C) and K.CONSTANTS == C
     assert all(getattr(K, k.upper()) == v for k, v in C.items())
     c_src, ts_src = (ROOT / gen.OUT['c']).read_text(encoding='utf8'), (ROOT / gen.OUT['ts']).read_text(encoding='utf8')
@@ -59,7 +59,7 @@ def test_generated_key_counts_equal_the_files():
     assert K.PROFILES['A']['link_lost_max_s'] == 60 and K.PROFILES['B']['routine_period_s'] == 8
 def test_settings_json_holds_every_table_key_with_the_table_default():
     rows = table_rows(); live = [(k, d) for k, d, deleted in rows if not deleted]
-    assert len(rows) == 28 and len(live) == 26
+    assert len(rows) == 29 and len(live) == 27
     for k, d in live: assert k in S and S[k] == json.loads(d), k
     assert {k for k, _, deleted in rows if deleted} == {'zero_socket_alarm_s', 'no_audio_alarm_s'}
 def test_settings_json_holds_the_section_1_connection_keys():

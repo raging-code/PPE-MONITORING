@@ -10,7 +10,7 @@ def home(tmp_path, local=None, secrets=None):
     return tmp_path
 
 def test_defaults_load_and_paths_resolve_against_ppe_home(tmp_path):
-    s = load_settings(home(tmp_path)); assert s.values == DEFAULTS and len(s.values) == 36 and s.home == tmp_path
+    s = load_settings(home(tmp_path)); assert s.values == DEFAULTS and len(s.values) == 37 and s.home == tmp_path
     assert s.path('db_path') == tmp_path / 'data/ppe.db' and s.path('backup_dir') == tmp_path / 'backups/' and s.secrets_path == tmp_path / 'config' / 'secrets.json'
     abs_dir = tmp_path / 'elsewhere'; assert load_settings(home(tmp_path, {'log_dir': str(abs_dir)})).path('log_dir') == abs_dir      # an absolute path is kept
     with pytest.raises(KeyError): s.path('sys_id')
@@ -35,7 +35,7 @@ def test_secrets_are_validated_and_never_shown(tmp_path):
     with pytest.raises(SettingsError): load_settings(tmp_path / 'none').server_salt()
 
 def test_settings_hash_ignores_connection_path_and_budget_keys_but_not_the_rest(tmp_path):
-    base = DEFAULTS; h = settings_hash(base); assert len(h) == 64 and len(HASH_EXCLUDED) == 17 and set(HASH_EXCLUDED) <= set(base)
+    base = DEFAULTS; h = settings_hash(base); assert len(h) == 64 and len(HASH_EXCLUDED) == 18 and set(HASH_EXCLUDED) <= set(base)
     for k in HASH_EXCLUDED:                                                                                           # 8 path keys (second_drive_dir since P26-3) and the nine 'Not in settings_hash' rows
         v = base[k]; assert settings_hash({**base, k: (v + 'x' if isinstance(v, str) else v + 1)}) == h, k
     for k in set(base) - set(HASH_EXCLUDED):

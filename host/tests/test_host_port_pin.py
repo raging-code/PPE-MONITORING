@@ -39,3 +39,8 @@ def test_a_session_expires_by_the_host_clock(tmp_path):
 def test_the_new_audit_actions_are_accepted_by_the_writer(tmp_path):
     c, w, ing, p = hp(tmp_path); p.audit('LOGIN_LOCKED', operator_id=1, reason='pin'); p.audit('LOGOUT', operator_id=1, reason='session'); p.audit('LOGIN_OK', operator_id=1, reason='pin'); settle(w, ing)
     assert [x['action'] for x in rows(c, 'SELECT action FROM audit_events ORDER BY event_seq')] == ['LOGIN_LOCKED', 'LOGOUT', 'LOGIN_OK'] and w.counters['write_rejected'] == 0; w.stop()
+def test_the_session_length_follows_the_session_hours_setting(tmp_path):
+    c, w, ing, p = hp(tmp_path); now = ing.clock.wall_ms(); p.settings = {**S, 'session_hours': 2}
+    token, expires = p.start_login_session(1, False); assert expires == now + 2 * HOUR
+    ing.clock.advance(2 * HOUR - 1); assert p.authenticate(token) is not None
+    ing.clock.advance(2); assert p.authenticate(token) is None; w.stop()
