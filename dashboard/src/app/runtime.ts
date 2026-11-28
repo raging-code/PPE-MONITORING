@@ -1,5 +1,6 @@
 import { controller, liveStore } from '../store/live.ts';
-import { TOKEN_KEY } from '../store/controller.ts';
+import { readToken } from '../store/token.ts';
+import { authFetch, onAuthLost } from '../api/authfetch.ts';
 import { createBridge, type Bridge } from '../worker/bridge.ts';
 import { createWatchdogClient, wdStore } from '../store/watchdog.ts';
 import { audioStore, bindSiren, createSiren, webAudioPort } from '../audio/siren.ts';
@@ -14,7 +15,7 @@ export function getRuntime(): { controller: Controller; bridge: Bridge; gate: Ga
     const worker = new Worker(new URL('../worker/liveWatchdog.ts', import.meta.url), { type: 'module' });
     const scheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
     const bridge = createBridge(worker, scheme + window.location.host + '/ws/tick');
-    const api = { fetchFn: (...a: Parameters<typeof fetch>) => fetch(...a), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) };
+    const api = { fetchFn: authFetch, getToken: readToken };
     const client = createWatchdogClient({ api });
     worker.onmessage = (e: MessageEvent) => { void client.handle(e.data); };
     bindSiren(createSiren(webAudioPort(() => audioStore.getState().ctx)), wdStore, audioStore);
@@ -32,6 +33,7 @@ export function getRuntime(): { controller: Controller; bridge: Bridge; gate: Ga
       if (s.conn === 'LIVE' && s.lastSrvTs !== prev.lastSrvTs) { bridge.dataAlive(); gate.check(); } // 3.9: the audio state is checked on each 1 Hz tick
       if ((s.conn === 'LOGIN' || s.conn === 'FORBIDDEN') && prev.conn !== s.conn) bridge.stop();
     });
+    onAuthLost(() => controller.expire()); // a 401 on any logged-in REST call: the session ended, show Login (ADR 0056)
     cached = { controller, bridge, gate };
   }
   return cached;

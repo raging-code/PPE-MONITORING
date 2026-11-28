@@ -44,7 +44,7 @@ describe('NO LIVE DATA screen from the worker verdict', () => {
   it('never covers the Login page', () => {
     liveStore.setState(initialState('LOGIN')); wdStore.setState({ noData: true, sirenOn: true });
     render(<Shell {...deps()} />);
-    expect(screen.queryByText(NLD)).toBeNull(); expect(screen.queryByLabelText('Token')).not.toBeNull();
+    expect(screen.queryByText(NLD)).toBeNull(); expect(screen.queryByLabelText('PIN')).not.toBeNull();
   });
 });
 

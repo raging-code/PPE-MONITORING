@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { bannersFor, modeText, type BannerView } from '../alerts/banners.ts';
-import { TOKEN_KEY } from '../store/controller.ts';
+import { readToken } from '../store/token.ts';
+import { authFetch } from '../api/authfetch.ts';
 import { liveStore, useLive } from '../store/live.ts';
 import { ackBanner, ackMessage } from '../store/banners.ts';
 import type { Level } from '../alerts/catalog.ts';
@@ -8,7 +9,7 @@ import { cn } from '../lib/utils.ts';
 
 const BOX: Record<Level, string> = { DANGER: 'bg-level-danger text-white', WARNING: 'bg-level-warning text-ink', NONE: 'bg-slate-700 text-white' };
 const ICON: Record<Level, string> = { DANGER: '✖', WARNING: '▲', NONE: 'ℹ' };
-const defaultApi = { fetchFn: (...a: Parameters<typeof fetch>) => fetch(...a), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) };
+const defaultApi = { fetchFn: authFetch, getToken: readToken };
 
 // TEST or REPLAY bar: dark and neutral, never a level colour, and it cannot be dismissed (3.7).
 export function ModeBar() {

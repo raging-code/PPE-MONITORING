@@ -3,20 +3,22 @@ import type { Api } from '../api/actions.ts';
 import type { EndBody } from '../api/shift.ts';
 import { openItems } from '../alerts/shift.ts';
 import { useLive } from '../store/live.ts';
-import { TOKEN_KEY } from '../store/controller.ts';
+import { readToken } from '../store/token.ts';
+import { authFetch } from '../api/authfetch.ts';
 import EndShiftDialog from './EndShiftDialog.tsx';
 import Chips from './Chips.tsx';
 import SessionsPanel from './SessionsPanel.tsx';
 import ShiftSummary from './ShiftSummary.tsx';
 import { BTN } from './btn.ts';
 
-export const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?? ((...a) => fetch(...a)), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) });
+export const defaultApi = (fetchFn?: typeof fetch): Api => ({ fetchFn: fetchFn ?? authFetch, getToken: readToken });
 
 // The top strip (3.10): the Sessions list and End shift open from here, not from the main screen. The chips of minimized alerts and the LIVE or TEST word sit here too (P22d-1).
-export default function TopStrip({ fetchFn, children }: { fetchFn?: typeof fetch; children?: ReactNode }) {
+export default function TopStrip({ fetchFn, onLogout, children }: { fetchFn?: typeof fetch; onLogout?: () => Promise<void>; children?: ReactNode }) {
   const api = useMemo(() => defaultApi(fetchFn), [fetchFn]);
   const session = useLive((s) => s.session), alerts = useLive((s) => s.alerts), episodes = useLive((s) => s.episodes), nodes = useLive((s) => s.nodes);
   const [sessions, setSessions] = useState(false), [ending, setEnding] = useState(false), [ended, setEnded] = useState<EndBody | null>(null);
+  const [confirmOut, setConfirmOut] = useState(false), [outBusy, setOutBusy] = useState(false); // Log out asks once: it stops monitoring on this screen
   const items = useMemo(() => openItems(alerts, episodes, nodes), [alerts, episodes, nodes]);
   return (
     <>
@@ -28,6 +30,14 @@ export default function TopStrip({ fetchFn, children }: { fetchFn?: typeof fetch
         <span className="flex gap-2">
           <button type="button" className={BTN} aria-expanded={sessions} onClick={() => setSessions((v) => !v)}>Sessions</button>
           <button type="button" className={BTN} onClick={() => setEnding(true)}>End shift</button>
+          {onLogout && !confirmOut && <button type="button" className={BTN} onClick={() => setConfirmOut(true)}>Log out</button>}
+          {onLogout && confirmOut && (
+            <span role="group" aria-label="Confirm log out" className="flex flex-wrap items-center gap-2">
+              <span className="text-base">This screen stops monitoring.</span>
+              <button type="button" className={BTN} disabled={outBusy} onClick={() => { setOutBusy(true); void onLogout(); }}>Yes, log out</button>
+              <button type="button" className={BTN} disabled={outBusy} onClick={() => setConfirmOut(false)}>Cancel</button>
+            </span>
+          )}
         </span>
       </nav>
       <Chips />

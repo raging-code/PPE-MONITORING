@@ -4,7 +4,8 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { postAlertAck, postEpisodeAck, postResolve, type ActionResult, type Api, type ResolveBody, type ResolveReason } from '../api/actions.ts';
 import type { AckTargets, Acks } from '../alerts/ack.ts';
-import { TOKEN_KEY } from './controller.ts';
+import { readToken } from './token.ts';
+import { authFetch } from '../api/authfetch.ts';
 import type { Timers } from '../net/socket.ts';
 
 export const acksStore = createStore<{ acks: Acks }>(() => ({ acks: {} }));
@@ -41,4 +42,4 @@ export function createActions(d: ActionDeps): Actions {
   };
 }
 
-export const defaultActions: Actions = createActions({ fetchFn: (...a) => fetch(...a), getToken: () => window.sessionStorage.getItem(TOKEN_KEY) });
+export const defaultActions: Actions = createActions({ fetchFn: authFetch, getToken: readToken });

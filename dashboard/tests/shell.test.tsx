@@ -11,13 +11,18 @@ import { snapshot } from './helpers.ts';
 const deps = () => ({ controller: { start: vi.fn(), login: vi.fn() }, bridge: { init: vi.fn() } });
 const reply = (status: number, body: unknown) => (async () => ({ status, json: async () => body })) as unknown as typeof fetch;
 const NLD = /NO LIVE DATA: responders are NOT being monitored/;
+const adminToken = () => fireEvent.click(screen.getByRole('button', { name: 'Use the admin token instead' })); // P28-5: the PIN form is the default
 
 beforeEach(() => { window.sessionStorage.clear(); liveStore.setState(initialState('LOGIN')); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('Shell (P21 done-when)', () => {
-  it('shows the Login page with one token field and a Sign in button', () => {
+  it('shows the Login page with the name and PIN form first, and the one token field behind the admin link', () => {
     render(<Shell {...deps()} />);
+    expect(screen.queryByLabelText('Name')).not.toBeNull();
+    expect(screen.queryByLabelText('PIN')).not.toBeNull();
+    expect(screen.queryByLabelText('Token')).toBeNull();
+    adminToken();
     expect(screen.queryByLabelText('Token')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeNull();
     expect(screen.queryByText(NLD)).toBeNull();
@@ -56,6 +61,7 @@ describe('Shell (P21 done-when)', () => {
   it('a good login starts the socket and passes INIT_AUTH once', async () => {
     const d = deps();
     render(<Shell {...d} fetchFn={reply(200, { operator_id: 1, display_name: 'Ana', session_id: 4 })} />);
+    adminToken();
     fireEvent.change(screen.getByLabelText('Token'), { target: { value: 'abc' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await vi.waitFor(() => expect(d.controller.login).toHaveBeenCalledWith('abc'));
@@ -64,6 +70,7 @@ describe('Shell (P21 done-when)', () => {
   it('a rejected token shows "Token not accepted" with the delay and starts nothing', async () => {
     const d = deps();
     render(<Shell {...d} fetchFn={reply(401, { error_code: 'UNAUTHENTICATED', detail: 'x', retry_after_s: 2 })} />);
+    adminToken();
     fireEvent.change(screen.getByLabelText('Token'), { target: { value: 'bad' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await screen.findByText(/Token not accepted\. Wait 2 s/);
