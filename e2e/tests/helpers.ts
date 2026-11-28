@@ -1,7 +1,7 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 export type Mode = 'live' | 'muted' | 'dead';
-export interface MockState { mode: Mode; lastTickAt: number; startCount: number; logins: number; abi_mismatch: boolean; pinLogins: number; logouts: number; wrongPins: number; lastRemember: boolean | null; replay: { speed: number; paused: boolean; finished: boolean } | null; replayPauses: number }
+export interface MockState { mode: Mode; lastTickAt: number; startCount: number; logins: number; abi_mismatch: boolean; pinLogins: number; logouts: number; wrongPins: number; lastRemember: boolean | null; replay: { speed: number; paused: boolean; finished: boolean } | null; replayPauses: number; replaySpeeds: number }
 
 // What the mock host accepts on the PIN form (P28-6, ADR 0056) and the session token it answers with. Keep in step with e2e/mock_host.mjs.
 export const PIN_NAME = 'Ana', PIN = '482913', SESSION_TOKEN = 'e2e-session-token';

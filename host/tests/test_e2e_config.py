@@ -99,3 +99,18 @@ def test_the_mock_host_replay_messages_are_ones_the_host_models_accept():
     spec = text(E2E / 'tests' / 'replay_pause.spec.ts')
     for w in ('Pause replay', 'Resume replay', 'Replay paused, ×16', 'Replay finished'): assert w in spec, w
     assert 'waitForTimeout' not in spec and 'setTimeout' not in spec
+
+def test_the_mock_host_speed_route_and_spec_match_the_host_S7_7b():
+    """S7-7b (ADR 0065): the mock host offers the same speeds as the host (SPEEDS of services/replay.py), answers with the fields of ReplaySpeedResp, and the speed spec uses no fixed sleeps. Requirements: REQ-API-007."""
+    from ppe_host.api.models import ReplaySpeedReq, ReplaySpeedResp
+    from ppe_host.services import replay as rpl
+    mock = text(E2E / 'mock_host.mjs')
+    m = re.search(r'REPLAY_SPEEDS = \[([\d,\s]+)\]', mock)
+    assert m and tuple(int(x) for x in m.group(1).split(',')) == rpl.SPEEDS
+    assert "'/api/replay/speed'" in mock and 'replaySpeeds' in mock
+    for s in rpl.SPEEDS: assert ReplaySpeedReq(speed=s).speed == s                        # what the dashboard sends is a body the host accepts
+    assert set(ReplaySpeedResp.model_fields) == {'speed', 'paused', 'finished'}            # and the mock answers with exactly these fields
+    assert "json(res, 200, { speed: state.replay.speed, paused: state.replay.paused, finished: state.replay.finished })" in mock
+    spec = text(E2E / 'tests' / 'replay_speed.spec.ts')
+    for w in ('Speed ×4', 'Speed ×16', 'Replay running, ×4', 'Replay paused, ×1', 'Replay finished'): assert w in spec, w
+    assert 'waitForTimeout' not in spec and 'setTimeout' not in spec

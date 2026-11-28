@@ -34,7 +34,8 @@ describe('the Pause button', () => {
   it('is a dark neutral bar with no level colour and no close button, and the button is at least 44 px high', () => {
     replay(); render(<ReplayBar />);
     const bar = screen.getByTestId('replay-bar'); expect(bar.className).toContain('bg-slate-800'); expect(bar.className).not.toMatch(/level-/);
-    expect(bar.querySelectorAll('button')).toHaveLength(1); expect(screen.getByRole('button', { name: 'Pause replay' }).className).toContain('min-h-11');
+    expect(bar.querySelectorAll('button')).toHaveLength(4); expect(bar.textContent).not.toMatch(/close|dismiss/i);   // Pause and the three speeds (S7-7b), nothing to dismiss
+    expect(screen.getByRole('button', { name: 'Pause replay' }).className).toContain('min-h-11');
   });
   it('running: says "Replay running, ×16"; a press posts paused:true and the bar then says "Replay paused, ×16" with the button turned to Resume', async () => {
     replay(); const f = answer(200, { paused: true, finished: false }); render(<ReplayBar api={api(f)} />);

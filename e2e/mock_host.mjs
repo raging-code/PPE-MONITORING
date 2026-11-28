@@ -12,6 +12,8 @@
 //   replay : S7-5b (ADR 0062). {"replay":true} makes this a REPLAY host (session mode REPLAY, replay block {speed 16, paused false, finished false} in the snapshot and in every system message; false goes back to the simulator);
 //            {"replay_finished":true} marks the data as ended. POST /api/replay/pause {paused} sets the state like the host (200 {paused, finished}; 409 STATE_CONFLICT when not REPLAY or finished; 401 without a token),
 //            counts changes in replayPauses, and sends a system message to every signed-in data socket when the state changed.
+//            S7-7b (ADR 0065): POST /api/replay/speed {speed: 1|4|16} sets the speed like the host (200 {speed, paused, finished}; 401; 409 STATE_CONFLICT when not REPLAY or finished; 422 for anything but the whole numbers 1, 4, 16),
+//            counts changes in replaySpeeds, and sends a system message when the speed changed, none for a repeat. A speed can be set while paused.
 // `node e2e/mock_host.mjs --print-messages` prints the two server messages it sends as JSON, for the pytest check against the Pydantic models.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -57,7 +59,8 @@ if (!fs.existsSync(path.join(DIST, 'index.html'))) {
   process.exit(1);
 }
 
-const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false, pinLogins: 0, logouts: 0, wrongPins: 0, lockedUntil: 0, sessionLive: false, lastRemember: null, replay: null, replayPauses: 0 };
+const state = { mode: 'live', lastTickAt: 0, startCount: 0, logins: 0, abi_mismatch: false, pinLogins: 0, logouts: 0, wrongPins: 0, lockedUntil: 0, sessionLive: false, lastRemember: null, replay: null, replayPauses: 0, replaySpeeds: 0 };
+export const REPLAY_SPEEDS = [1, 4, 16];   // = SPEEDS in host/ppe_host/services/replay.py (test_e2e_config.py compares them)
 const replayBlock = () => (state.replay ? { ...state.replay } : null);
 const sendSystem = () => { if (state.mode === 'live') for (const c of clients) if (c.authed && c.kind === 'data' && c.ws.readyState === 1) c.ws.send(JSON.stringify(systemMessage(++c.seq, Date.now(), state.abi_mismatch, replayBlock()))); };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -86,7 +89,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/__state') return json(res, 200, state);
   if (url.pathname === '/__ctl' && req.method === 'POST') {
     const b = await readBody(req);
-    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; state.pinLogins = 0; state.logouts = 0; state.wrongPins = 0; state.lockedUntil = 0; state.sessionLive = false; state.lastRemember = null; state.replay = null; state.replayPauses = 0; }
+    if (b.reset) { state.startCount = 0; state.logins = 0; state.lastTickAt = 0; state.abi_mismatch = false; state.pinLogins = 0; state.logouts = 0; state.wrongPins = 0; state.lockedUntil = 0; state.sessionLive = false; state.lastRemember = null; state.replay = null; state.replayPauses = 0; state.replaySpeeds = 0; }
     if (typeof b.replay === 'boolean' && (b.replay !== (state.replay !== null))) { state.replay = b.replay ? { speed: 16, paused: false, finished: false } : null; sendSystem(); }   // a live switch; the tests set it before signing in
     if (b.replay_finished === true && state.replay && !state.replay.finished) { state.replay.finished = true; sendSystem(); }
     if (b.expire) { state.sessionLive = false; for (const c of clients) if (c.token === SESSION_TOKEN) c.ws.close(4401); }
@@ -123,6 +126,14 @@ const server = http.createServer(async (req, res) => {
     if (!state.replay || state.replay.finished) return json(res, 409, { error_code: 'STATE_CONFLICT', detail: state.replay ? 'the replay has finished' : 'not a REPLAY host', retry_after_s: null });
     if (state.replay.paused !== b.paused) { state.replay.paused = b.paused; state.replayPauses += 1; sendSystem(); }      // one system message per change, none for a repeat, like the host
     return json(res, 200, { paused: state.replay.paused, finished: state.replay.finished });
+  }
+  if (url.pathname === '/api/replay/speed' && req.method === 'POST') {
+    if (!bearerOk(req)) return json(res, 401, { error_code: 'UNAUTHENTICATED', detail: 'no token', retry_after_s: null });
+    const b = await readBody(req);
+    if (typeof b.speed !== 'number' || !REPLAY_SPEEDS.includes(b.speed)) return json(res, 422, { error_code: 'VALIDATION', detail: 'speed must be the whole number 1, 4 or 16', retry_after_s: null });
+    if (!state.replay || state.replay.finished) return json(res, 409, { error_code: 'STATE_CONFLICT', detail: state.replay ? 'the replay has finished' : 'not a REPLAY host', retry_after_s: null });
+    if (state.replay.speed !== b.speed) { state.replay.speed = b.speed; state.replaySpeeds += 1; sendSystem(); }      // one system message per change, none for a repeat, also while paused
+    return json(res, 200, { speed: state.replay.speed, paused: state.replay.paused, finished: state.replay.finished });
   }
   if (url.pathname === '/api/events') return json(res, 200, { events: [], last_seq: 0 });
   if (url.pathname.startsWith('/api/')) return json(res, 404, { error_code: 'NOT_FOUND', detail: 'not part of the e2e mock', retry_after_s: null });

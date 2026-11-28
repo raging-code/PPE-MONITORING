@@ -64,3 +64,7 @@ export const postBannerAck = (api: Api, kind: string) => post<{ kind: string; ac
 // POST /api/replay/pause (ADR 0061, S7-5b): sets the state of a REPLAY host, it does not toggle, so a double click or a retry is harmless. 409 RECOVERING: the replay has not started; 409 STATE_CONFLICT: not a REPLAY host, or the replay has finished.
 export interface ReplayBody { paused: boolean; finished: boolean }
 export const postReplayPause = (api: Api, paused: boolean) => post<ReplayBody>(api, '/api/replay/pause', { paused });
+
+// POST /api/replay/speed (ADR 0064, S7-7b): sets the speed (1, 4 or 16), it does not step, so a retry or a second tab changes nothing more; allowed while paused. Same 409 and 401 answers as pause; 422 for another value.
+export interface ReplaySpeedBody { speed: number; paused: boolean; finished: boolean }
+export const postReplaySpeed = (api: Api, speed: number) => post<ReplaySpeedBody>(api, '/api/replay/speed', { speed });
